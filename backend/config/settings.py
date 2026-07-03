@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+from datetime import timedelta
 from pathlib import Path
 from decouple import config, Csv
 from django.core.exceptions import ImproperlyConfigured
@@ -71,10 +72,13 @@ INSTALLED_APPS = [
     
     # Third party packages
     'rest_framework',
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
-    
+
     # Local apps
     'apps.core',
+    'apps.accounts',
     'apps.ingestion',
     'apps.audit',
 ]
@@ -226,26 +230,35 @@ if not DEBUG:
 # See docs/ARCHITECTURE_INTEGRATION.md for the full integration map.
 # ---------------------------------------------------------------------------
 REST_FRAMEWORK = {
-    # Phase 2 (JWT + RBAC): add
-    #   'rest_framework_simplejwt.authentication.JWTAuthentication'
-    # to this list — no per-view changes needed.
+    # JWT is the primary API authentication. SessionAuthentication is kept so the
+    # DRF browsable API and Django admin remain usable during development.
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
-        'rest_framework.authentication.BasicAuthentication',
     ],
-    # Currently open access (matches DRF's default). Phase 2 flips this to
-    # 'rest_framework.permissions.IsAuthenticated' as the global default.
+    # Secure default: every endpoint requires authentication unless it explicitly
+    # opts out (the auth/login and health endpoints do).
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',
+        'rest_framework.permissions.IsAuthenticated',
     ],
     # Phase 4 (Metrics API / scale): enable pagination centrally. Left OFF for
     # now because the current frontend consumes bare arrays (`response.length`);
     # turning this on requires the frontend to read `results`. Ship together.
     # 'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     # 'PAGE_SIZE': 50,
-    # Phase 2/4: request throttling seam.
-    # 'DEFAULT_THROTTLE_CLASSES': [...],
-    # 'DEFAULT_THROTTLE_RATES': {...},
+}
+
+# ---------------------------------------------------------------------------
+# SimpleJWT — access/refresh tokens with rotation + blacklist on logout.
+# ---------------------------------------------------------------------------
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=config('JWT_ACCESS_MINUTES', default=15, cast=int)),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=config('JWT_REFRESH_DAYS', default=7, cast=int)),
+    # Rotation: each refresh issues a new refresh token and blacklists the old one.
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+    'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
 

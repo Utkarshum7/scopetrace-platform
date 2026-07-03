@@ -23,8 +23,11 @@ urlpatterns = [
     # Database-aware health probe (used by Render/container orchestrators)
     path('healthz', healthz, name='healthz'),
     path('admin/', admin.site.urls),
-    # DRF browsable API authentication (login/logout buttons)
-    path('api/auth/', include('rest_framework.urls')),
+    # DRF browsable API session login/logout (moved off /api/auth to avoid
+    # clashing with the JWT auth endpoints below)
+    path('api/browsable-auth/', include('rest_framework.urls')),
+    # Authentication & identity — JWT login/refresh/logout, /api/me
+    path('api/', include('apps.accounts.urls')),
     # Ingestion API — upload, review, approve
     path('api/', include('apps.ingestion.urls')),
 ]
