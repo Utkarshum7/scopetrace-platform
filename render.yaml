@@ -13,9 +13,13 @@ services:
     runtime: python
     rootDir: backend
     buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
-    releaseCommand: python manage.py migrate
+    # Migrate the schema and idempotently seed baseline data on every release so
+    # a fresh database is usable immediately.
+    releaseCommand: python manage.py migrate && python manage.py bootstrap_data
     startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
-    healthCheckPath: /api/
+    # Database-aware health check — Render stops routing to the instance if the
+    # DB is unreachable, instead of the old always-200 /api/ router root.
+    healthCheckPath: /healthz
     envVars:
       - key: SECRET_KEY
         generateValue: true          # Render auto-generates a cryptographic secret
@@ -31,9 +35,23 @@ services:
         value: "False"
       - key: CORS_ALLOWED_ORIGINS
         value: "https://scopetrace.vercel.app"
+      - key: CSRF_TRUSTED_ORIGINS
+        value: "https://scopetrace.vercel.app"
+      # Admin seeding for bootstrap_data. The admin is only created when a
+      # password is present; set it securely in the Render dashboard (sync:false
+      # means it is NOT stored in this file / git).
+      - key: DJANGO_SUPERUSER_USERNAME
+        value: "admin"
+      - key: DJANGO_SUPERUSER_EMAIL
+        value: "admin@scopetrace.local"
+      - key: DJANGO_SUPERUSER_PASSWORD
+        sync: false
 
 # ─────────────────────────────────────────────────────────
 # PostgreSQL — Managed Database
+# NOTE: Render's free PostgreSQL is deleted ~90 days after creation. For a
+# persistent production deployment, upgrade this to a paid plan (or point
+# DATABASE_URL at an external managed Postgres).
 # ─────────────────────────────────────────────────────────
 databases:
   - name: scopetrace-db
