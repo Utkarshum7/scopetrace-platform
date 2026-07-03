@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 from decouple import config, Csv
+from django.core.exceptions import ImproperlyConfigured
 import dj_database_url
 import os
 
@@ -19,21 +20,43 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
+# ---------------------------------------------------------------------------
+# Core security configuration — FAILS CLOSED.
+#
+# Every default here is the safe production choice (DEBUG off, no wildcard
+# hosts, CORS locked, no fallback secret). A missing or unsafe environment
+# variable raises ImproperlyConfigured at boot instead of silently exposing
+# the service. Convenience fallbacks are permitted ONLY when DEBUG is True.
+# ---------------------------------------------------------------------------
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-w_^9*m6tx$26anag(@1od(%f0c%f92+#r1(@m-k&1id(=p(2d$')
+# DEBUG defaults to False so an unset env var can never enable debug in prod.
+DEBUG = config('DEBUG', default=False, cast=bool)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config('DEBUG', default=True, cast=bool)
+# SECRET_KEY: a throwaway key is allowed only in local debug. In production the
+# variable is mandatory — booting without it is a hard error, not a weak default.
+SECRET_KEY = config('SECRET_KEY', default='')
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = 'django-insecure-local-development-only-do-not-use-in-production'
+    else:
+        raise ImproperlyConfigured(
+            "SECRET_KEY environment variable is required when DEBUG=False."
+        )
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='*', cast=Csv())
+# ALLOWED_HOSTS defaults to localhost only — never '*'.
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
 
-# Dynamic ALLOWED_HOSTS addition for Render deployments
+# Render injects the external hostname at runtime — trust it automatically.
 render_host = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
 if render_host and render_host not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(render_host)
+
+# Reject wildcard hosts in production — it defeats Host-header validation.
+if not DEBUG and '*' in ALLOWED_HOSTS:
+    raise ImproperlyConfigured(
+        "ALLOWED_HOSTS must not contain '*' when DEBUG=False. "
+        "List the exact public hostname(s)."
+    )
 
 
 # Application definition
@@ -91,13 +114,26 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
+#
+# SQLite is permitted ONLY for local development (DEBUG=True). In production a
+# DATABASE_URL pointing at managed PostgreSQL is mandatory. This prevents the
+# app from silently falling back to an ephemeral SQLite file on a container's
+# disk — which is wiped on every deploy/restart and was the root cause of the
+# prior "DataSource disappears" / "ledger empty after deploy" data loss.
+
+DATABASE_URL = config('DATABASE_URL', default='')
+if not DATABASE_URL:
+    if DEBUG:
+        DATABASE_URL = f'sqlite:///{BASE_DIR / "db.sqlite3"}'
+    else:
+        raise ImproperlyConfigured(
+            "DATABASE_URL environment variable is required when DEBUG=False. "
+            "Point it at your managed PostgreSQL instance."
+        )
 
 DATABASES = {
-    'default': config(
-        'DATABASE_URL',
-        default=f'sqlite:///{BASE_DIR / "db.sqlite3"}',
-        cast=dj_database_url.parse
-    )
+    # conn_max_age keeps connections warm (persistent connections) in production.
+    'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600),
 }
 
 
@@ -149,19 +185,32 @@ STATICFILES_STORAGE = (
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# CORS Settings
-# In production set CORS_ALLOW_ALL_ORIGINS=False and list exact Vercel origin
-CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)
-if not CORS_ALLOW_ALL_ORIGINS:
-    CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='', cast=Csv())
+# CORS Settings — locked down by default; allow-all must be opted into explicitly.
+CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
+CORS_ALLOWED_ORIGINS = config(
+    'CORS_ALLOWED_ORIGINS',
+    default='http://localhost:5173,http://localhost:3000',
+    cast=Csv(),
+)
 
-# Production security hardening (active when DEBUG=False)
+# CSRF trusted origins (needed for the admin/browsable API over HTTPS).
+CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
+if render_host:
+    CSRF_TRUSTED_ORIGINS.append(f'https://{render_host}')
+
+# Production security hardening (active when DEBUG=False).
+# The TLS-terminating toggles are env-overridable so the stack can also run
+# behind plain HTTP locally (e.g. Docker Compose) without redirect loops,
+# while defaulting to fully hardened in real deployments.
 if not DEBUG:
-    SECURE_HSTS_SECONDS = 31536000          # 1 year
+    # Trust the proxy's X-Forwarded-Proto so SSL redirect + secure cookies work
+    # behind Render's (and most PaaS) TLS-terminating load balancer.
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=True, cast=bool)
+    SESSION_COOKIE_SECURE = config('SESSION_COOKIE_SECURE', default=True, cast=bool)
+    CSRF_COOKIE_SECURE = config('CSRF_COOKIE_SECURE', default=True, cast=bool)
+    SECURE_HSTS_SECONDS = config('SECURE_HSTS_SECONDS', default=31536000, cast=int)
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
-    SECURE_SSL_REDIRECT = True
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
