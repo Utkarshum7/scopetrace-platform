@@ -17,7 +17,11 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
+from apps.core.views import healthz
+
 urlpatterns = [
+    # Database-aware health probe (used by Render/container orchestrators)
+    path('healthz', healthz, name='healthz'),
     path('admin/', admin.site.urls),
     # DRF browsable API authentication (login/logout buttons)
     path('api/auth/', include('rest_framework.urls')),
