@@ -57,7 +57,7 @@ The transactional ledger storing clean, normalized greenhouse gas emissions for 
   - `status`: Choice Enum (`DRAFT`, `SUSPICIOUS`, `APPROVED`, `FAILED`)
   - `is_suspicious`: Boolean flag indicating outlier warnings
   - `validation_errors`: JSONField mapping validation error arrays
-  - `normalized_value`: High-precision Decimal mapping calculated CO₂e values
+  - `normalized_value`: High-precision Decimal holding the normalized value in the base activity unit (L / kWh / km) — the basis for downstream CO₂e calculation
   - `normalized_unit`: String base unit (`L`, `kWh`, `km`)
   - `scope_category`: Choice Enum (`SCOPE_1` for fuel, `SCOPE_2` for power, `SCOPE_3` for travel)
   - `approved_by`: ForeignKey to User model (Attribution tracking)
@@ -110,7 +110,7 @@ The validation adapter uses a strict, non-destructive **two-tier** system:
 
 ## 5. High-Precision Normalization Logic
 
-All carbon conversions are normalized to base scales using Python’s high-precision `Decimal` object:
+All unit conversions are normalized to base activity scales using Python’s high-precision `Decimal` object (CO₂e emission factors are applied in a later phase):
 
 | Feed Type | Source Unit | Normalization Target | Conversion Ratio / Logic | Scope Target |
 | :--- | :---: | :---: | :--- | :---: |

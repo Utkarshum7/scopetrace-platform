@@ -1,7 +1,7 @@
 # ScopeTrace — Enterprise Carbon Accounting & ESG Data Platform
 
 > **ScopeTrace**  
-> A production-grade, full-stack enterprise platform that ingests corporate greenhouse gas (GHG) emission data from heterogeneous sources, normalizes it to standardized CO₂ equivalents (CO₂e), and guides analysts through an immutable audit and review workflow across Scopes 1, 2, and 3.
+> A production-grade, full-stack enterprise platform that ingests corporate greenhouse gas (GHG) emission data from heterogeneous sources, normalizes it to standardized base activity units — the foundation for CO₂ equivalent (CO₂e) reporting — and guides analysts through an immutable audit and review workflow across Scopes 1, 2, and 3.
 
 ---
 
@@ -12,9 +12,9 @@ Modern enterprises collect environmental impact data across fragmented systems: 
 **ScopeTrace** acts as a centralized middleware that:
 1. **Ingests** raw data from varied formats via a unified, strategy-pattern ingestion engine.
 2. **Validates** data points in real time, detecting format errors, missing metrics, and statistical anomalies.
-3. **Normalizes** different units (e.g., liters of diesel, kWh of electricity, passenger-kilometers) into metric tonnes of CO₂ equivalent ($tCO_2e$) using conversion factors.
+3. **Normalizes** heterogeneous units (e.g., liters of diesel, kWh of electricity, passenger-kilometers) into standardized base activity units (liters, kWh, km) — the basis for downstream CO₂e calculation.
 4. **Guides Analysts** through a verification ledger to flag anomalies, review suspicious entries, and approve records.
-5. **Secures Audit Trails** by writing approved records into an append-only, cryptographically hashed ledger to guarantee tamper-proof reporting.
+5. **Secures Audit Trails** by writing approved records into an append-only, immutable ledger (enforced at the model layer) for tamper-evident reporting.
 
 ---
 
@@ -70,9 +70,9 @@ Modern enterprises collect environmental impact data across fragmented systems: 
 
 1. **Administration**: Admin sets up an `Organization` and maps a `DataSource` to it (e.g., a Travel Feed adapter).
 2. **Ingestion Strategy**: The file is processed using the appropriate strategy (`sap`, `utility`, or `travel`).
-3. **Validation & Normalization**: Data is checked for schema conformity and converted to metric tonnes of CO₂ equivalent ($tCO_2e$).
+3. **Validation & Normalization**: Data is checked for schema conformity and converted to standardized base activity units (the basis for CO₂e).
 4. **Ledger Auditing**: Suspicious rows (e.g., abnormal values) are flagged for human review. Once verified, the analyst approves the record.
-5. **Append-Only Lock**: The record is locked. An `AuditTrail` entry is written with a SHA-256 hash representing the data state at the time of approval.
+5. **Append-Only Lock**: The record is locked. An `AuditTrail` entry is written capturing the state change, the analyst, a timestamp, and the justification. (A cryptographic hash-chain over the ledger is planned for a later phase.)
 
 ---
 
@@ -267,7 +267,7 @@ Below are placeholders representing key pages of the ScopeTrace platform. Replac
 
 ### Ledger & Auditing View
 ![Review Ledger](https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&w=1200&q=80)
-*Interactive table detailing raw versus normalized $tCO_2e$, flags for suspicious values, and historical ranges.*
+*Interactive table detailing raw versus normalized activity values, flags for suspicious values, and validation status.*
 
 ---
 
