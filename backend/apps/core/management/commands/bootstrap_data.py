@@ -19,6 +19,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
+from apps.accounts.models import Membership, Role
 from apps.core.models import DataSource, Organization
 
 User = get_user_model()
@@ -29,6 +30,15 @@ DATA_SOURCES = [
     ("SAP Fuel Feed", DataSource.SourceType.SAP_FUEL),
     ("Utility Electricity Feed", DataSource.SourceType.UTILITY_ELECTRICITY),
     ("Corporate Travel Feed", DataSource.SourceType.CORP_TRAVEL),
+]
+
+# Demo users, one per organization-scoped role (created only when explicitly
+# requested via --demo-users or BOOTSTRAP_DEMO_USERS=true).
+DEMO_USERS = [
+    ("orgadmin", Role.ORG_ADMIN),
+    ("analyst", Role.ANALYST),
+    ("auditor", Role.AUDITOR),
+    ("viewer", Role.VIEWER),
 ]
 
 DEV_DEFAULT_PASSWORD = "admin12345"
@@ -45,6 +55,11 @@ class Command(BaseCommand):
             "--skip-admin",
             action="store_true",
             help="Seed the Organization and DataSources but do not create the admin user.",
+        )
+        parser.add_argument(
+            "--demo-users",
+            action="store_true",
+            help="Also create one demo user per role with a membership in the demo org.",
         )
 
     @transaction.atomic
@@ -68,6 +83,10 @@ class Command(BaseCommand):
 
         if not options["skip_admin"]:
             self._ensure_admin()
+
+        demo_flag = os.environ.get("BOOTSTRAP_DEMO_USERS", "false").lower() == "true"
+        if options["demo_users"] or demo_flag:
+            self._ensure_demo_users(org)
 
         self.stdout.write(self.style.SUCCESS("bootstrap_data complete."))
 
@@ -99,4 +118,24 @@ class Command(BaseCommand):
                 return
 
         User.objects.create_superuser(username=username, email=email, password=password)
-        self.stdout.write(self.style.SUCCESS(f"Created admin user: {username}"))
+        self.stdout.write(self.style.SUCCESS(f"Created admin user: {username} (Platform Admin)"))
+
+    def _ensure_demo_users(self, org):
+        password = os.environ.get("DEMO_USER_PASSWORD", "demo12345")
+        for username, role in DEMO_USERS:
+            user, created = User.objects.get_or_create(
+                username=username,
+                defaults={"email": f"{username}@scopetrace.local"},
+            )
+            if created:
+                user.set_password(password)
+                user.save(update_fields=["password"])
+            _, m_created = Membership.objects.get_or_create(
+                user=user,
+                organization=org,
+                defaults={"role": role, "active": True},
+            )
+            self.stdout.write(
+                f"{'Created' if created else 'Exists '} demo user: {username} "
+                f"({role}){' + membership' if m_created else ''}"
+            )

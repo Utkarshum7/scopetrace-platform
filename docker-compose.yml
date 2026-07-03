@@ -45,6 +45,9 @@ services:
       CSRF_COOKIE_SECURE: "False"
       # Seed on startup so the stack is immediately usable.
       BOOTSTRAP_DATA: "true"
+      # Also seed one demo user per role (orgadmin/analyst/auditor/viewer).
+      BOOTSTRAP_DEMO_USERS: "true"
+      DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:-demo12345}
       DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME:-admin}
       DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-admin12345}
       DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL:-admin@scopetrace.local}
