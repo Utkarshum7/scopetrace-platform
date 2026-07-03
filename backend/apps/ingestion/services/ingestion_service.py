@@ -22,7 +22,8 @@ class IngestionResult:
     total_rows: int
     failed_rows: int
     suspicious_rows: int
-    errors: list[str]
+    # Structured, row-addressable parse errors: [{"row_index": int, "error": str}]
+    errors: list[dict]
 
 
 class IngestionService:
@@ -45,8 +46,17 @@ class IngestionService:
         DataSource.SourceType.CORP_TRAVEL: TravelParser,
     }
 
-    def ingest(self, data_source: DataSource, file_path: str, uploaded_by=None) -> IngestionResult:
-        file_name = os.path.basename(file_path)
+    def ingest(
+        self,
+        data_source: DataSource,
+        file_path: str,
+        uploaded_by=None,
+        original_filename: str | None = None,
+    ) -> IngestionResult:
+        # Prefer the original uploaded filename for lineage/audit. Fall back to
+        # the temp file's basename only when the caller does not supply one
+        # (e.g. direct service-level usage in tests).
+        file_name = original_filename or os.path.basename(file_path)
 
         # 1. Create batch in PROCESSING status outside transaction
         # to ensure that if ingestion fails completely, the metadata log remains.
@@ -148,7 +158,12 @@ class IngestionService:
                 batch.status = UploadBatch.BatchStatus.COMPLETED
                 batch.save()
 
-                errors_summary = [err["error"] for err in parse_errors]
+                # Return structured, row-addressable errors so the client can
+                # render "Row #N: <message>" instead of opaque strings.
+                errors_summary = [
+                    {"row_index": err["row_index"], "error": err["error"]}
+                    for err in parse_errors
+                ]
 
                 return IngestionResult(
                     batch=batch,

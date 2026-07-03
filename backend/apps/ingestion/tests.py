@@ -513,7 +513,10 @@ class APILayerTestCase(TestCase):
         self.assertEqual(data['status'], UploadBatch.BatchStatus.COMPLETED)
         self.assertEqual(data['total_rows'], 2)
         self.assertEqual(data['failed_rows'], 0)
+        # A1: the original uploaded filename is preserved (not the temp name).
+        self.assertEqual(data['file_name'], 'sap_test.csv')
         batch = UploadBatch.objects.get(id=data['batch_id'])
+        self.assertEqual(batch.file_name, 'sap_test.csv')
         self.assertEqual(EmissionRecord.objects.filter(batch=batch).count(), 2)
 
     def test_sap_upload_type_mismatch_returns_400(self):
@@ -564,6 +567,41 @@ class APILayerTestCase(TestCase):
         )
         self.assertEqual(response.status_code, drf_status.HTTP_201_CREATED)
         self.assertEqual(response.json()['total_rows'], 1)
+
+    def test_upload_parse_errors_are_structured(self):
+        # A2: parser errors must be returned as row-addressable objects
+        # ({"row_index", "error"}), not opaque strings.
+        from io import BytesIO
+        from django.core.files.uploadedfile import InMemoryUploadedFile
+        today = date.today().isoformat()
+        travel_data = [
+            {
+                'trip_id': 'T001', 'travel_mode': 'RAIL',
+                'origin': 'LON', 'destination': 'PAR',
+                'distance_km': 490.0, 'travel_date': today,
+                'employee_id': 'EMP001',
+            },
+            "this-is-not-an-object",  # -> per-record parse error at row_index 2
+        ]
+        payload = json.dumps(travel_data).encode('utf-8')
+        file_obj = InMemoryUploadedFile(
+            file=BytesIO(payload), field_name='file',
+            name='travel_bad.json', content_type='application/json',
+            size=len(payload), charset='utf-8',
+        )
+        response = self.client.post(
+            '/api/upload/travel/',
+            data={'file': file_obj, 'data_source': str(self.travel_ds.id)},
+            format='multipart',
+        )
+        self.assertEqual(response.status_code, drf_status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertTrue(len(data['errors']) >= 1)
+        first = data['errors'][0]
+        self.assertIsInstance(first, dict)
+        self.assertIn('row_index', first)
+        self.assertIn('error', first)
+        self.assertEqual(first['row_index'], 2)
 
     # Batch list / detail tests
 

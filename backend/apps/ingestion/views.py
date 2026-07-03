@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 from rest_framework import status, viewsets
@@ -21,6 +22,8 @@ from apps.ingestion.serializers import (
     DataSourceSerializer,
 )
 from apps.ingestion.services.ingestion_service import IngestionService
+
+logger = logging.getLogger(__name__)
 
 
 class BaseUploadView(APIView):
@@ -60,9 +63,15 @@ class BaseUploadView(APIView):
             # Determine uploaded_by user if authenticated
             uploaded_by = request.user if request.user.is_authenticated else None
 
-            # Execute IngestionService orchestrator
+            # Execute IngestionService orchestrator. The original filename is
+            # passed for accurate lineage (temp_file_path is a random temp name).
             service = IngestionService()
-            result = service.ingest(data_source, temp_file_path, uploaded_by=uploaded_by)
+            result = service.ingest(
+                data_source,
+                temp_file_path,
+                uploaded_by=uploaded_by,
+                original_filename=uploaded_file.name,
+            )
 
             return Response(
                 {
@@ -77,7 +86,17 @@ class BaseUploadView(APIView):
                 status=status.HTTP_201_CREATED,
             )
         except Exception as exc:
-            return Response({"error": "Ingestion failed", "detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            # Log the full traceback (previously failures were silent) and return
+            # a stable error envelope. Upload failures are treated as bad input.
+            logger.exception(
+                "Ingestion failed for file '%s' (data_source=%s)",
+                uploaded_file.name,
+                data_source.id,
+            )
+            return Response(
+                {"error": "Ingestion failed", "detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         finally:
             # Ensure file cleanup
             if os.path.exists(temp_file_path):
