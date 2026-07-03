@@ -117,7 +117,7 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                   <th className="pb-3 pr-2">Row</th>
                   <th className="pb-3 px-2">Scope</th>
                   <th className="pb-3 px-2">Source Unit</th>
-                  <th className="pb-3 px-2 text-right">Calculated CO₂e</th>
+                  <th className="pb-3 px-2 text-right">Normalized Value</th>
                   <th className="pb-3 px-2">Status</th>
                   <th className="pb-3 pl-2 text-right">Actions</th>
                 </tr>
@@ -156,6 +156,9 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         }) : '-'}
+                        {r.normalized_value && r.normalized_unit ? (
+                          <span className="ml-1 font-normal text-slate-500">{r.normalized_unit}</span>
+                        ) : null}
                       </td>
                       <td className="py-3.5 px-2">
                         <StatusBadge status={r.status} />
@@ -231,7 +234,10 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                 </span>
                 <ul className="list-disc list-inside space-y-0.5 opacity-90 pl-1 font-mono text-[10px]">
                   {Object.entries(selectedRecord.validation_errors || {}).map(([key, val]) => (
-                    <li key={key}>{val}</li>
+                    <li key={key}>
+                      <span className="text-slate-400">{key}:</span>{' '}
+                      {Array.isArray(val) ? val.join('; ') : String(val)}
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -245,7 +251,10 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                 </span>
                 <ul className="list-disc list-inside space-y-0.5 opacity-90 pl-1 font-mono text-[10px]">
                   {Object.entries(selectedRecord.validation_errors || {}).map(([key, val]) => (
-                    <li key={key}>{val}</li>
+                    <li key={key}>
+                      <span className="text-slate-400">{key}:</span>{' '}
+                      {Array.isArray(val) ? val.join('; ') : String(val)}
+                    </li>
                   ))}
                 </ul>
               </div>
