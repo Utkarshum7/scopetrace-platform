@@ -13,18 +13,19 @@ export const DashboardPage = ({ setView }) => {
     setIsLoading(true);
     setError(null);
     try {
-      const fetchedBatches = await apiService.getBatches();
+      // Fetch the batch list and the suspicious/approved counts in parallel
+      // (previously three sequential round-trips).
+      const [fetchedBatches, suspRecords, appRecords] = await Promise.all([
+        apiService.getBatches(),
+        apiService.getRecords({ status: 'SUSPICIOUS' }),
+        apiService.getRecords({ status: 'APPROVED' }),
+      ]);
       setBatches(fetchedBatches);
-
-      // Query database counts for suspicious and approved records
-      const suspRecords = await apiService.getRecords({ status: 'SUSPICIOUS' });
       setSuspiciousCount(suspRecords.length);
-
-      const appRecords = await apiService.getRecords({ status: 'APPROVED' });
       setApprovedCount(appRecords.length);
     } catch (err) {
       console.error(err);
-      setError('Failed to load dashboard metrics.');
+      setError('Failed to load dashboard metrics. Please retry.');
     } finally {
       setIsLoading(false);
     }
@@ -65,7 +66,7 @@ export const DashboardPage = ({ setView }) => {
             ESG Command Dashboard
           </h1>
           <p className="text-xs text-slate-400">
-            Real-time monitoring of sustainability ingestion pipelines and ledger compliance status
+            At-a-glance monitoring of ESG ingestion pipelines and review-ledger status
           </p>
         </div>
         <button
@@ -236,7 +237,7 @@ export const DashboardPage = ({ setView }) => {
             Ingestion Shortcuts
           </h2>
           <p className="text-xs text-slate-400 leading-relaxed">
-            Drag-and-drop parser triggers to instantly extract raw corporate data into locked carbon emission records:
+            Launch a source adapter to extract, validate, and normalize raw corporate data into reviewable emission records:
           </p>
 
           <div className="flex flex-col gap-2.5 mt-2">
