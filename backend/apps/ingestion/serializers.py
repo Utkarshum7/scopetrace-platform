@@ -94,6 +94,11 @@ class ApprovalSerializer(serializers.Serializer):
     )
 
 
+# Maximum accepted upload size. ESG source exports (SAP/utility/travel) are
+# small structured files; anything larger is almost certainly a mistake.
+MAX_UPLOAD_SIZE_MB = 10
+
+
 class UploadInputSerializer(serializers.Serializer):
     file = serializers.FileField(required=True, help_text="The source data file to upload")
     data_source = serializers.PrimaryKeyRelatedField(
@@ -101,3 +106,13 @@ class UploadInputSerializer(serializers.Serializer):
         required=True,
         help_text="The DataSource object associated with this upload",
     )
+
+    def validate_file(self, value):
+        if value.size == 0:
+            raise serializers.ValidationError("The uploaded file is empty.")
+        max_bytes = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+        if value.size > max_bytes:
+            raise serializers.ValidationError(
+                f"File exceeds the maximum allowed size of {MAX_UPLOAD_SIZE_MB} MB."
+            )
+        return value

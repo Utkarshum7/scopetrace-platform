@@ -544,6 +544,23 @@ class APILayerTestCase(TestCase):
         self.assertEqual(response.status_code, drf_status.HTTP_400_BAD_REQUEST)
         self.assertIn('file', response.json())
 
+    def test_sap_upload_empty_file_returns_400(self):
+        # D5: an empty file is rejected with a clear validation message.
+        from io import BytesIO
+        from django.core.files.uploadedfile import InMemoryUploadedFile
+        file_obj = InMemoryUploadedFile(
+            file=BytesIO(b''), field_name='file',
+            name='empty.csv', content_type='text/csv',
+            size=0, charset='utf-8',
+        )
+        response = self.client.post(
+            '/api/upload/sap/',
+            data={'file': file_obj, 'data_source': str(self.sap_ds.id)},
+            format='multipart',
+        )
+        self.assertEqual(response.status_code, drf_status.HTTP_400_BAD_REQUEST)
+        self.assertIn('empty', str(response.json()).lower())
+
     def test_travel_upload_success(self):
         from io import BytesIO
         from django.core.files.uploadedfile import InMemoryUploadedFile
