@@ -83,9 +83,8 @@ IATA_COORDINATES: dict[str, tuple[float, float]] = {
 
 EARTH_RADIUS_KM = 6371.0
 
-VALID_TRAVEL_MODES: set[str] = {
-    "FLIGHT", "RAIL", "CAR_RENTAL", "TAXI", "HOTEL", "FERRY", "BUS",
-}
+# NOTE: valid travel modes are enforced in the validator (RowValidator), which
+# is the single source of truth. The parser deliberately does not re-validate.
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
