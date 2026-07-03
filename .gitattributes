@@ -1,0 +1,5 @@
+# Normalise line endings. Shell scripts MUST stay LF so they run in Linux
+# containers regardless of the checkout platform.
+* text=auto
+*.sh text eol=lf
+entrypoint.sh text eol=lf
