@@ -40,10 +40,11 @@ Modern enterprises collect environmental impact data across fragmented systems: 
 | :--- | :--- |
 | **Frontend** | React 18, Vite 5, Tailwind CSS 3, Axios |
 | **Backend** | Django 6.0, Django REST Framework 3.17, Python Decouple |
-| **Database** | SQLite (Local Development) / PostgreSQL (Production) |
+| **Database** | PostgreSQL 16 (required in production) · SQLite (local dev only) |
+| **Containerization** | Docker · Docker Compose (PostgreSQL + API + frontend) |
 | **Asset Serving** | WhiteNoise 6.9 |
 | **Production Server** | Gunicorn 23.0 |
-| **Deployment Target** | **Frontend**: Vercel · **Backend & Database**: Render |
+| **Deployment Target** | **Frontend**: Vercel · **Backend & Database**: Render (portable via Docker) |
 
 ---
 
@@ -121,7 +122,36 @@ VITE_API_URL=https://scopetrace-api.onrender.com
 
 ---
 
-## 🚀 Local Setup Instructions
+## 🐳 Quick Start with Docker Compose (Recommended)
+
+The entire stack — PostgreSQL, the Django API, and the built frontend — runs in containers with a single command. Postgres data persists in a named volume across restarts and rebuilds (no ephemeral data loss).
+
+```bash
+# From the repository root
+docker compose up --build
+```
+
+| Service | URL |
+| :--- | :--- |
+| Frontend | http://localhost:8080 |
+| API (browsable) | http://localhost:8000/api/ |
+| Health check | http://localhost:8000/healthz |
+| Django Admin | http://localhost:8000/admin/ (`admin` / `admin12345` by default) |
+
+On first start the API container automatically runs migrations, collects static files, and seeds baseline data (one demo Organization, three DataSources, and the admin user) via the `bootstrap_data` command — so the app is usable immediately. Override defaults (DB name/credentials, admin password, `SECRET_KEY`) with a root `.env` file or shell environment; see `docker-compose.yml` for the variables.
+
+To stop and remove the containers (data volume retained):
+
+```bash
+docker compose down          # keeps the pgdata volume
+docker compose down -v       # also deletes the database volume
+```
+
+---
+
+## 🚀 Local Setup Instructions (without Docker)
+
+> **Configuration fails closed.** With `DEBUG=False` the backend refuses to start unless `SECRET_KEY` and `DATABASE_URL` are set, and it rejects a wildcard `ALLOWED_HOSTS`. For local development set `DEBUG=True` (SQLite is then used automatically when `DATABASE_URL` is blank). See `backend/.env.example`.
 
 ### Prerequisites
 * Python 3.12+ (WSL recommended on Windows)
@@ -184,7 +214,11 @@ python manage.py test --verbosity=2
 To test the ingestion and analyst flow locally or in production:
 
 1. **Access Django Admin**: Go to `http://localhost:8000/admin/` and log in.
-2. **Seed Core Metadata**:
+2. **Seed Core Metadata** — run the bootstrap command (idempotent; also runs automatically under Docker and on Render release):
+   ```bash
+   python manage.py bootstrap_data
+   ```
+   This creates a demo **Organization**, the three **Data Sources** (`SAP_FUEL`, `UTILITY_ELECTRICITY`, `CORP_TRAVEL`), and an admin user. To create these manually instead, use Django Admin:
    * Create an **Organization** (e.g., *Acme Corporation*).
    * Create three **Data Sources** matching your organization:
      * Name: `SAP Fuel Feed` · Type: `SAP_FUEL`
@@ -207,6 +241,7 @@ To test the ingestion and analyst flow locally or in production:
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
+| `GET` | `/healthz` | Database-aware health probe (200 healthy / 503 if DB unreachable) |
 | `GET` | `/api/organizations/` | List all tenant organizations |
 | `GET` | `/api/datasources/` | List all configured data sources |
 | `POST` | `/api/upload/sap/` | Upload and parse SAP Fuel CSV |
