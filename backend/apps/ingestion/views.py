@@ -5,6 +5,7 @@ from rest_framework import status, viewsets
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.exceptions import APIException
 from django.db import transaction
 from django.utils import timezone
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -22,6 +23,9 @@ from apps.ingestion.serializers import (
     DataSourceSerializer,
 )
 from apps.ingestion.services.ingestion_service import IngestionService
+from apps.accounts.mixins import TenantScopedViewSetMixin
+from apps.accounts.permissions import CanApprove, CanUpload, IsOrgMember
+from apps.accounts.tenancy import resolve_tenant_context
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +37,7 @@ class BaseUploadView(APIView):
     """
 
     parser_classes = [MultiPartParser, FormParser]
+    permission_classes = [CanUpload]
     source_type = None  # Must be set by subclass
 
     def post(self, request, *args, **kwargs):
@@ -41,6 +46,15 @@ class BaseUploadView(APIView):
 
         data_source = serializer.validated_data["data_source"]
         uploaded_file = serializer.validated_data["file"]
+
+        # Tenant isolation: the DataSource must belong to the caller's active
+        # organization (platform admins may act across orgs).
+        ctx = resolve_tenant_context(request)
+        if not ctx.is_platform_admin and str(data_source.organization_id) != str(ctx.organization_id):
+            return Response(
+                {"detail": "The selected DataSource does not belong to your organization."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         # Verify datasource matches route type
         if data_source.source_type != self.source_type:
@@ -115,30 +129,37 @@ class TravelUploadView(BaseUploadView):
     source_type = DataSource.SourceType.CORP_TRAVEL
 
 
-class UploadBatchViewSet(viewsets.ReadOnlyModelViewSet):
+class UploadBatchViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """
-    Exposes batches list and details for analyst review.
+    Exposes batches list and details for analyst review (scoped to the active org).
     """
 
     queryset = UploadBatch.objects.all().select_related("data_source", "uploaded_by")
     serializer_class = UploadBatchSerializer
+    permission_classes = [IsOrgMember]
 
 
-class EmissionRecordViewSet(viewsets.ReadOnlyModelViewSet):
+class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """
     Exposes emission records list with advanced filters and approval action.
+    All results are scoped to the caller's active organization.
     """
 
     queryset = EmissionRecord.objects.all().select_related("organization", "batch", "approved_by")
     serializer_class = EmissionRecordSerializer
+    permission_classes = [IsOrgMember]
+
+    def get_permissions(self):
+        # Approving a record requires an approver role; reads require membership.
+        if self.action == "approve":
+            return [CanApprove()]
+        return [IsOrgMember()]
 
     def get_queryset(self):
+        # Base queryset is already tenant-scoped by TenantScopedViewSetMixin.
+        # The previously-trusted `organization` query param has been REMOVED —
+        # cross-tenant scoping is enforced server-side, not by the client.
         queryset = super().get_queryset()
-
-        # Filters
-        org_id = self.request.query_params.get("organization")
-        if org_id:
-            queryset = queryset.filter(organization_id=org_id)
 
         ds_id = self.request.query_params.get("data_source")
         if ds_id:
@@ -188,6 +209,11 @@ class EmissionRecordViewSet(viewsets.ReadOnlyModelViewSet):
                         status=status.HTTP_404_NOT_FOUND,
                     )
 
+                # Object-level tenant + role enforcement. get_object() is bypassed
+                # here (manual select_for_update), so run the checks explicitly:
+                # a caller may only approve records in their own organization.
+                self.check_object_permissions(request, record)
+
                 # State validations (now guarded by the row lock)
                 if record.status == EmissionRecord.RecordStatus.APPROVED:
                     return Response(
@@ -220,6 +246,11 @@ class EmissionRecordViewSet(viewsets.ReadOnlyModelViewSet):
 
             return Response(EmissionRecordSerializer(record).data, status=status.HTTP_200_OK)
 
+        except APIException:
+            # Let DRF exceptions (e.g. PermissionDenied from the object-level
+            # check) propagate with their correct status code instead of being
+            # flattened into a 400 below.
+            raise
         except DjangoValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as exc:
@@ -231,15 +262,29 @@ class EmissionRecordViewSet(viewsets.ReadOnlyModelViewSet):
 
 class OrganizationViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    Exposes list of organizations for filters.
+    Exposes the organizations the caller belongs to (platform admins see all).
     """
     queryset = Organization.objects.all()
     serializer_class = OrganizationSerializer
+    permission_classes = [IsOrgMember]
+
+    def get_queryset(self):
+        ctx = resolve_tenant_context(self.request)
+        if ctx.is_platform_admin:
+            if ctx.organization is not None:
+                return Organization.objects.filter(id=ctx.organization_id)
+            return Organization.objects.all()
+        # Regular users: only organizations where they hold an active membership.
+        return Organization.objects.filter(
+            memberships__user=self.request.user,
+            memberships__active=True,
+        ).distinct()
 
 
-class DataSourceViewSet(viewsets.ReadOnlyModelViewSet):
+class DataSourceViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """
-    Exposes list of data sources for upload and filters.
+    Exposes data sources for upload and filters (scoped to the active org).
     """
     queryset = DataSource.objects.all().select_related("organization")
     serializer_class = DataSourceSerializer
+    permission_classes = [IsOrgMember]

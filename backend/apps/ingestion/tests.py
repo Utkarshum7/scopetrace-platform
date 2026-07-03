@@ -468,6 +468,12 @@ class APILayerTestCase(TestCase):
         self.client = APIClient()
         self.org = Organization.objects.create(name='API Test Org')
         self.user = User.objects.create_user(username='api_analyst', password='password')
+        # Grant the test user an active Analyst membership so tenant resolution
+        # and upload/approve permissions succeed.
+        from apps.accounts.models import Membership, Role
+        Membership.objects.create(
+            user=self.user, organization=self.org, role=Role.ANALYST, active=True
+        )
         self.client.force_authenticate(user=self.user)
 
         self.sap_ds = DataSource.objects.create(
