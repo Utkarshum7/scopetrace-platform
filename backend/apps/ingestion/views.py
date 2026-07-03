@@ -170,36 +170,41 @@ class EmissionRecordViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=["POST"], serializer_class=ApprovalSerializer)
     def approve(self, request, pk=None):
-        record = self.get_object()
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         reason = serializer.validated_data.get("reason", "")
-
-        # State validations
-        if record.status == EmissionRecord.RecordStatus.APPROVED:
-            return Response(
-                {"detail": "This record is already Approved & Audit Locked."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if record.status == EmissionRecord.RecordStatus.FAILED:
-            return Response(
-                {"detail": "Cannot approve a record that has Failed validation."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        approved_by = request.user if request.user.is_authenticated else None
 
         try:
             with transaction.atomic():
-                old_status = record.status
-                approved_by = request.user if request.user.is_authenticated else None
-                approved_at = timezone.now()
+                # Lock the row for the whole check-then-update. Without this,
+                # two concurrent approvals could both pass the state checks and
+                # each write an AuditTrail entry (double approval).
+                try:
+                    record = EmissionRecord.objects.select_for_update().get(pk=pk)
+                except EmissionRecord.DoesNotExist:
+                    return Response(
+                        {"detail": "Record not found."},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
 
-                # Perform the state update
+                # State validations (now guarded by the row lock)
+                if record.status == EmissionRecord.RecordStatus.APPROVED:
+                    return Response(
+                        {"detail": "This record is already Approved & Audit Locked."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                if record.status == EmissionRecord.RecordStatus.FAILED:
+                    return Response(
+                        {"detail": "Cannot approve a record that has Failed validation."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                old_status = record.status
                 record.status = EmissionRecord.RecordStatus.APPROVED
                 record.approved_by = approved_by
-                record.approved_at = approved_at
-
-                # Save record (triggers full_clean checks for locked database audits)
+                record.approved_at = timezone.now()
+                # save() triggers full_clean() which enforces the audit lock.
                 record.save()
 
                 # Create append-only AuditTrail entry
@@ -218,6 +223,7 @@ class EmissionRecordViewSet(viewsets.ReadOnlyModelViewSet):
         except DjangoValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as exc:
+            logger.exception("Approval failed for record %s", pk)
             return Response(
                 {"detail": f"Approval failed: {str(exc)}"}, status=status.HTTP_400_BAD_REQUEST
             )
