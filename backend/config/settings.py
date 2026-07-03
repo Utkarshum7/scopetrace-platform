@@ -214,3 +214,71 @@ if not DEBUG:
     SECURE_HSTS_PRELOAD = True
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
+
+
+# ---------------------------------------------------------------------------
+# Django REST Framework — centralized configuration.
+#
+# These are the framework's CURRENT effective defaults, made explicit so future
+# phases change auth/permissions/pagination in ONE place instead of touching
+# every view. Nothing here changes today's behavior.
+#
+# See docs/ARCHITECTURE_INTEGRATION.md for the full integration map.
+# ---------------------------------------------------------------------------
+REST_FRAMEWORK = {
+    # Phase 2 (JWT + RBAC): add
+    #   'rest_framework_simplejwt.authentication.JWTAuthentication'
+    # to this list — no per-view changes needed.
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.BasicAuthentication',
+    ],
+    # Currently open access (matches DRF's default). Phase 2 flips this to
+    # 'rest_framework.permissions.IsAuthenticated' as the global default.
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.AllowAny',
+    ],
+    # Phase 4 (Metrics API / scale): enable pagination centrally. Left OFF for
+    # now because the current frontend consumes bare arrays (`response.length`);
+    # turning this on requires the frontend to read `results`. Ship together.
+    # 'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    # 'PAGE_SIZE': 50,
+    # Phase 2/4: request throttling seam.
+    # 'DEFAULT_THROTTLE_CLASSES': [...],
+    # 'DEFAULT_THROTTLE_RATES': {...},
+}
+
+
+# ---------------------------------------------------------------------------
+# Future-integration seams (INERT — declared here, consumed in later phases).
+#
+# Declaring these now means later phases add only the consuming code, not new
+# configuration plumbing. Everything defaults to "off" and changes no behavior.
+# ---------------------------------------------------------------------------
+
+# Redis — Phase 4 caching (Metrics API) and Phase 5 Celery broker/result backend.
+REDIS_URL = config('REDIS_URL', default='')
+
+# Celery — Phase 5 async ingestion + scheduled emission-factor refresh.
+# Broker/backend fall back to REDIS_URL when not set explicitly. EAGER mode runs
+# tasks synchronously (used in tests/local until a worker exists).
+CELERY_BROKER_URL = config('CELERY_BROKER_URL', default=REDIS_URL)
+CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default=REDIS_URL)
+CELERY_TASK_ALWAYS_EAGER = config('CELERY_TASK_ALWAYS_EAGER', default=DEBUG, cast=bool)
+
+# Cache — use Redis when configured, otherwise Django's default local-memory
+# cache. No behavior change today (nothing reads the cache yet); the Phase 4
+# Metrics API will use the 'default' alias.
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+        }
+    }
+
+# Phased-rollout feature flags (all default off). Future code gates on these so
+# incomplete features can merge dark and be enabled per-environment.
+FEATURE_JWT_AUTH = config('FEATURE_JWT_AUTH', default=False, cast=bool)
+FEATURE_ENFORCE_TENANT_SCOPE = config('FEATURE_ENFORCE_TENANT_SCOPE', default=False, cast=bool)
+FEATURE_EMISSION_FACTORS = config('FEATURE_EMISSION_FACTORS', default=False, cast=bool)
