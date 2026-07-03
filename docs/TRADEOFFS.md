@@ -1,6 +1,6 @@
 # Architectural Tradeoffs & Omissions (`TRADEOFFS.md`)
 
-To build a robust, maintainable, and review-friendly Minimum Viable Product (MVP) within the assignment timelines, we made deliberate architectural trade-offs. This document details three major features omitted from the platform and the technical justifications behind these choices.
+To ship a robust, maintainable, and reviewable first production release, we made deliberate architectural trade-offs. This document details three major features scoped out of the initial platform and the technical justifications behind these choices.
 
 ---
 
@@ -22,7 +22,7 @@ We rely on standard Django session authentication and default User model permiss
 
 ### Why this tradeoff was made
 - **Extraneous Scope**: Setting up enterprise Single Sign-On (SSO) via SAML or OAuth2 requires external identity provider configurations (e.g., Okta, Auth0) and major security configurations.
-- **Focus on Core ESG Operations**: An internship assignment evaluates data engineering skills (parsing, normalization, transactions, and audit lock logic). Prioritizing an SSO setup would consume core development time without adding any value to the primary ESG Ingestion Engine or validation rules.
+- **Focus on Core ESG Operations**: The initial release prioritizes the data-engineering core (parsing, normalization, transactions, and audit-lock logic). Standing up enterprise SSO ahead of that core would consume delivery time without adding value to the primary ESG ingestion engine or validation rules. SSO/SAML is planned for a later hardening phase.
 
 ---
 

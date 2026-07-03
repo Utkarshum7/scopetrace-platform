@@ -1,6 +1,6 @@
 # Data Model & Database Architecture Guide (`MODEL.md`)
 
-This document outlines the schema design, multi-tenancy partitioning, data lineage, validation states, and normalization logic implemented on the Breathe ESG platform database layer.
+This document outlines the schema design, multi-tenancy partitioning, data lineage, validation states, and normalization logic implemented on the ScopeTrace platform database layer.
 
 ---
 

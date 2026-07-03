@@ -36,10 +36,10 @@ function App() {
             </div>
             <div className="flex flex-col">
               <span className="font-extrabold text-white text-base tracking-tight font-sans">
-                Breathe ESG
+                ScopeTrace
               </span>
               <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-none">
-                Data Platform
+                Carbon Accounting Platform
               </span>
             </div>
           </div>
@@ -97,7 +97,7 @@ function App() {
         <div className="flex flex-col gap-4 border-t border-slate-800/60 pt-6">
           <div className="flex flex-col gap-1">
             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-              Analyst Attribution
+              Signed in as
             </span>
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]" />
@@ -106,10 +106,10 @@ function App() {
               </span>
             </div>
           </div>
-          
+
           <div className="p-3 bg-slate-950/50 border border-slate-800 rounded-lg text-[10px] text-slate-500 leading-relaxed font-mono">
-            System Check: <span className="text-brand-400">0 Issues</span><br />
-            Database: <span className="text-slate-300">Default SQLite</span>
+            Platform Status: <span className="text-brand-400">Operational</span><br />
+            Compliance: <span className="text-slate-300">GHG Protocol · Scopes 1–3</span>
           </div>
         </div>
 

@@ -1,7 +1,7 @@
-# Breathe ESG – ESG Data Ingestion & Audit Platform
+# ScopeTrace — Enterprise Carbon Accounting & ESG Data Platform
 
-> **Breathe ESG Internship Assignment**  
-> A production-ready, full-stack enterprise platform designed to ingest corporate greenhouse gas (GHG) emission data from heterogeneous sources, normalize it to standardized CO₂ equivalents (CO2e), and guide analysts through an immutable audit and review workflow.
+> **ScopeTrace**  
+> A production-grade, full-stack enterprise platform that ingests corporate greenhouse gas (GHG) emission data from heterogeneous sources, normalizes it to standardized CO₂ equivalents (CO₂e), and guides analysts through an immutable audit and review workflow across Scopes 1, 2, and 3.
 
 ---
 
@@ -9,7 +9,7 @@
 
 Modern enterprises collect environmental impact data across fragmented systems: fuel purchases in CSVs, electricity invoices in utility tables, and business travel bookings in JSON files. 
 
-**Breathe ESG** acts as a centralized middleware that:
+**ScopeTrace** acts as a centralized middleware that:
 1. **Ingests** raw data from varied formats via a unified, strategy-pattern ingestion engine.
 2. **Validates** data points in real time, detecting format errors, missing metrics, and statistical anomalies.
 3. **Normalizes** different units (e.g., liters of diesel, kWh of electricity, passenger-kilometers) into metric tonnes of CO₂ equivalent ($tCO_2e$) using conversion factors.
@@ -79,9 +79,11 @@ Modern enterprises collect environmental impact data across fragmented systems: 
 
 | Environment / Service | Live URL |
 | :--- | :--- |
-| **Frontend (Vercel)** | [https://breathe-esg-intern.vercel.app](https://breathe-esg-intern.vercel.app) |
-| **Backend API (Render)** | [https://breathe-esg-intern.onrender.com/api/](https://breathe-esg-intern.onrender.com/api/) |
-| **Django Admin Portal** | [https://breathe-esg-intern.onrender.com/admin/](https://breathe-esg-intern.onrender.com/admin/) |
+| **Frontend (Vercel)** | [https://scopetrace.vercel.app](https://scopetrace.vercel.app) |
+| **Backend API (Render)** | [https://scopetrace-api.onrender.com/api/](https://scopetrace-api.onrender.com/api/) |
+| **Django Admin Portal** | [https://scopetrace-api.onrender.com/admin/](https://scopetrace-api.onrender.com/admin/) |
+
+> ℹ️ The hosted environments are being re-provisioned under the ScopeTrace namespace. Update these links once the new Render/Vercel services are live.
 
 ---
 
@@ -94,14 +96,14 @@ Create a `.env` file in the `backend/` directory based on `backend/.env.example`
 # Security Configuration
 SECRET_KEY=your-production-secret-key
 DEBUG=False
-ALLOWED_HOSTS=breathe-esg-intern.onrender.com,localhost,127.0.0.1
+ALLOWED_HOSTS=scopetrace-api.onrender.com,localhost,127.0.0.1
 
 # Database Configuration (Auto-injected in Render, defaults to SQLite locally)
 DATABASE_URL=postgres://user:password@hostname:5432/dbname
 
 # CORS Allowed Origins
 CORS_ALLOW_ALL_ORIGINS=False
-CORS_ALLOWED_ORIGINS=https://breathe-esg-intern.vercel.app
+CORS_ALLOWED_ORIGINS=https://scopetrace.vercel.app
 
 # Optional: Automatic Superuser Seeding
 DJANGO_SUPERUSER_USERNAME=admin
@@ -114,7 +116,7 @@ Create a `.env` file in the `frontend/` directory based on `frontend/.env.exampl
 
 ```ini
 # URL of the backend Django API
-VITE_API_URL=https://breathe-esg-intern.onrender.com
+VITE_API_URL=https://scopetrace-api.onrender.com
 ```
 
 ---
@@ -218,7 +220,7 @@ To test the ingestion and analyst flow locally or in production:
 
 ## 🖼️ Screenshots Section
 
-Below are placeholders representing key pages of the Breathe ESG platform. Add screenshots here after hosting:
+Below are placeholders representing key pages of the ScopeTrace platform. Replace these with product screenshots after deployment:
 
 ### ESG Command Dashboard
 ![ESG Command Dashboard](https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1200&q=80)

@@ -1,6 +1,6 @@
 # Architectural & Design Decisions (`DECISIONS.md`)
 
-This document records the core architectural patterns, extraction strategies, assumptions, and product questions resolved during the development of the Breathe ESG platform.
+This document records the core architectural patterns, extraction strategies, assumptions, and product questions resolved during the development of the ScopeTrace platform.
 
 ---
 

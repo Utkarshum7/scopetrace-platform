@@ -14,7 +14,7 @@ export default {
           200: '#bcefd5',
           300: '#8be2b6',
           400: '#53ce91',
-          500: '#2ebb72', // Breathe ESG primary green
+          500: '#2ebb72', // ScopeTrace primary green
           600: '#209c5b',
           700: '#1c7b4a',
           800: '#1a623d',

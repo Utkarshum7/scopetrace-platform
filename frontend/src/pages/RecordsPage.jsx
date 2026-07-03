@@ -191,7 +191,7 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                 {isLoading && (
                   <tr>
                     <td colSpan={6} className="py-12 text-center text-slate-500 font-medium">
-                      Querying ledger...
+                      Querying emissions ledger…
                     </td>
                   </tr>
                 )}

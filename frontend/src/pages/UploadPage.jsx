@@ -254,7 +254,7 @@ export const UploadPage = ({ setView }) => {
           {isLoading && (
             <div className="flex flex-col gap-2">
               <div className="flex justify-between text-xs font-semibold text-slate-400">
-                <span>Ingestion strategy running...</span>
+                <span>Processing ingestion…</span>
                 <span>{uploadProgress}%</span>
               </div>
               <div className="w-full bg-slate-800 rounded-full h-2">

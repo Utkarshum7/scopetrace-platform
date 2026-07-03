@@ -1,8 +1,44 @@
-# React + Vite
+# ScopeTrace — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The React + Vite single-page application for **ScopeTrace**, the Enterprise Carbon Accounting & ESG Data Platform. It provides the analyst-facing dashboard, the multi-source ingestion (upload) center, and the emissions review ledger with the record approval workflow.
 
-Currently, two official plugins are available:
+## Tech Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **React 18** + **Vite 5** (fast HMR, ES module build)
+- **Tailwind CSS 3** for styling
+- **Axios** for the API layer (`src/services/api.js`)
+
+## Getting Started
+
+```bash
+# Install dependencies
+npm install
+
+# Start the dev server (http://localhost:5173)
+npm run dev
+
+# Production build
+npm run build
+
+# Preview the production build locally
+npm run preview
+```
+
+## Configuration
+
+Create a `.env` file from `.env.example` and point it at the backend API:
+
+```ini
+VITE_API_URL=http://localhost:8000
+```
+
+## Project Structure
+
+```
+src/
+  pages/        Dashboard, Upload Center, Review Ledger
+  components/   StatusBadge, FilterBar, ApprovalModal
+  services/     api.js — axios client + endpoint wrappers
+```
+
+See the repository root `README.md` for the full platform architecture, backend setup, and deployment details.
