@@ -282,3 +282,44 @@ if REDIS_URL:
 FEATURE_JWT_AUTH = config('FEATURE_JWT_AUTH', default=False, cast=bool)
 FEATURE_ENFORCE_TENANT_SCOPE = config('FEATURE_ENFORCE_TENANT_SCOPE', default=False, cast=bool)
 FEATURE_EMISSION_FACTORS = config('FEATURE_EMISSION_FACTORS', default=False, cast=bool)
+
+
+# ---------------------------------------------------------------------------
+# Logging — structured console logging (captured by Render / Docker stdout).
+# Application loggers (apps.*) emit INFO+; tune via LOG_LEVEL / DJANGO_LOG_LEVEL.
+# ---------------------------------------------------------------------------
+LOG_LEVEL = config('LOG_LEVEL', default='INFO')
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{asctime}] {levelname} {name}: {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': LOG_LEVEL,
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': config('DJANGO_LOG_LEVEL', default='INFO'),
+            'propagate': False,
+        },
+        # First-party application code (apps.ingestion, apps.core, ...).
+        'apps': {
+            'handlers': ['console'],
+            'level': LOG_LEVEL,
+            'propagate': False,
+        },
+    },
+}
