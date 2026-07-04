@@ -30,4 +30,6 @@ urlpatterns = [
     path('api/', include('apps.accounts.urls')),
     # Ingestion API — upload, review, approve
     path('api/', include('apps.ingestion.urls')),
+    # Carbon engine — activity types, factor datasets/factors, calculations
+    path('api/', include('apps.carbon.urls')),
 ]

@@ -23,9 +23,15 @@ from apps.ingestion.serializers import (
     DataSourceSerializer,
 )
 from apps.ingestion.services.ingestion_service import IngestionService
+from django.db.models import Prefetch
+
 from apps.accounts.mixins import TenantScopedViewSetMixin
-from apps.accounts.permissions import CanApprove, CanUpload, IsOrgMember
+from apps.accounts.permissions import CanApprove, CanManageOrgResources, CanUpload, IsOrgMember
 from apps.accounts.tenancy import resolve_tenant_context
+from apps.carbon.models import EmissionCalculation
+from apps.carbon.serializers import EmissionCalculationSerializer
+from apps.carbon.services.carbon_service import CarbonCalculationService
+from apps.carbon.services.inputs import activity_input_from_record
 
 logger = logging.getLogger(__name__)
 
@@ -145,14 +151,25 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
     All results are scoped to the caller's active organization.
     """
 
-    queryset = EmissionRecord.objects.all().select_related("organization", "batch", "approved_by")
+    queryset = (
+        EmissionRecord.objects.all()
+        .select_related("organization", "batch", "approved_by")
+        .prefetch_related(Prefetch(
+            "calculations",
+            queryset=EmissionCalculation.objects.filter(is_current=True),
+            to_attr="current_calcs",
+        ))
+    )
     serializer_class = EmissionRecordSerializer
     permission_classes = [IsOrgMember]
 
     def get_permissions(self):
-        # Approving a record requires an approver role; reads require membership.
+        # Approving a record requires an approver role; recalculation requires an
+        # org-admin role; reads require membership.
         if self.action == "approve":
             return [CanApprove()]
+        if self.action == "recalculate":
+            return [CanManageOrgResources()]
         return [IsOrgMember()]
 
     def get_queryset(self):
@@ -258,6 +275,51 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
             return Response(
                 {"detail": f"Approval failed: {str(exc)}"}, status=status.HTTP_400_BAD_REQUEST
             )
+
+    @action(detail=True, methods=["POST"])
+    def recalculate(self, request, pk=None):
+        """Recompute CO2e for a record with the currently-active factors.
+        Org-Admin only; APPROVED records are frozen to their pinned factor."""
+        try:
+            record = (
+                EmissionRecord.objects
+                .select_related("batch__data_source", "organization")
+                .get(pk=pk)
+            )
+        except EmissionRecord.DoesNotExist:
+            return Response({"detail": "Record not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Object-level tenant enforcement (get_object is bypassed here).
+        self.check_object_permissions(request, record)
+
+        if record.status == EmissionRecord.RecordStatus.APPROVED:
+            return Response(
+                {"detail": "Approved records are audit-locked to their factor version and cannot be recalculated."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        service = CarbonCalculationService()
+        resources = service.build_resources(record.organization)
+        context = service.calculate_one(activity_input_from_record(record), resources)
+        calc = service.to_calculation(context, record.organization)
+
+        changed_by = request.user if request.user.is_authenticated else None
+        with transaction.atomic():
+            EmissionCalculation.objects.filter(
+                emission_record=record, is_current=True
+            ).update(is_current=False)
+            calc.save()
+            AuditTrail.objects.create(
+                organization=record.organization,
+                record=record,
+                record_uuid_backup=record.id,
+                action="RECORD_RECALCULATION",
+                changed_by=changed_by,
+                changes={"co2e_kg": str(calc.co2e_kg), "status": calc.resolution_status},
+                reason="Manual recalculation",
+            )
+
+        return Response(EmissionCalculationSerializer(calc).data, status=status.HTTP_200_OK)
 
 
 class OrganizationViewSet(viewsets.ReadOnlyModelViewSet):

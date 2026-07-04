@@ -48,6 +48,14 @@ class UploadBatchSerializer(serializers.ModelSerializer):
 
 
 class EmissionRecordSerializer(serializers.ModelSerializer):
+    # CO2e is sourced from the record's CURRENT EmissionCalculation (carbon
+    # engine). Reads a prefetched `current_calcs` attribute — no per-row query.
+    co2e_kg = serializers.SerializerMethodField()
+    co2e_tonnes = serializers.SerializerMethodField()
+    calculation_status = serializers.SerializerMethodField()
+    factor_provenance = serializers.SerializerMethodField()
+    calculation_trace = serializers.SerializerMethodField()
+
     class Meta:
         model = EmissionRecord
         fields = [
@@ -66,24 +74,45 @@ class EmissionRecordSerializer(serializers.ModelSerializer):
             "approved_at",
             "created_at",
             "updated_at",
+            # carbon engine (read-only, from current calculation)
+            "co2e_kg",
+            "co2e_tonnes",
+            "calculation_status",
+            "factor_provenance",
+            "calculation_trace",
         ]
-        read_only_fields = [
-            "id",
-            "organization",
-            "batch",
-            "row_index",
-            "raw_data_payload",
-            "status",
-            "is_suspicious",
-            "validation_errors",
-            "normalized_value",
-            "normalized_unit",
-            "scope_category",
-            "approved_by",
-            "approved_at",
-            "created_at",
-            "updated_at",
-        ]
+
+    @staticmethod
+    def _calc(obj):
+        calcs = getattr(obj, "current_calcs", None)
+        return calcs[0] if calcs else None
+
+    def get_co2e_kg(self, obj):
+        c = self._calc(obj)
+        return str(c.co2e_kg) if c and c.co2e_kg is not None else None
+
+    def get_co2e_tonnes(self, obj):
+        c = self._calc(obj)
+        return str(c.co2e_tonnes) if c and c.co2e_tonnes is not None else None
+
+    def get_calculation_status(self, obj):
+        c = self._calc(obj)
+        return c.resolution_status if c else None
+
+    def get_calculation_trace(self, obj):
+        c = self._calc(obj)
+        return c.calculation_trace if c else None
+
+    def get_factor_provenance(self, obj):
+        c = self._calc(obj)
+        if not c or not c.factor_publisher:
+            return None
+        return {
+            "publisher": c.factor_publisher,
+            "version": c.factor_version,
+            "factor_value": str(c.factor_value) if c.factor_value is not None else None,
+            "factor_unit": c.factor_unit,
+        }
 
 
 class ApprovalSerializer(serializers.Serializer):

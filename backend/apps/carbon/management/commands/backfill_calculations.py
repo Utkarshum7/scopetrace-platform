@@ -12,42 +12,14 @@ Backfill EmissionCalculations for existing EmissionRecords.
 Processes per-organization with preloaded resources and chunked bulk writes so a
 1M-record backfill performs no per-row resolution query.
 """
-from datetime import datetime
-
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from apps.carbon.models import EmissionCalculation
 from apps.carbon.services.carbon_service import CarbonCalculationService
-from apps.carbon.services.pipeline import ActivityInput
+from apps.carbon.services.inputs import activity_input_from_record
 from apps.core.models import Organization
 from apps.ingestion.models import EmissionRecord
-
-_DATE_KEYS = {
-    "buchungsdatum", "posting_date", "travel_date", "billing period start",
-    "billing_period_start", "period_start", "start date", "date",
-}
-_DATE_FORMATS = ["%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y"]
-_MATCH_KEYS = ("material", "material_code", "travel_mode", "mode")
-
-
-def _extract_date(payload):
-    for key, value in (payload or {}).items():
-        if str(key).strip().lower() in _DATE_KEYS and value:
-            for fmt in _DATE_FORMATS:
-                try:
-                    return datetime.strptime(str(value).strip(), fmt).date()
-                except ValueError:
-                    continue
-    return None
-
-
-def _match_keys(payload):
-    keys = []
-    for key, value in (payload or {}).items():
-        if str(key).strip().lower() in _MATCH_KEYS and value:
-            keys.append(str(value))
-    return keys
 
 
 def _chunks(iterable, size):
@@ -89,7 +61,7 @@ class Command(BaseCommand):
             resources = service.build_resources(organization)
             records = base.filter(organization_id=org_id).iterator(chunk_size=batch_size)
             for chunk in _chunks(records, batch_size):
-                inputs = [self._to_input(r) for r in chunk]
+                inputs = [activity_input_from_record(r) for r in chunk]
                 calcs = [
                     service.to_calculation(service.calculate_one(i, resources), organization)
                     for i in inputs
@@ -103,19 +75,3 @@ class Command(BaseCommand):
                 total += len(calcs)
 
         self.stdout.write(self.style.SUCCESS(f"Backfilled {total} calculation(s)."))
-
-    @staticmethod
-    def _to_input(record):
-        payload = record.raw_data_payload or {}
-        source_type = record.batch.data_source.source_type
-        return ActivityInput(
-            record_id=record.id,
-            organization_id=record.organization_id,
-            source_type=source_type,
-            quantity=record.normalized_value if record.normalized_value is not None else 0,
-            unit=record.normalized_unit or "",
-            scope=record.scope_category or "",
-            match_keys=_match_keys(payload),
-            activity_date=_extract_date(payload),
-            status=record.status,
-        )
