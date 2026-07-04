@@ -71,6 +71,8 @@ class CarbonCalculationService:
         """Map a resolved context to an unsaved EmissionCalculation."""
         inp = context.input
         factor = context.factor
+        reporting_date = inp.activity_date
+        reporting_month = reporting_date.replace(day=1) if reporting_date else None
         calc = EmissionCalculation(
             organization=organization,
             emission_record_id=inp.record_id,
@@ -84,6 +86,10 @@ class CarbonCalculationService:
             calculation_trace=context.trace,
             resolution_status=context.resolution_status,
             engine_version=ENGINE_VERSION,
+            # Analytic dimensions (denormalized for the Metrics API)
+            scope=inp.scope or "",
+            reporting_date=reporting_date,
+            reporting_month=reporting_month,
         )
         if factor is not None:
             calc.factor_publisher = factor.dataset.publisher

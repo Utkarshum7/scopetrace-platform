@@ -318,6 +318,16 @@ class EmissionCalculation(models.Model):
     co2e_tonnes = models.DecimalField(max_digits=20, decimal_places=9, null=True, blank=True)
     gas_breakdown = models.JSONField(default=dict, blank=True)
 
+    # Analytic dimensions — denormalized onto the fact table so dashboards run
+    # indexed SUM/GROUP BY (by scope, over time) with no joins into the record.
+    scope = models.CharField(max_length=20, choices=Scope.choices, blank=True)
+    reporting_date = models.DateField(
+        null=True, blank=True, help_text="Activity/emission date (drives time-series)"
+    )
+    reporting_month = models.DateField(
+        null=True, blank=True, help_text="First day of reporting_date's month (bucketing)"
+    )
+
     # Explainability — self-contained breakdown, rendered without recomputation
     calculation_trace = models.JSONField(default=dict, blank=True)
 
@@ -342,6 +352,10 @@ class EmissionCalculation(models.Model):
             models.Index(fields=["emission_record", "is_current"], name="ix_calc_record_current"),
             models.Index(fields=["organization", "resolution_status"], name="ix_calc_org_status"),
             models.Index(fields=["organization", "activity_type"], name="ix_calc_org_acttype"),
+            # Analytic aggregation / time-series (Phase 4 Metrics API)
+            models.Index(fields=["organization", "is_current", "scope"], name="ix_calc_org_scope"),
+            models.Index(fields=["organization", "is_current", "reporting_date"], name="ix_calc_org_rdate"),
+            models.Index(fields=["organization", "is_current", "reporting_month"], name="ix_calc_org_rmonth"),
         ]
 
     def __str__(self):
