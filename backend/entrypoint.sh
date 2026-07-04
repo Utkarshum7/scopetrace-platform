@@ -13,6 +13,8 @@ python manage.py collectstatic --noinput
 if [ "${BOOTSTRAP_DATA:-false}" = "true" ]; then
   echo "[entrypoint] Seeding bootstrap data..."
   python manage.py bootstrap_data
+  echo "[entrypoint] Seeding carbon reference data + factors..."
+  python manage.py seed_carbon
 fi
 
 echo "[entrypoint] Launching: $*"

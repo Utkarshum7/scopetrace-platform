@@ -15,7 +15,7 @@ services:
     buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
     # Migrate the schema and idempotently seed baseline data on every release so
     # a fresh database is usable immediately.
-    releaseCommand: python manage.py migrate && python manage.py bootstrap_data
+    releaseCommand: python manage.py migrate && python manage.py bootstrap_data && python manage.py seed_carbon
     startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     # Database-aware health check — Render stops routing to the instance if the
     # DB is unreachable, instead of the old always-200 /api/ router root.
