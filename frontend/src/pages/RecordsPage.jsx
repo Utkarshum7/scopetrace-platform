@@ -118,6 +118,7 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                   <th className="pb-3 px-2">Scope</th>
                   <th className="pb-3 px-2">Source Unit</th>
                   <th className="pb-3 px-2 text-right">Normalized Value</th>
+                  <th className="pb-3 px-2 text-right">CO₂e (t)</th>
                   <th className="pb-3 px-2">Status</th>
                   <th className="pb-3 pl-2 text-right">Actions</th>
                 </tr>
@@ -160,6 +161,20 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                           <span className="ml-1 font-normal text-slate-500">{r.normalized_unit}</span>
                         ) : null}
                       </td>
+                      <td className="py-3.5 px-2 text-right font-mono font-bold">
+                        {r.co2e_tonnes != null ? (
+                          <span className="text-emerald-300">
+                            {parseFloat(r.co2e_tonnes).toLocaleString(undefined, {
+                              minimumFractionDigits: 3,
+                              maximumFractionDigits: 3,
+                            })}
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-950/30 border border-amber-500/20 text-amber-400 text-[9px] uppercase tracking-wide">
+                            Unresolved
+                          </span>
+                        )}
+                      </td>
                       <td className="py-3.5 px-2">
                         <StatusBadge status={r.status} />
                       </td>
@@ -186,14 +201,14 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                 })}
                 {records.length === 0 && !isLoading && (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-500 font-medium">
+                    <td colSpan={7} className="py-12 text-center text-slate-500 font-medium">
                       No records match the active filter criteria.
                     </td>
                   </tr>
                 )}
                 {isLoading && (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-500 font-medium">
+                    <td colSpan={7} className="py-12 text-center text-slate-500 font-medium">
                       Querying emissions ledger…
                     </td>
                   </tr>
@@ -273,6 +288,37 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                   <div>Approved By ID: {selectedRecord.approved_by || 'Anonymous'}</div>
                   <div>Timestamp: {new Date(selectedRecord.approved_at).toLocaleString()}</div>
                 </div>
+              </div>
+            )}
+
+            {/* Carbon Calculation Breakdown (explainability) */}
+            {selectedRecord.calculation_status === 'CALCULATED' && selectedRecord.calculation_trace?.steps ? (
+              <div className="p-3 bg-emerald-950/20 border border-emerald-500/20 rounded-lg flex flex-col gap-2">
+                <span className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
+                  Carbon Calculation
+                </span>
+                <div className="flex flex-col gap-1.5">
+                  {selectedRecord.calculation_trace.steps.map((step, i) => (
+                    <div key={i} className="flex justify-between items-baseline gap-3 text-[11px]">
+                      <span className="text-slate-500 shrink-0">{step.label}</span>
+                      <span className="font-mono text-slate-200 text-right">
+                        {step.value}
+                        {step.source ? <span className="ml-1 text-slate-500">({step.source})</span> : null}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {selectedRecord.factor_provenance && (
+                  <div className="mt-1 pt-2 border-t border-emerald-500/10 text-[10px] text-slate-500 font-mono leading-relaxed">
+                    Factor: {selectedRecord.factor_provenance.publisher} {selectedRecord.factor_provenance.version} · {selectedRecord.factor_provenance.factor_value} kgCO₂e/{selectedRecord.factor_provenance.factor_unit}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-3 bg-amber-950/20 border border-amber-500/20 rounded-lg text-amber-300 text-xs leading-relaxed">
+                <span className="font-bold">CO₂e not computed.</span> No emission factor matched this record
+                {selectedRecord.calculation_status ? ` (${selectedRecord.calculation_status})` : ''}. An Org Admin can add
+                an activity mapping / factor and recalculate.
               </div>
             )}
 
