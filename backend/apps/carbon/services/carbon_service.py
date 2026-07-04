@@ -54,11 +54,17 @@ class CarbonCalculationService:
     def calculate_one(self, activity_input, resources) -> CalculationContext:
         context = CalculationContext(input=activity_input)
         for stage in self.stages:
-            stage.process(context, resources)
-            if context.halt and not isinstance(stage, type(self.stages[-1])):
-                # halt short-circuits later stages, but we keep iterating cheaply
-                # since inert stages already no-op on halt.
-                pass
+            try:
+                stage.process(context, resources)
+            except Exception as exc:
+                # Degrade gracefully — a single bad record must never fail the
+                # whole batch. Mark it unresolved for later review.
+                context.resolution_status = EmissionCalculation.ResolutionStatus.UNRESOLVED_NO_FACTOR
+                context.co2e_kg = None
+                context.co2e_tonnes = None
+                context.notes.append(f"{type(stage).__name__}: {exc}")
+                context.halt = True
+                break
         return context
 
     def to_calculation(self, context, organization) -> EmissionCalculation:

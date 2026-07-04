@@ -282,3 +282,21 @@ Review Ledger gains a real **CO₂e (t)** column and a detail-drawer
 **breakdown + provenance** panel driven by `calculation_trace`; an
 `UNRESOLVED` badge flags records missing a factor. Dashboard emission tiles
 become real (simple sums now; rich aggregation in Phase 4).
+
+---
+
+## 15. Implementation note — flight seat-class multiplier (deferred relocation)
+
+The original design (§8) proposed relocating the DEFRA seat-class multiplier out
+of `NormalizationService._normalize_travel` into the factor layer. During
+implementation this was found to change stored `normalized_value` for flights
+(class-weighted km → physical km), which would **split activity-data semantics
+between legacy and new records** and make backfill inconsistent without a
+data migration of every existing flight record.
+
+**Decision:** the class multiplier remains applied at normalization (consistent
+old and new records); the factor layer holds a generic per-km flight factor. CO₂e
+is therefore `physical_km × class_multiplier × per_km_factor`. This is an explicit,
+tested methodology — locked by the `test_flight_class_weighting_parity`
+end-to-end test. A future migration-aware task can move class handling into
+class-specific `ActivityType`s / factors if desired.

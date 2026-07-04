@@ -1,6 +1,7 @@
 import os
 import logging
 from dataclasses import dataclass
+from datetime import date
 from django.db import transaction
 from apps.core.models import DataSource
 from apps.ingestion.models import UploadBatch, EmissionRecord
@@ -93,6 +94,7 @@ class IngestionService:
                 ]
 
                 records_to_create = []
+                record_row_pairs = []
                 failed_validation_count = 0
                 suspicious_count = 0
 
@@ -144,10 +146,14 @@ class IngestionService:
                         scope_category=scope_category,
                     )
                     records_to_create.append(record)
+                    record_row_pairs.append((record, row))
 
                 # 5. Bulk create records
                 if records_to_create:
                     EmissionRecord.objects.bulk_create(records_to_create)
+
+                # 5b. Compute carbon (CO2e) for each record in bulk.
+                self._calculate_carbon(data_source.organization, record_row_pairs)
 
                 # 6. Update batch status to COMPLETED
                 total_rows = len(parsed_rows) + len(parse_errors)
@@ -180,3 +186,41 @@ class IngestionService:
             batch.save(update_fields=["status", "error_message"])
             logger.exception("Ingestion transaction failed for batch %s", batch.id)
             raise exc
+
+    def _calculate_carbon(self, organization, record_row_pairs):
+        """
+        Compute a CO2e EmissionCalculation for each ingested record (bulk).
+
+        Imported lazily to keep the carbon engine an optional dependency of the
+        ingestion pipeline. Unresolved factors do not fail the batch — the
+        calculation is stored with an UNRESOLVED status for later review.
+        """
+        if not record_row_pairs:
+            return
+
+        from apps.carbon.models import EmissionCalculation
+        from apps.carbon.services.carbon_service import CarbonCalculationService
+        from apps.carbon.services.pipeline import ActivityInput
+
+        inputs = []
+        for record, row in record_row_pairs:
+            activity_date = None
+            if row.date:
+                try:
+                    activity_date = date.fromisoformat(row.date)
+                except ValueError:
+                    activity_date = None
+            inputs.append(ActivityInput(
+                record_id=record.id,
+                organization_id=organization.id,
+                source_type=row.source_type,
+                quantity=record.normalized_value if record.normalized_value is not None else 0,
+                unit=record.normalized_unit or "",
+                scope=record.scope_category or "",
+                match_keys=[row.material_or_mode] if row.material_or_mode else [],
+                activity_date=activity_date,
+                status=record.status,
+            ))
+
+        calculations = CarbonCalculationService().build_calculations(inputs, organization)
+        EmissionCalculation.objects.bulk_create(calculations)
