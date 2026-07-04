@@ -1,9 +1,13 @@
 # Architecture Integration Map (`ARCHITECTURE_INTEGRATION.md`)
 
 This document identifies **where each planned feature integrates** into the current
-codebase and the **minimal change** required to land it. Nothing here is implemented
-yet — the goal is that future phases add consuming code at known seams rather than
-refactoring the architecture.
+codebase and the **minimal change** required to land it. The goal is that each phase
+adds consuming code at known seams rather than refactoring the architecture.
+
+> **Status update (Phase 2):** JWT Authentication, RBAC, and Multi-Tenant Isolation
+> (sections 1–3) are now **implemented** — see [`AUTH_RBAC.md`](AUTH_RBAC.md) for the
+> authoritative design. Sections 4–6 (Emission Factor Engine, Metrics API, Celery/Redis)
+> remain seams for future phases, unchanged by this update.
 
 The current design already provides most of the seams:
 
@@ -18,14 +22,18 @@ The current design already provides most of the seams:
 
 ## Summary
 
-| Feature | Phase | Primary integration point | Current seam | Minimal change |
-| :--- | :---: | :--- | :--- | :--- |
-| JWT Authentication | 2 | `settings.REST_FRAMEWORK` | Explicit auth/permission defaults present | Add SimpleJWT auth class + token URLs |
-| RBAC | 2 | `apps/*/views.py` (viewsets) | Thin views, DRF permission hooks | Add `Role`/Group + permission classes |
-| Multi-Tenant Isolation | 2 | `EmissionRecordViewSet.get_queryset` etc. | `organization` FK on every model | Scope querysets to `request.user` org |
-| Emission Factor Engine | 3 | `NormalizationService.normalize` | Normalizer returns activity value + scope | Add `EmissionFactor` model + post-normalize step |
-| Metrics API | 4 | `apps/ingestion/urls.py` router | Router + `organization` FK | Add aggregation viewset + cache |
-| Celery + Redis (async) | 5 | `IngestionService.ingest` / `views.BaseUploadView` | Single orchestrator method | Wrap ingest in a task; enqueue from view |
+| Feature | Phase | Status | Primary integration point |
+| :--- | :---: | :--- | :--- |
+| JWT Authentication | 2 | ✅ Implemented | `apps/accounts/` (views, serializers); `settings.SIMPLE_JWT` |
+| RBAC | 2 | ✅ Implemented | `apps/accounts/permissions.py`; `Membership.role` |
+| Multi-Tenant Isolation | 2 | ✅ Implemented | `apps/accounts/tenancy.py`; `TenantScopedViewSetMixin` |
+| Emission Factor Engine | 3 | Seam only | `NormalizationService.normalize` |
+| Metrics API | 4 | Seam only | `apps/ingestion/urls.py` router |
+| Celery + Redis (async) | 5 | Seam only | `IngestionService.ingest` / `views.BaseUploadView` |
+
+Sections 4–6 below are unchanged from Phase 0/1 planning. Sections 1–3 are kept
+for historical context (what was planned) — see [`AUTH_RBAC.md`](AUTH_RBAC.md) for
+what was actually built.
 
 ---
 
@@ -124,16 +132,18 @@ The current design already provides most of the seams:
 
 ---
 
-## Config seams already in place (Phase 0)
+## Config seams already in place
 
-Declared in [`backend/config/settings.py`](../backend/config/settings.py), all inert/off by default:
+Declared in [`backend/config/settings.py`](../backend/config/settings.py):
 
-| Setting | Consumed by | Default |
+| Setting | Consumed by | Status |
 | :--- | :--- | :--- |
-| `REST_FRAMEWORK` (auth/perm) | JWT (2), RBAC (2), Pagination (4) | Current open-access behavior |
-| `REDIS_URL` | Cache (4), Celery (5) | `''` (unset) |
-| `CELERY_BROKER_URL` / `_RESULT_BACKEND` / `_TASK_ALWAYS_EAGER` | Celery (5) | Redis fallback / eager in debug |
-| `CACHES` (Redis when `REDIS_URL` set) | Metrics API (4) | Django locmem default |
-| `FEATURE_JWT_AUTH` / `FEATURE_ENFORCE_TENANT_SCOPE` / `FEATURE_EMISSION_FACTORS` | Phased rollout | `False` |
+| `REST_FRAMEWORK` (auth/perm) | JWT (2), RBAC (2), Pagination (4) | JWT auth + `IsAuthenticated` default now **active** (Phase 2). Pagination still off. |
+| `SIMPLE_JWT` (lifetimes, rotation, blacklist) | JWT (2) | **Active** (Phase 2). |
+| `REDIS_URL` | Cache (4), Celery (5) | Inert (`''` unset) |
+| `CELERY_BROKER_URL` / `_RESULT_BACKEND` / `_TASK_ALWAYS_EAGER` | Celery (5) | Inert (Redis fallback / eager in debug) |
+| `CACHES` (Redis when `REDIS_URL` set) | Metrics API (4) | Inert |
+| `FEATURE_EMISSION_FACTORS` | Emission Factor Engine (3) | Inert, still reserved for a phased rollout |
+| `FEATURE_JWT_AUTH` / `FEATURE_ENFORCE_TENANT_SCOPE` | — | **Superseded / dead.** Phase 2 implemented auth and tenant isolation unconditionally rather than behind a dark-launch flag. These two settings are unused and are candidates for removal in a future cleanup pass. |
 
 **Nothing above is wired to behavior yet** — these are declarations so later phases add only consuming code.

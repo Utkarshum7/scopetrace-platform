@@ -15,6 +15,7 @@ Modern enterprises collect environmental impact data across fragmented systems: 
 3. **Normalizes** heterogeneous units (e.g., liters of diesel, kWh of electricity, passenger-kilometers) into standardized base activity units (liters, kWh, km) — the basis for downstream CO₂e calculation.
 4. **Guides Analysts** through a verification ledger to flag anomalies, review suspicious entries, and approve records.
 5. **Secures Audit Trails** by writing approved records into an append-only, immutable ledger (enforced at the model layer) for tamper-evident reporting.
+6. **Enforces Enterprise Access Control** via JWT authentication, role-based permissions, and per-organization tenant isolation — see [`docs/AUTH_RBAC.md`](docs/AUTH_RBAC.md).
 
 ---
 
@@ -29,6 +30,7 @@ Modern enterprises collect environmental impact data across fragmented systems: 
 * **Analyst Review Ledger**: A clean dashboard UI for analysts to filter records, review anomalies, and enter justifications for approval.
 * **Immutable Audit Logging**: Employs an append-only ledger model that locks record states post-approval and tracks the analyst's ID, timestamp, and reasoning.
 * **Django Admin Integration**: Allows administrators to register organizations (tenants) and configure data sources on the fly.
+* **Enterprise Identity & Access**: JWT authentication (access/refresh tokens, rotation, logout blacklist), four organization-scoped roles (Org Admin, ESG Analyst, Auditor, Viewer) plus a cross-tenant Platform Admin, and server-side multi-tenant isolation enforced at the API layer.
 * **Interactive Frontend Dashboard**: Rich visual metrics showing total emissions, pending reviews, batch statuses, and a streamlined drag-and-drop file upload center.
 * **Production-Ready Configurations**: Pre-configured WSGI environment with Gunicorn, WhiteNoise static assets, PostgreSQL compatibility, and Vercel routing rewrites.
 
@@ -216,22 +218,24 @@ To test the ingestion and analyst flow locally or in production:
 1. **Access Django Admin**: Go to `http://localhost:8000/admin/` and log in.
 2. **Seed Core Metadata** — run the bootstrap command (idempotent; also runs automatically under Docker and on Render release):
    ```bash
-   python manage.py bootstrap_data
+   python manage.py bootstrap_data --demo-users
    ```
-   This creates a demo **Organization**, the three **Data Sources** (`SAP_FUEL`, `UTILITY_ELECTRICITY`, `CORP_TRAVEL`), and an admin user. To create these manually instead, use Django Admin:
+   This creates a demo **Organization**, the three **Data Sources** (`SAP_FUEL`, `UTILITY_ELECTRICITY`, `CORP_TRAVEL`), an admin user, and (with `--demo-users`, also enabled by default under Docker Compose) one demo user per role — `orgadmin` / `analyst` / `auditor` / `viewer`, password `demo12345`. To create these manually instead, use Django Admin:
    * Create an **Organization** (e.g., *Acme Corporation*).
    * Create three **Data Sources** matching your organization:
      * Name: `SAP Fuel Feed` · Type: `SAP_FUEL`
      * Name: `Utility Feed` · Type: `UTILITY_ELECTRICITY`
      * Name: `Travel Feed` · Type: `CORP_TRAVEL`
-3. **Upload Files**:
-   * Open the frontend dashboard at `http://localhost:5173/` and navigate to the **Upload Center**.
+   * Create a **Membership** binding a user to the organization with a role (Org Admin / ESG Analyst / Auditor / Viewer).
+3. **Sign In**: Open `http://localhost:5173/` and log in as `analyst` (or another demo user). The JWT session is required to reach the Dashboard, Upload Center, or Review Ledger.
+4. **Upload Files**:
+   * Navigate to the **Upload Center** (visible to Org Admin / ESG Analyst roles).
    * Upload sample files from the `sample_data/` folder (e.g., `sap_fuel_sample.csv` matching `SAP Fuel Feed`).
-4. **Ingestion & Validation**:
+5. **Ingestion & Validation**:
    * Verify that the batch upload completes and is parsed.
    * View the newly created records in the **Review Ledger**. Anomalous metrics (e.g., highly abnormal fuel quantities) will be marked as `SUSPICIOUS`.
-5. **Analyst Audit**:
-   * Click the **Approve** button on a record.
+6. **Analyst Audit**:
+   * Click the **Approve** button on a record (Org Admin / ESG Analyst / Auditor roles).
    * Provide your analyst justification reasoning.
    * Confirm the lock. The record status will update to `APPROVED` and write an immutable block into the database `AuditTrail`.
 
@@ -239,17 +243,23 @@ To test the ingestion and analyst flow locally or in production:
 
 ## 📊 API Endpoints Reference
 
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `GET` | `/healthz` | Database-aware health probe (200 healthy / 503 if DB unreachable) |
-| `GET` | `/api/organizations/` | List all tenant organizations |
-| `GET` | `/api/datasources/` | List all configured data sources |
-| `POST` | `/api/upload/sap/` | Upload and parse SAP Fuel CSV |
-| `POST` | `/api/upload/utility/` | Upload and parse Utility Electricity CSV |
-| `POST` | `/api/upload/travel/` | Upload and parse Corporate Travel JSON |
-| `GET` | `/api/batches/` | List all ingestion batches |
-| `GET` | `/api/records/` | List emission records (supports status & anomaly filters) |
-| `POST` | `/api/records/{id}/approve/` | Approve a record and lock it in the Audit Trail |
+| Method | Endpoint | Auth | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/healthz` | none | Database-aware health probe (200 healthy / 503 if DB unreachable) |
+| `POST` | `/api/auth/login/` | none | Obtain JWT access + refresh tokens and the user profile |
+| `POST` | `/api/auth/refresh/` | none | Exchange a refresh token for a new access/refresh pair (rotated) |
+| `POST` | `/api/auth/logout/` | Bearer | Blacklist the refresh token (logout) |
+| `GET` | `/api/me/` | Bearer | Current user, active memberships, and resolved active organization |
+| `GET` | `/api/organizations/` | Bearer | List organizations the caller belongs to (all orgs for Platform Admin) |
+| `GET` | `/api/datasources/` | Bearer | List data sources for the active organization |
+| `POST` | `/api/upload/sap/` | Bearer (Org Admin / Analyst) | Upload and parse SAP Fuel CSV |
+| `POST` | `/api/upload/utility/` | Bearer (Org Admin / Analyst) | Upload and parse Utility Electricity CSV |
+| `POST` | `/api/upload/travel/` | Bearer (Org Admin / Analyst) | Upload and parse Corporate Travel JSON |
+| `GET` | `/api/batches/` | Bearer | List ingestion batches for the active organization |
+| `GET` | `/api/records/` | Bearer | List emission records (status/anomaly filters; scoped to the active org) |
+| `POST` | `/api/records/{id}/approve/` | Bearer (Org Admin / Analyst / Auditor) | Approve a record and lock it in the Audit Trail |
+
+See [`docs/AUTH_RBAC.md`](docs/AUTH_RBAC.md) for the full authentication flow, role permission matrix, and tenant-isolation design.
 
 ---
 
