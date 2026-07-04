@@ -224,3 +224,7 @@ class IngestionService:
 
         calculations = CarbonCalculationService().build_calculations(inputs, organization)
         EmissionCalculation.objects.bulk_create(calculations)
+
+        # Invalidate this org's cached metrics.
+        from apps.carbon.services.metrics_cache import bump_calc_version
+        bump_calc_version(organization.id)

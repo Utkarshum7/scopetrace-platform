@@ -32,6 +32,7 @@ from apps.carbon.models import EmissionCalculation
 from apps.carbon.serializers import EmissionCalculationSerializer
 from apps.carbon.services.carbon_service import CarbonCalculationService
 from apps.carbon.services.inputs import activity_input_from_record
+from apps.carbon.services.metrics_cache import bump_calc_version
 
 logger = logging.getLogger(__name__)
 
@@ -319,6 +320,7 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
                 reason="Manual recalculation",
             )
 
+        bump_calc_version(record.organization_id)
         return Response(EmissionCalculationSerializer(calc).data, status=status.HTTP_200_OK)
 
 

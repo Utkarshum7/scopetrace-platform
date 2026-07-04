@@ -18,6 +18,7 @@ from django.db import transaction
 from apps.carbon.models import EmissionCalculation
 from apps.carbon.services.carbon_service import CarbonCalculationService
 from apps.carbon.services.inputs import activity_input_from_record
+from apps.carbon.services.metrics_cache import bump_calc_version
 from apps.core.models import Organization
 from apps.ingestion.models import EmissionRecord
 
@@ -73,5 +74,7 @@ class Command(BaseCommand):
                         ).update(is_current=False)
                     EmissionCalculation.objects.bulk_create(calcs)
                 total += len(calcs)
+            # Invalidate this org's cached metrics after its backfill.
+            bump_calc_version(org_id)
 
         self.stdout.write(self.style.SUCCESS(f"Backfilled {total} calculation(s)."))
