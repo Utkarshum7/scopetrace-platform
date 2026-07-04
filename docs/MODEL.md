@@ -126,3 +126,27 @@ Corporate travel uses **DEFRA seating class multipliers** to compute accurate pa
 - **`PREMIUM_ECONOMY`**: $1.6\times$ distance
 - **`BUSINESS`**: $2.9\times$ distance
 - **`FIRST`**: $4.0\times$ distance
+
+---
+
+## 6. Carbon Intelligence Engine (Phase 3)
+
+The `apps.carbon` app adds the emission-factor and calculation layers. Reference
+tables are **global** (shared, no tenant FK); calculations are **tenant-scoped**.
+Full design in [`CARBON_ENGINE_DESIGN.md`](CARBON_ENGINE_DESIGN.md).
+
+| Model | Scope | Purpose |
+| :--- | :--- | :--- |
+| `Region` | global | Resolution geography (ISO / GLOBAL) |
+| `ActivityType` | global | Controlled vocabulary decoupling parsers from factors |
+| `EmissionFactorDataset` | global | Versioned, provenance-tracked factor container (immutable once ACTIVE) |
+| `EmissionFactor` | global | Per-unit CO₂e value (effective-dated, region-aware, per-gas seam) |
+| `UnitConversion` | global | Dimension-checked Decimal unit conversions |
+| `GwpSet` | global | GWP set — reserved seam for future per-gas CO₂e |
+| `ActivityMapping` | global | Maps `data_source_type` + match key → `ActivityType` |
+| `OrgFactorPolicy` | tenant | Per-org preferred publisher / region / strict mode |
+| `EmissionCalculation` | tenant | Immutable, factor-pinned, explainable CO₂e result (one `is_current` per record) |
+
+**`EmissionRecord`** is unchanged and holds **only activity data**. CO₂e lives
+**exclusively** in `EmissionCalculation` (never denormalized onto the record),
+which keeps the approval audit-lock intact for locked records.

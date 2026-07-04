@@ -12,7 +12,7 @@ Modern enterprises collect environmental impact data across fragmented systems: 
 **ScopeTrace** acts as a centralized middleware that:
 1. **Ingests** raw data from varied formats via a unified, strategy-pattern ingestion engine.
 2. **Validates** data points in real time, detecting format errors, missing metrics, and statistical anomalies.
-3. **Normalizes** heterogeneous units (e.g., liters of diesel, kWh of electricity, passenger-kilometers) into standardized base activity units (liters, kWh, km) — the basis for downstream CO₂e calculation.
+3. **Normalizes & computes CO₂e**: converts heterogeneous units (liters of diesel, kWh of electricity, passenger-kilometers) into standardized base activity units, then computes CO₂e via the **Carbon Intelligence Engine** — versioned, provenance-tracked emission factors (DEFRA/EPA/IPCC-ready) with fully explainable, factor-pinned calculations.
 4. **Guides Analysts** through a verification ledger to flag anomalies, review suspicious entries, and approve records.
 5. **Secures Audit Trails** by writing approved records into an append-only, immutable ledger (enforced at the model layer) for tamper-evident reporting.
 6. **Enforces Enterprise Access Control** via JWT authentication, role-based permissions, and per-organization tenant isolation — see [`docs/AUTH_RBAC.md`](docs/AUTH_RBAC.md).
@@ -31,6 +31,7 @@ Modern enterprises collect environmental impact data across fragmented systems: 
 * **Immutable Audit Logging**: Employs an append-only ledger model that locks record states post-approval and tracks the analyst's ID, timestamp, and reasoning.
 * **Django Admin Integration**: Allows administrators to register organizations (tenants) and configure data sources on the fly.
 * **Enterprise Identity & Access**: JWT authentication (access/refresh tokens, rotation, logout blacklist), four organization-scoped roles (Org Admin, ESG Analyst, Auditor, Viewer) plus a cross-tenant Platform Admin, and server-side multi-tenant isolation enforced at the API layer.
+* **Carbon Intelligence Engine**: versioned, provenance-tracked emission-factor datasets (DEFRA/EPA/IPCC/country-ready) with effective-dated, region-aware factor resolution; Decimal-precise, factor-pinned, immutable CO₂e calculations; a self-contained explainability trace on every result; a staged pipeline with reserved hooks for future AI modules; and idempotent import/seed/backfill commands. See [`docs/CARBON_ENGINE_DESIGN.md`](docs/CARBON_ENGINE_DESIGN.md).
 * **Interactive Frontend Dashboard**: Rich visual metrics showing total emissions, pending reviews, batch statuses, and a streamlined drag-and-drop file upload center.
 * **Production-Ready Configurations**: Pre-configured WSGI environment with Gunicorn, WhiteNoise static assets, PostgreSQL compatibility, and Vercel routing rewrites.
 
@@ -258,8 +259,29 @@ To test the ingestion and analyst flow locally or in production:
 | `GET` | `/api/batches/` | Bearer | List ingestion batches for the active organization |
 | `GET` | `/api/records/` | Bearer | List emission records (status/anomaly filters; scoped to the active org) |
 | `POST` | `/api/records/{id}/approve/` | Bearer (Org Admin / Analyst / Auditor) | Approve a record and lock it in the Audit Trail |
+| `POST` | `/api/records/{id}/recalculate/` | Bearer (Org Admin) | Recompute CO₂e with active factors (APPROVED records are frozen) |
+| `GET` | `/api/activity-types/` | Bearer | Activity-type vocabulary (global reference) |
+| `GET` | `/api/factor-datasets/` | Bearer | Emission-factor datasets with provenance (filter publisher/status) |
+| `GET` | `/api/emission-factors/` | Bearer | Emission factors (filter activity_type/region) |
+| `GET` | `/api/calculations/` | Bearer | CO₂e calculations for the active organization (scoped) |
 
-See [`docs/AUTH_RBAC.md`](docs/AUTH_RBAC.md) for the full authentication flow, role permission matrix, and tenant-isolation design.
+Emission records now include read-only `co2e_kg`, `co2e_tonnes`, `calculation_status`, `factor_provenance`, and an explainable `calculation_trace`.
+
+See [`docs/AUTH_RBAC.md`](docs/AUTH_RBAC.md) for authentication/RBAC/tenancy, and [`docs/CARBON_ENGINE_DESIGN.md`](docs/CARBON_ENGINE_DESIGN.md) for the Carbon Intelligence Engine (factor versioning, resolution, calculation lifecycle, explainability).
+
+### Carbon engine management commands
+
+```bash
+# Seed reference data + import & activate the bundled DEFRA 2024 factor subset
+python manage.py seed_carbon
+
+# Import a factor dataset (idempotent, provenance-tracked; --activate to publish)
+python manage.py import_emission_factors --file factors.csv --publisher DEFRA \
+  --dataset-version 2025 --region GB --valid-from 2025-01-01 --valid-to 2025-12-31 --activate
+
+# Compute CO₂e for existing records (idempotent; --force recalculates, APPROVED frozen)
+python manage.py backfill_calculations
+```
 
 ---
 
