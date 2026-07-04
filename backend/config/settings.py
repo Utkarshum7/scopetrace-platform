@@ -81,6 +81,7 @@ INSTALLED_APPS = [
     'apps.accounts',
     'apps.ingestion',
     'apps.audit',
+    'apps.carbon',
 ]
 
 MIDDLEWARE = [
