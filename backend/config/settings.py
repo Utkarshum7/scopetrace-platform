@@ -296,10 +296,42 @@ REDIS_URL = config('REDIS_URL', default='')
 
 # Celery — Phase 5 async ingestion + scheduled emission-factor refresh.
 # Broker/backend fall back to REDIS_URL when not set explicitly. EAGER mode runs
-# tasks synchronously (used in tests/local until a worker exists).
+# tasks synchronously inline (no broker needed) — used in local DEBUG dev and
+# ALWAYS under the test runner, so CI never needs a live Redis to run the suite.
 CELERY_BROKER_URL = config('CELERY_BROKER_URL', default=REDIS_URL)
 CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default=REDIS_URL)
-CELERY_TASK_ALWAYS_EAGER = config('CELERY_TASK_ALWAYS_EAGER', default=DEBUG, cast=bool)
+CELERY_TASK_ALWAYS_EAGER = config(
+    'CELERY_TASK_ALWAYS_EAGER', default=(DEBUG or _TESTING), cast=bool
+)
+# Eager mode re-raises task exceptions synchronously instead of swallowing them
+# into the (unused, in eager mode) result backend — failures surface immediately
+# in local dev and in tests.
+CELERY_TASK_EAGER_PROPAGATES = True
+
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+# Explicit opt-in ahead of the Celery 6.0 default flip, so a worker starting
+# before Redis is ready retries the connection instead of crashing on boot.
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+
+# Default queue name, explicit now so Phase 5e can introduce a dedicated
+# dead-letter queue alongside it without renaming this one.
+CELERY_TASK_DEFAULT_QUEUE = config('CELERY_TASK_DEFAULT_QUEUE', default='celery')
+
+# acks_late + prefetch=1: a task is acknowledged only after it finishes, so a
+# crashed worker's in-flight task is redelivered rather than lost, and adding
+# worker replicas distributes load evenly instead of one worker prefetching a
+# queue's worth of work. Requires tasks to be safe to re-run if redelivered
+# (the idempotency guard Phase 5b's async ingestion is designed around).
+CELERY_TASK_ACKS_LATE = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+
+# Task/worker events — no consumer yet, but zero-cost to enable now so Flower /
+# `celery events` work without a config change when Phase 5h adds them.
+CELERY_WORKER_SEND_TASK_EVENTS = True
+CELERY_TASK_SEND_SENT_EVENT = True
 
 # Cache — use Redis when configured, otherwise Django's default local-memory
 # cache. No behavior change today (nothing reads the cache yet); the Phase 4

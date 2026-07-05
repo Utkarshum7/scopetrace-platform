@@ -11,3 +11,9 @@ sqlparse==0.5.5
 tzdata==2026.2
 whitenoise==6.9.0
 gunicorn==23.0.0
+
+# Phase 5 — async task queue (Celery) + Redis client.
+# redis is also the driver for the CACHES backend declared in Phase 4
+# (previously missing from requirements.txt despite being referenced in settings).
+celery==5.4.0
+redis==5.2.1
