@@ -188,6 +188,23 @@ export const apiService = {
     const response = await api.post(`/api/records/${recordId}/approve/`, { reason });
     return response.data;
   },
+
+  // ----- Metrics / analytics -----
+  async getMetricsSummary(params = {}) {
+    return (await api.get('/api/metrics/summary/', { params })).data;
+  },
+  async getMetricsTimeseries(params = {}) {
+    return (await api.get('/api/metrics/timeseries/', { params })).data;
+  },
+  async getMetricsBreakdown(params = {}) {
+    return (await api.get('/api/metrics/breakdown/', { params })).data;
+  },
+  async getActivityFeed() {
+    return (await api.get('/api/metrics/activity/')).data;
+  },
+  async getPlatformMetrics() {
+    return (await api.get('/api/metrics/platform/')).data;
+  },
 };
 
 export default api;

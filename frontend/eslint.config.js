@@ -33,6 +33,24 @@ export default [
         'warn',
         { allowConstantExport: true },
       ],
+      // Chart library is an implementation detail — it may only be imported by
+      // the project chart wrappers in components/charts/.
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'recharts',
+              message: 'Import project charts from components/charts instead of recharts directly.',
+            },
+          ],
+        },
+      ],
     },
+  },
+  {
+    // The chart wrapper directory is the single allowed home for recharts.
+    files: ['src/components/charts/**/*.{js,jsx}'],
+    rules: { 'no-restricted-imports': 'off' },
   },
 ]
