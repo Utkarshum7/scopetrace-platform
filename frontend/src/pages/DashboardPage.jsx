@@ -21,8 +21,9 @@ export const DashboardPage = ({ setView }) => {
         apiService.getRecords({ status: 'APPROVED' }),
       ]);
       setBatches(fetchedBatches);
-      setSuspiciousCount(suspRecords.length);
-      setApprovedCount(appRecords.length);
+      // Paginated responses expose the exact total via `count`.
+      setSuspiciousCount(suspRecords.count);
+      setApprovedCount(appRecords.count);
     } catch (err) {
       console.error(err);
       setError('Failed to load dashboard metrics. Please retry.');

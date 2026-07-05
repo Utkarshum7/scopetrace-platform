@@ -116,19 +116,21 @@ export const apiService = {
   },
 
   // ----- Business data -----
+  // Selector endpoints are unpaginated (bare arrays); tolerate an envelope too.
   async getOrganizations() {
     const response = await api.get('/api/organizations/');
-    return response.data;
+    return response.data.results ?? response.data;
   },
 
   async getDataSources() {
     const response = await api.get('/api/datasources/');
-    return response.data;
+    return response.data.results ?? response.data;
   },
 
-  async getBatches() {
-    const response = await api.get('/api/batches/');
-    return response.data;
+  // Batches are paginated; return the current page as an array (recent-first).
+  async getBatches(params = {}) {
+    const response = await api.get('/api/batches/', { params });
+    return response.data.results ?? response.data;
   },
 
   async getBatchDetail(batchId) {
@@ -137,12 +139,19 @@ export const apiService = {
   },
 
   /**
-   * Fetch emission records with active query filters
-   * @param {Object} params - Query parameters (data_source, batch, suspicious, failed, status)
+   * Fetch emission records (paginated). Returns { items, count, next, previous }.
+   * @param {Object} params - filters + optional page / page_size
    */
   async getRecords(params = {}) {
     const response = await api.get('/api/records/', { params });
-    return response.data;
+    const d = response.data;
+    const items = d.results ?? d;
+    return {
+      items,
+      count: d.count ?? items.length,
+      next: d.next ?? null,
+      previous: d.previous ?? null,
+    };
   },
 
   /**

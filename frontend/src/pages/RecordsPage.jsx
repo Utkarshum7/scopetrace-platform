@@ -19,6 +19,10 @@ export const RecordsPage = ({ initialFilters = {} }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
 
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [pageInfo, setPageInfo] = useState({ count: 0, next: null, previous: null });
+
   // Selected Record for Details Drawer & Approval Modal
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [recordToApprove, setRecordToApprove] = useState(null);
@@ -52,8 +56,10 @@ export const RecordsPage = ({ initialFilters = {} }) => {
         if (filters[key] !== '') cleanParams[key] = filters[key];
       });
 
+      cleanParams.page = page;
       const data = await apiService.getRecords(cleanParams);
-      setRecords(data);
+      setRecords(data.items);
+      setPageInfo({ count: data.count, next: data.next, previous: data.previous });
     } catch (err) {
       console.error(err);
       setErrorMsg('Failed to query emission records database.');
@@ -64,7 +70,7 @@ export const RecordsPage = ({ initialFilters = {} }) => {
 
   useEffect(() => {
     fetchRecords();
-  }, [filters]);
+  }, [filters, page]);
 
   const handleRecordApproveSuccess = () => {
     // Refresh records list to reflect approval status change
@@ -89,7 +95,7 @@ export const RecordsPage = ({ initialFilters = {} }) => {
         dataSources={dataSources}
         batches={batches}
         filters={filters}
-        onFilterChange={setFilters}
+        onFilterChange={(f) => { setPage(1); setFilters(f); }}
       />
 
       {errorMsg && (
@@ -106,7 +112,7 @@ export const RecordsPage = ({ initialFilters = {} }) => {
           
           <div className="flex justify-between items-center pb-2 border-b border-slate-800/60">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              Record Audit Stream ({records.length} items found)
+              Record Audit Stream ({pageInfo.count} total)
             </span>
           </div>
 
@@ -216,6 +222,29 @@ export const RecordsPage = ({ initialFilters = {} }) => {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination controls */}
+          {(pageInfo.next || pageInfo.previous) && (
+            <div className="flex items-center justify-between pt-2 border-t border-slate-800/60 text-xs">
+              <span className="text-slate-500">Page {page}</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={!pageInfo.previous || isLoading}
+                  className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-800 transition-all focus:outline-none"
+                >
+                  ← Prev
+                </button>
+                <button
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={!pageInfo.next || isLoading}
+                  className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-800 transition-all focus:outline-none"
+                >
+                  Next →
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Dynamic Detail Drawer (Right Column) */}
