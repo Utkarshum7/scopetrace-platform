@@ -127,13 +127,14 @@ what was actually built.
 
 **5a status (implemented):** the Celery app ([`config/celery.py`](../backend/config/celery.py)), a `worker` service in `docker-compose.yml` (same image as `api`, `RUN_MIGRATIONS=false`, horizontally scalable via `--scale worker=N` with zero code changes — verified), a `redis` service, and a worker-liveness probe (`GET /healthz/worker/`, a real `celery inspect ping` control-plane round trip, distinct from the DB-only `/healthz`) all exist and are verified end-to-end. `CELERY_TASK_ALWAYS_EAGER` now also triggers under the test runner (`_TESTING`), not just `DEBUG`, so the suite never needs a live broker. `acks_late` + `prefetch_multiplier=1` are set globally from the start — tasks added in 5b+ must be safe to re-run if redelivered after a worker crash.
 
-**Still a seam (5b–5d):** `IngestionService.ingest` is a **single orchestrator method** with a clean signature (`ingest(data_source, file_path, uploaded_by)`) that creates the `UploadBatch` up front and returns a structured `IngestionResult`. The `UploadBatch.status` state machine (`PENDING → PROCESSING → COMPLETED/FAILED`) is designed for async progress but `PENDING` is not yet used as a real queued-state.
+**5b (storage) status (implemented):** `apps/core/storage/` — a provider-independent `StorageService` interface (`save`/`open`/`exists`/`delete`/`generate_download_url`) with two providers: `S3StorageService` (django-storages' `S3Storage`, also serves Cloudflare R2/Backblaze B2/MinIO — only endpoint + addressing style change) and `LocalFileSystemStorageService` (dev/test fallback). Selected via `settings.STORAGE_BACKEND`, fail-closed exactly like `DATABASE_URL` (local is DEBUG-only). Docker Compose runs a MinIO container so the S3 code path is exercised in local dev too. Ingestion code must call only `get_storage_service()` — never a concrete provider or an SDK (boto3/django-storages) directly. Verified against a real MinIO instance (a genuine bug was caught this way: django-storages' `S3Storage.exists()` is not a general existence check under the default `file_overwrite=True` — see `s3.py`'s `_object_exists` for the fix).
+
+**Still a seam (5b remainder–5d):** `IngestionService.ingest` is a **single orchestrator method** with a clean signature (`ingest(data_source, file_path, uploaded_by)`) that creates the `UploadBatch` up front and returns a structured `IngestionResult`. The `UploadBatch.status` state machine (`PENDING → PROCESSING → COMPLETED/FAILED`) is designed for async progress but `PENDING` is not yet used as a real queued-state.
 
 **Remaining minimal change:**
-1. Durable upload storage (S3-compatible object storage — locked decision, since Render doesn't share disk between the `api` and worker services) so a file survives past the request that received it.
-2. `BaseUploadView.post` persists the upload durably and enqueues a task chain (`ingest_task | calculate_task`), returning `202 Accepted` + `batch_id` (the batch already exists in `PENDING`).
-3. Frontend polls `/api/batches/{id}/` for status (the endpoint already exists).
-4. Add the Render background worker service (compose-side `worker` already exists).
+1. `BaseUploadView.post` persists the upload via `get_storage_service().save(...)` and enqueues a task chain (`ingest_task | calculate_task`), returning `202 Accepted` + `batch_id` (the batch already exists in `PENDING`).
+2. Frontend polls `/api/batches/{id}/` for status (the endpoint already exists).
+3. Add the Render background worker service (compose-side `worker` already exists).
 
 **Data-model impact:** none yet (status field already exists). **Deployment impact:** Redis + worker process now exist in compose; Render worker service still to add.
 
