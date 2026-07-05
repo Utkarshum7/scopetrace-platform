@@ -286,13 +286,32 @@ export const UploadPage = ({ setView }) => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <div className="flex flex-col gap-0.5">
-                  <span className="font-black text-sm text-white">Ingestion Pipeline Completed Successfully!</span>
-                  <span className="opacity-90">All clean rows normalized and written in a transactional single bulk-load.</span>
+                  {/* Phase 5b: ingestion is now asynchronous — the response
+                      returns before processing necessarily completes, so the
+                      banner must reflect the batch's actual status rather
+                      than always claiming completion. Live status polling
+                      (instead of this one-shot message) is Phase 5c. */}
+                  {successResult.status === 'COMPLETED' ? (
+                    <>
+                      <span className="font-black text-sm text-white">Ingestion Pipeline Completed Successfully!</span>
+                      <span className="opacity-90">All clean rows normalized and written in a transactional single bulk-load.</span>
+                    </>
+                  ) : successResult.status === 'FAILED' ? (
+                    <>
+                      <span className="font-black text-sm text-white">Ingestion Failed</span>
+                      <span className="opacity-90">{successResult.error_message || 'The batch could not be processed.'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-black text-sm text-white">Upload Accepted — Processing</span>
+                      <span className="opacity-90">Your file was received and is being ingested in the background. Check Review Ledger shortly for results.</span>
+                    </>
+                  )}
                 </div>
               </div>
 
               {/* Data Extraction Audit Summary */}
-              <div className="bg-slate-900/60 rounded-lg p-3 border border-slate-800/80 grid grid-cols-2 md:grid-cols-4 gap-4 mt-1">
+              <div className="bg-slate-900/60 rounded-lg p-3 border border-slate-800/80 grid grid-cols-3 gap-4 mt-1">
                 <div className="flex flex-col gap-0.5">
                   <span className="text-[10px] text-slate-500 uppercase tracking-wide">Batch ID</span>
                   <span className="font-mono text-slate-200 font-bold">{successResult.batch_id.slice(0, 8)}...</span>
@@ -304,10 +323,6 @@ export const UploadPage = ({ setView }) => {
                 <div className="flex flex-col gap-0.5">
                   <span className="text-[10px] text-slate-500 uppercase tracking-wide">Validation Failures</span>
                   <span className="font-mono text-rose-400 font-bold">{successResult.failed_rows}</span>
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-[10px] text-slate-500 uppercase tracking-wide">Suspicious Warnings</span>
-                  <span className="font-mono text-amber-400 font-bold">{successResult.suspicious_rows}</span>
                 </div>
               </div>
 
