@@ -17,3 +17,10 @@ gunicorn==23.0.0
 # (previously missing from requirements.txt despite being referenced in settings).
 celery==5.4.0
 redis==5.2.1
+
+# Phase 5b — StorageService durable file storage abstraction.
+# django-storages wraps S3 (and, later, GCS/Azure) behind Django's Storage
+# API; boto3 is its S3 client dependency (also speaks the S3-compatible API
+# used by Cloudflare R2, Backblaze B2, and the local MinIO Compose service).
+django-storages==1.14.4
+boto3==1.35.36

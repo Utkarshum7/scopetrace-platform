@@ -344,6 +344,63 @@ if REDIS_URL:
         }
     }
 
+# ---------------------------------------------------------------------------
+# Durable file storage (Phase 5b) — StorageService abstraction.
+#
+# STORAGE_BACKEND selects the concrete provider. Application code (ingestion,
+# future features) must depend only on apps.core.storage.get_storage_service()
+# and the StorageService interface — never import a concrete provider or SDK
+# directly. See apps/core/storage/ for the interface + providers.
+#
+# Fails closed exactly like DATABASE_URL: local filesystem storage is a
+# development-only convenience; production must explicitly select 's3'.
+# Docker Compose runs a MinIO container (S3-compatible) and sets
+# STORAGE_BACKEND=s3 with AWS_S3_ENDPOINT_URL pointing at it, so the
+# production code path is exercised in local dev too — local filesystem
+# storage is reserved for `manage.py runserver` / the test runner only.
+# ---------------------------------------------------------------------------
+STORAGE_BACKEND = config('STORAGE_BACKEND', default='local' if DEBUG else '')
+if not DEBUG and STORAGE_BACKEND != 's3':
+    raise ImproperlyConfigured(
+        "STORAGE_BACKEND must be 's3' when DEBUG=False. "
+        "Local filesystem storage is a development-only convenience."
+    )
+
+# Local filesystem backend (LocalFileSystemStorageService).
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_URL = '/media/'
+# Base origin used to build fully-qualified download URLs locally, so
+# generate_download_url() returns an absolute URL exactly like the S3
+# provider's presigned URL — callers never special-case the backend.
+MEDIA_BASE_URL = config('MEDIA_BASE_URL', default='http://localhost:8000')
+
+# S3-compatible backend (S3StorageService) — also serves Cloudflare R2 /
+# Backblaze B2 / MinIO, since they all speak the S3 API; only the endpoint
+# URL and addressing style change.
+AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
+AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY', default='')
+AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME', default='')
+AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='auto')
+# Blank = real AWS S3. Set for R2 / B2 / MinIO (e.g. http://minio:9000 in Compose).
+AWS_S3_ENDPOINT_URL = config('AWS_S3_ENDPOINT_URL', default='')
+# MinIO requires 'path' addressing (bucket.in.path, not bucket.as.subdomain);
+# real AWS S3 / R2 / B2 use 'virtual'.
+AWS_S3_ADDRESSING_STYLE = config('AWS_S3_ADDRESSING_STYLE', default='virtual')
+AWS_QUERYSTRING_EXPIRE = config('AWS_S3_URL_EXPIRE_SECONDS', default=3600, cast=int)
+
+if STORAGE_BACKEND == 's3' and not DEBUG:
+    _required_s3_vars = {
+        'AWS_ACCESS_KEY_ID': AWS_ACCESS_KEY_ID,
+        'AWS_SECRET_ACCESS_KEY': AWS_SECRET_ACCESS_KEY,
+        'AWS_STORAGE_BUCKET_NAME': AWS_STORAGE_BUCKET_NAME,
+    }
+    _missing_s3_vars = [name for name, value in _required_s3_vars.items() if not value]
+    if _missing_s3_vars:
+        raise ImproperlyConfigured(
+            f"STORAGE_BACKEND=s3 requires {', '.join(_missing_s3_vars)} to be set."
+        )
+
+
 # Phased-rollout feature flags (all default off). Future code gates on these so
 # incomplete features can merge dark and be enabled per-environment.
 FEATURE_JWT_AUTH = config('FEATURE_JWT_AUTH', default=False, cast=bool)
