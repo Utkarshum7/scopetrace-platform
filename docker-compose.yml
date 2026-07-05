@@ -8,6 +8,7 @@
 #   API:      http://localhost:8000/api/     Health: http://localhost:8000/healthz
 #   Admin:    http://localhost:8000/admin/   (admin / admin12345 by default)
 #   Frontend: http://localhost:8080
+#   MinIO console: http://localhost:9001     (scopetrace / scopetrace123 by default)
 #
 # Data persists in the `pgdata` volume across restarts and rebuilds — the whole
 # point of Phase 0 (no more ephemeral SQLite).
@@ -28,6 +29,20 @@ x-backend-env: &backend-env
   CSRF_COOKIE_SECURE: "False"
   # Redis — Celery broker/result-backend + Django cache (Phase 5).
   REDIS_URL: "redis://redis:6379/0"
+  # Durable storage (Phase 5b) — StorageService's S3 provider, pointed at the
+  # local MinIO container. This exercises the SAME code path production uses
+  # against real S3/R2/B2 (only the endpoint + addressing style differ),
+  # rather than a separate "local filesystem" path that would never be
+  # tested against the real provider integration.
+  STORAGE_BACKEND: "s3"
+  AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-scopetrace}
+  AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-scopetrace123}
+  AWS_STORAGE_BUCKET_NAME: ${STORAGE_BUCKET:-scopetrace-uploads}
+  AWS_S3_REGION_NAME: "us-east-1"
+  AWS_S3_ENDPOINT_URL: "http://minio:9000"
+  # MinIO requires path-style addressing (bucket-in-path); AWS S3/R2/B2 use
+  # virtual-hosted style in production — only this one setting changes.
+  AWS_S3_ADDRESSING_STYLE: "path"
 
 services:
   db:
@@ -56,6 +71,40 @@ services:
       timeout: 3s
       retries: 10
 
+  # MinIO — self-hosted, S3-compatible object store. Gives StorageService's
+  # S3StorageService a real backend to run against locally without needing
+  # actual cloud credentials, while still exercising the production code path.
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-scopetrace}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-scopetrace123}
+    volumes:
+      - miniodata:/data
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot init: creates the upload bucket if it doesn't exist yet, then
+  # exits. `api`/`worker` depend on minio's own healthcheck, not this — a
+  # bucket that already exists (idempotent restarts) doesn't block startup.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-scopetrace} ${MINIO_ROOT_PASSWORD:-scopetrace123} &&
+      mc mb --ignore-existing local/${STORAGE_BUCKET:-scopetrace-uploads}
+      "
+
   api:
     build:
       context: ./backend
@@ -76,16 +125,18 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # Celery worker — same image as `api`, different process. Runs migrations
-  # again on boot (idempotent) via the shared entrypoint, then execs the
-  # worker command instead of gunicorn. Horizontally scalable: `docker compose
-  # up --scale worker=3` requires no code or config change (see config/celery.py).
+  # Celery worker — same image as `api`, different process (RUN_MIGRATIONS=false
+  # below — `api` is the sole migration/seed owner). Horizontally scalable:
+  # `docker compose up --scale worker=3` requires no code or config change
+  # (see config/celery.py).
   worker:
     build:
       context: ./backend
@@ -122,3 +173,4 @@ services:
 
 volumes:
   pgdata:
+  miniodata:
