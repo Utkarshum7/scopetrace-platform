@@ -48,6 +48,16 @@ class UploadBatch(models.Model):
         blank=True,
         help_text="Reason for system parsing error if batch fails"
     )
+    parse_errors = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "Structured, row-addressable parser errors: [{row_index, error}]. "
+            "Phase 5b: previously returned only in the synchronous upload "
+            "response and never persisted — since ingestion now runs off the "
+            "request thread, this is the durable record a client polls for."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

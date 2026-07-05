@@ -151,10 +151,11 @@ class RoleRestrictionTests(TestCase):
         return resp.status_code
 
     def test_analyst_can_upload(self):
-        self.assertEqual(self._upload_status(Role.ANALYST), drf.HTTP_201_CREATED)
+        # Phase 5b: upload is now asynchronous — 202 Accepted, not 201.
+        self.assertEqual(self._upload_status(Role.ANALYST), drf.HTTP_202_ACCEPTED)
 
     def test_org_admin_can_upload(self):
-        self.assertEqual(self._upload_status(Role.ORG_ADMIN), drf.HTTP_201_CREATED)
+        self.assertEqual(self._upload_status(Role.ORG_ADMIN), drf.HTTP_202_ACCEPTED)
 
     def test_auditor_cannot_upload(self):
         self.assertEqual(self._upload_status(Role.AUDITOR), drf.HTTP_403_FORBIDDEN)

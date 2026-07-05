@@ -1,6 +1,4 @@
 import logging
-import os
-import tempfile
 from rest_framework import status, viewsets
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -12,6 +10,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.decorators import action
 
 from apps.core.models import DataSource, Organization
+from apps.core.storage import get_storage_service
 from apps.ingestion.models import UploadBatch, EmissionRecord
 from apps.audit.models import AuditTrail
 from apps.ingestion.serializers import (
@@ -22,7 +21,7 @@ from apps.ingestion.serializers import (
     OrganizationSerializer,
     DataSourceSerializer,
 )
-from apps.ingestion.services.ingestion_service import IngestionService
+from apps.ingestion.tasks import process_upload_batch
 from django.db.models import Prefetch
 
 from apps.accounts.mixins import TenantScopedViewSetMixin
@@ -39,8 +38,13 @@ logger = logging.getLogger(__name__)
 
 class BaseUploadView(APIView):
     """
-    Base upload handler. Handles file reception, writing to temp storage,
-    running the ingestion pipeline, and cleaning up the temp file.
+    Upload intake endpoint (Phase 5b: asynchronous).
+
+    Accepts the file, durably persists it via StorageService, creates the
+    UploadBatch immediately in PENDING, and enqueues process_upload_batch —
+    returning 202 Accepted with the batch id right away. The parse/validate/
+    normalize/calculate pipeline runs off the request thread; poll
+    GET /api/batches/{id}/ for status, total_rows, failed_rows, parse_errors.
     """
 
     parser_classes = [MultiPartParser, FormParser]
@@ -73,55 +77,66 @@ class BaseUploadView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Write uploaded file to a temporary file on disk
-        suffix = os.path.splitext(uploaded_file.name)[1]
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-            for chunk in uploaded_file.chunks():
-                temp_file.write(chunk)
-            temp_file_path = temp_file.name
+        uploaded_by = request.user if request.user.is_authenticated else None
+
+        # The batch is the durable, immediately-visible record of "an upload
+        # was received" — created PENDING before the file is even durably
+        # staged, so a client always has a batch_id to poll even if storage
+        # or the broker is briefly unavailable.
+        batch = UploadBatch.objects.create(
+            organization=data_source.organization,
+            data_source=data_source,
+            file_name=uploaded_file.name,
+            status=UploadBatch.BatchStatus.PENDING,
+            uploaded_by=uploaded_by,
+        )
+
+        storage_key = f"uploads/{data_source.organization_id}/{batch.id}/{uploaded_file.name}"
+        try:
+            storage = get_storage_service()
+            storage.save(storage_key, uploaded_file, content_type=uploaded_file.content_type)
+        except Exception as exc:
+            logger.exception("Failed to persist durable upload for batch %s", batch.id)
+            batch.status = UploadBatch.BatchStatus.FAILED
+            batch.error_message = f"Failed to persist upload: {exc}"
+            batch.save(update_fields=["status", "error_message"])
+            return Response(
+                {"error": "Upload storage unavailable", "detail": str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         try:
-            # Determine uploaded_by user if authenticated
-            uploaded_by = request.user if request.user.is_authenticated else None
-
-            # Execute IngestionService orchestrator. The original filename is
-            # passed for accurate lineage (temp_file_path is a random temp name).
-            service = IngestionService()
-            result = service.ingest(
-                data_source,
-                temp_file_path,
-                uploaded_by=uploaded_by,
-                original_filename=uploaded_file.name,
-            )
-
-            return Response(
-                {
-                    "batch_id": result.batch.id,
-                    "file_name": result.batch.file_name,
-                    "status": result.batch.status,
-                    "total_rows": result.total_rows,
-                    "failed_rows": result.failed_rows,
-                    "suspicious_rows": result.suspicious_rows,
-                    "errors": result.errors,
-                },
-                status=status.HTTP_201_CREATED,
-            )
-        except Exception as exc:
-            # Log the full traceback (previously failures were silent) and return
-            # a stable error envelope. Upload failures are treated as bad input.
+            process_upload_batch.delay(str(batch.id), storage_key)
+        except Exception:
+            # Only reachable when CELERY_TASK_ALWAYS_EAGER is True (tests,
+            # local DEBUG) — CELERY_TASK_EAGER_PROPAGATES re-raises the
+            # task's own exception synchronously right here. In real async
+            # dispatch .delay() never raises for a downstream task failure.
+            # Either way, IngestionService.ingest_batch already recorded the
+            # failure on the batch itself before re-raising, so the refreshed
+            # batch below already reflects it — nothing further to do here.
             logger.exception(
-                "Ingestion failed for file '%s' (data_source=%s)",
-                uploaded_file.name,
-                data_source.id,
+                "process_upload_batch raised synchronously (eager mode) for batch %s",
+                batch.id,
             )
-            return Response(
-                {"error": "Ingestion failed", "detail": str(exc)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        finally:
-            # Ensure file cleanup
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
+
+        # Refresh so the response is honest about current state: under eager
+        # mode (tests/local DEBUG) the task has already fully run by this
+        # point; under real async dispatch this will still show PENDING.
+        batch.refresh_from_db()
+
+        return Response(
+            {
+                "batch_id": batch.id,
+                "file_name": batch.file_name,
+                "status": batch.status,
+                "total_rows": batch.total_rows,
+                "failed_rows": batch.failed_rows,
+                "errors": batch.parse_errors,
+                "error_message": batch.error_message,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 class SAPUploadView(BaseUploadView):

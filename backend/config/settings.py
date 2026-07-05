@@ -367,7 +367,15 @@ if not DEBUG and STORAGE_BACKEND != 's3':
     )
 
 # Local filesystem backend (LocalFileSystemStorageService).
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+# Under the test runner, every upload-touching test would otherwise write
+# real files into backend/media/ — an OS temp dir keeps test runs isolated
+# and the repo clean, the same way _TESTING already gates throttling and
+# Celery eager mode.
+if _TESTING:
+    import tempfile as _tempfile
+    MEDIA_ROOT = _tempfile.mkdtemp(prefix='scopetrace-test-media-')
+else:
+    MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 MEDIA_URL = '/media/'
 # Base origin used to build fully-qualified download URLs locally, so
 # generate_download_url() returns an absolute URL exactly like the S3

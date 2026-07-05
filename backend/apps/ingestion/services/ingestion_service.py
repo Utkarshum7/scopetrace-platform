@@ -54,12 +54,19 @@ class IngestionService:
         uploaded_by=None,
         original_filename: str | None = None,
     ) -> IngestionResult:
+        """Synchronous entry point: create the batch, then run the pipeline.
+
+        Kept for direct/service-level callers and existing tests. The
+        asynchronous path (Phase 5b) creates the batch itself — PENDING,
+        before the file is even durably staged — and calls `ingest_batch`
+        directly; see apps.ingestion.tasks.process_upload_batch.
+        """
         # Prefer the original uploaded filename for lineage/audit. Fall back to
         # the temp file's basename only when the caller does not supply one
         # (e.g. direct service-level usage in tests).
         file_name = original_filename or os.path.basename(file_path)
 
-        # 1. Create batch in PROCESSING status outside transaction
+        # Create batch in PROCESSING status outside transaction
         # to ensure that if ingestion fails completely, the metadata log remains.
         batch = UploadBatch.objects.create(
             organization=data_source.organization,
@@ -68,7 +75,27 @@ class IngestionService:
             status=UploadBatch.BatchStatus.PROCESSING,
             uploaded_by=uploaded_by,
         )
+        return self.ingest_batch(batch, file_path)
 
+    def ingest_batch(self, batch: UploadBatch, file_path: str) -> IngestionResult:
+        """Run the parse -> validate -> normalize -> persist -> calculate
+        pipeline against an ALREADY-CREATED batch.
+
+        This is the shared core `ingest()` delegates to. It exists as its own
+        method so the asynchronous upload path (Phase 5b) can hand it a batch
+        that was created — and durably staged via StorageService — before the
+        Celery task ever ran, without duplicating batch-creation logic or
+        creating a second orphaned batch.
+
+        Ensures the batch is PROCESSING before doing any work, regardless of
+        its incoming status (already PROCESSING via `ingest()`'s synchronous
+        path above, or PENDING via the async task).
+        """
+        if batch.status != UploadBatch.BatchStatus.PROCESSING:
+            batch.status = UploadBatch.BatchStatus.PROCESSING
+            batch.save(update_fields=["status"])
+
+        data_source = batch.data_source
         parser_class = self.PARSER_REGISTRY.get(data_source.source_type)
         if not parser_class:
             err_msg = f"No parser registered for source type: {data_source.source_type}"
@@ -159,17 +186,22 @@ class IngestionService:
                 total_rows = len(parsed_rows) + len(parse_errors)
                 failed_rows = len(parse_errors) + failed_validation_count
 
-                batch.total_rows = total_rows
-                batch.failed_rows = failed_rows
-                batch.status = UploadBatch.BatchStatus.COMPLETED
-                batch.save()
-
-                # Return structured, row-addressable errors so the client can
-                # render "Row #N: <message>" instead of opaque strings.
+                # Structured, row-addressable errors so a client can render
+                # "Row #N: <message>" instead of opaque strings. Persisted on
+                # the batch (Phase 5b) — ingestion no longer runs on the
+                # request thread, so this can no longer be returned only in a
+                # synchronous HTTP response; it must be durable to be
+                # discoverable by polling the batch afterwards.
                 errors_summary = [
                     {"row_index": err["row_index"], "error": err["error"]}
                     for err in parse_errors
                 ]
+
+                batch.total_rows = total_rows
+                batch.failed_rows = failed_rows
+                batch.parse_errors = errors_summary
+                batch.status = UploadBatch.BatchStatus.COMPLETED
+                batch.save()
 
                 return IngestionResult(
                     batch=batch,

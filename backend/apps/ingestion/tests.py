@@ -514,7 +514,12 @@ class APILayerTestCase(TestCase):
 
     def test_sap_upload_success(self):
         response = self._upload_sap()
-        self.assertEqual(response.status_code, drf_status.HTTP_201_CREATED)
+        # Phase 5b: upload is now asynchronous — 202 Accepted, not 201. Under
+        # CELERY_TASK_ALWAYS_EAGER (the test runner) the task has already
+        # fully run by the time this response is built, so the counts below
+        # are real, not placeholders — this is not true against a real async
+        # worker (see apps.ingestion.tasks.process_upload_batch tests).
+        self.assertEqual(response.status_code, drf_status.HTTP_202_ACCEPTED)
         data = response.json()
         self.assertEqual(data['status'], UploadBatch.BatchStatus.COMPLETED)
         self.assertEqual(data['total_rows'], 2)
@@ -588,7 +593,7 @@ class APILayerTestCase(TestCase):
             data={'file': file_obj, 'data_source': str(self.travel_ds.id)},
             format='multipart',
         )
-        self.assertEqual(response.status_code, drf_status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, drf_status.HTTP_202_ACCEPTED)
         self.assertEqual(response.json()['total_rows'], 1)
 
     def test_upload_parse_errors_are_structured(self):
@@ -617,7 +622,7 @@ class APILayerTestCase(TestCase):
             data={'file': file_obj, 'data_source': str(self.travel_ds.id)},
             format='multipart',
         )
-        self.assertEqual(response.status_code, drf_status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, drf_status.HTTP_202_ACCEPTED)
         data = response.json()
         self.assertTrue(len(data['errors']) >= 1)
         first = data['errors'][0]
