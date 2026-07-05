@@ -12,8 +12,20 @@ from apps.accounts.models import (
     ROLES_CAN_APPROVE,
     ROLES_CAN_MANAGE_ORG,
     ROLES_CAN_UPLOAD,
+    ROLES_CAN_VIEW_ACTIVITY,
 )
 from apps.accounts.tenancy import resolve_tenant_context
+
+
+class IsPlatformAdmin(BasePermission):
+    """Platform administrators (Django superusers) only — cross-tenant access."""
+
+    message = "Platform administrator access required."
+
+    def has_permission(self, request, view):
+        return bool(
+            request.user and request.user.is_authenticated and request.user.is_superuser
+        )
 
 
 class IsOrgMember(BasePermission):
@@ -57,6 +69,20 @@ class CanApprove(IsOrgMember):
         ctx = resolve_tenant_context(request)
         return ctx.is_platform_admin or (
             ctx.membership is not None and ctx.membership.role in ROLES_CAN_APPROVE
+        )
+
+
+class CanViewActivity(IsOrgMember):
+    """Organization Admins and Auditors may view the audit/activity feed."""
+
+    message = "Only organization admins and auditors can view activity."
+
+    def has_permission(self, request, view):
+        if not super().has_permission(request, view):
+            return False
+        ctx = resolve_tenant_context(request)
+        return ctx.is_platform_admin or (
+            ctx.membership is not None and ctx.membership.role in ROLES_CAN_VIEW_ACTIVITY
         )
 
 

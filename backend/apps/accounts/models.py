@@ -23,6 +23,7 @@ class Role(models.TextChoices):
 ROLES_CAN_UPLOAD = frozenset({Role.ORG_ADMIN, Role.ANALYST})
 ROLES_CAN_APPROVE = frozenset({Role.ORG_ADMIN, Role.ANALYST, Role.AUDITOR})
 ROLES_CAN_MANAGE_ORG = frozenset({Role.ORG_ADMIN})
+ROLES_CAN_VIEW_ACTIVITY = frozenset({Role.ORG_ADMIN, Role.AUDITOR})
 
 
 class Membership(models.Model):
