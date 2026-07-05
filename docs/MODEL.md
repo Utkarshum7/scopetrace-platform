@@ -150,3 +150,8 @@ Full design in [`CARBON_ENGINE_DESIGN.md`](CARBON_ENGINE_DESIGN.md).
 **`EmissionRecord`** is unchanged and holds **only activity data**. CO₂e lives
 **exclusively** in `EmissionCalculation` (never denormalized onto the record),
 which keeps the approval audit-lock intact for locked records.
+
+**Analytics fact table (Phase 4):** `EmissionCalculation` also carries denormalized
+`scope`, `reporting_date`, and `reporting_month` with composite indexes, so the
+Metrics API runs indexed `SUM/GROUP BY` (by scope, over time) without joins. See
+[`METRICS_ANALYTICS.md`](METRICS_ANALYTICS.md).

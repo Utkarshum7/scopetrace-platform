@@ -32,6 +32,7 @@ Modern enterprises collect environmental impact data across fragmented systems: 
 * **Django Admin Integration**: Allows administrators to register organizations (tenants) and configure data sources on the fly.
 * **Enterprise Identity & Access**: JWT authentication (access/refresh tokens, rotation, logout blacklist), four organization-scoped roles (Org Admin, ESG Analyst, Auditor, Viewer) plus a cross-tenant Platform Admin, and server-side multi-tenant isolation enforced at the API layer.
 * **Carbon Intelligence Engine**: versioned, provenance-tracked emission-factor datasets (DEFRA/EPA/IPCC/country-ready) with effective-dated, region-aware factor resolution; Decimal-precise, factor-pinned, immutable CO₂e calculations; a self-contained explainability trace on every result; a staged pipeline with reserved hooks for future AI modules; and idempotent import/seed/backfill commands. See [`docs/CARBON_ENGINE_DESIGN.md`](docs/CARBON_ENGINE_DESIGN.md).
+* **Analytics & Dashboards**: a cached, tenant-scoped Metrics API (summary/time-series/breakdown + audit-activity and cross-tenant views) powering a **role-aware, pluggable dashboard** — professional KPI cards with trend deltas, responsive charts (behind a swappable chart abstraction), loading skeletons, and empty/error states. Pagination, standardized filtering, streaming CSV export, and API rate-limiting. See [`docs/METRICS_ANALYTICS.md`](docs/METRICS_ANALYTICS.md).
 * **Interactive Frontend Dashboard**: Rich visual metrics showing total emissions, pending reviews, batch statuses, and a streamlined drag-and-drop file upload center.
 * **Production-Ready Configurations**: Pre-configured WSGI environment with Gunicorn, WhiteNoise static assets, PostgreSQL compatibility, and Vercel routing rewrites.
 
@@ -41,8 +42,9 @@ Modern enterprises collect environmental impact data across fragmented systems: 
 
 | Layer | Technologies |
 | :--- | :--- |
-| **Frontend** | React 18, Vite 5, Tailwind CSS 3, Axios |
-| **Backend** | Django 6.0, Django REST Framework 3.17, Python Decouple |
+| **Frontend** | React 18, Vite 5, Tailwind CSS 3, Axios, TanStack Query, Recharts |
+| **Backend** | Django 6.0, Django REST Framework 3.17, SimpleJWT, django-filter, Python Decouple |
+| **Cache / Rate limiting** | Redis (optional; local-memory fallback) |
 | **Database** | PostgreSQL 16 (required in production) · SQLite (local dev only) |
 | **Containerization** | Docker · Docker Compose (PostgreSQL + API + frontend) |
 | **Asset Serving** | WhiteNoise 6.9 |
@@ -264,10 +266,18 @@ To test the ingestion and analyst flow locally or in production:
 | `GET` | `/api/factor-datasets/` | Bearer | Emission-factor datasets with provenance (filter publisher/status) |
 | `GET` | `/api/emission-factors/` | Bearer | Emission factors (filter activity_type/region) |
 | `GET` | `/api/calculations/` | Bearer | CO₂e calculations for the active organization (scoped) |
+| `GET` | `/api/records/export/` | Bearer | Streaming CSV export of records (filters + CO₂e columns) |
+| `GET` | `/api/metrics/summary/` | Bearer | KPI summary (total tCO₂e, by scope, coverage, trend basis) |
+| `GET` | `/api/metrics/timeseries/` | Bearer | Emissions over time (month/quarter/year, optional group_by=scope) |
+| `GET` | `/api/metrics/breakdown/` | Bearer | tCO₂e by scope / activity_type / data_source |
+| `GET` | `/api/metrics/activity/` | Bearer (Org Admin / Auditor) | Tenant audit-trail activity feed |
+| `GET` | `/api/metrics/platform/` | Bearer (Platform Admin) | Cross-tenant overview + active organizations |
 
-Emission records now include read-only `co2e_kg`, `co2e_tonnes`, `calculation_status`, `factor_provenance`, and an explainable `calculation_trace`.
+Emission records include read-only `co2e_kg`, `co2e_tonnes`, `calculation_status`, `factor_provenance`, and an explainable `calculation_trace`.
 
-See [`docs/AUTH_RBAC.md`](docs/AUTH_RBAC.md) for authentication/RBAC/tenancy, and [`docs/CARBON_ENGINE_DESIGN.md`](docs/CARBON_ENGINE_DESIGN.md) for the Carbon Intelligence Engine (factor versioning, resolution, calculation lifecycle, explainability).
+**Pagination:** unbounded list endpoints (`records`, `calculations`, `batches`, `factor-datasets`, `emission-factors`) return `{count, next, previous, results}`; bounded selector lists (`organizations`, `datasources`, `activity-types`) return bare arrays. API requests are rate-limited.
+
+See [`docs/AUTH_RBAC.md`](docs/AUTH_RBAC.md) for authentication/RBAC/tenancy, [`docs/CARBON_ENGINE_DESIGN.md`](docs/CARBON_ENGINE_DESIGN.md) for the Carbon Intelligence Engine, and [`docs/METRICS_ANALYTICS.md`](docs/METRICS_ANALYTICS.md) for the Metrics API, caching, pagination/export, and the role-aware dashboard.
 
 ### Carbon engine management commands
 
