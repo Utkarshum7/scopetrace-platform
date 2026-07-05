@@ -205,6 +205,10 @@ export const apiService = {
   async getPlatformMetrics() {
     return (await api.get('/api/metrics/platform/')).data;
   },
+  async getFactorDatasets(params = {}) {
+    const d = (await api.get('/api/factor-datasets/', { params })).data;
+    return d.results ?? d;
+  },
 };
 
 export default api;
