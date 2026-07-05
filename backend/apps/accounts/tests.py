@@ -210,7 +210,7 @@ class TenantIsolationTests(TestCase):
 
     def test_records_are_scoped_to_own_org(self):
         self.client.force_authenticate(self.userA)
-        ids = [r["id"] for r in self.client.get("/api/records/").json()]
+        ids = [r["id"] for r in self.client.get("/api/records/").json()["results"]]
         self.assertIn(str(self.recordA.id), ids)
         self.assertNotIn(str(self.recordB.id), ids)
 
@@ -240,7 +240,7 @@ class TenantIsolationTests(TestCase):
         self.client.force_authenticate(self.userA)
         ids = [
             r["id"]
-            for r in self.client.get(f"/api/records/?organization={self.orgB.id}").json()
+            for r in self.client.get(f"/api/records/?organization={self.orgB.id}").json()["results"]
         ]
         self.assertNotIn(str(self.recordB.id), ids)
 
@@ -269,7 +269,7 @@ class PlatformAdminTests(TestCase):
 
     def test_superuser_sees_all_orgs(self):
         self.client.force_authenticate(self.admin)
-        ids = [r["id"] for r in self.client.get("/api/records/").json()]
+        ids = [r["id"] for r in self.client.get("/api/records/").json()["results"]]
         self.assertIn(str(self.recordA.id), ids)
         self.assertIn(str(self.recordB.id), ids)
 
@@ -279,7 +279,7 @@ class PlatformAdminTests(TestCase):
             r["id"]
             for r in self.client.get(
                 "/api/records/", HTTP_X_ORGANIZATION_ID=str(self.orgA.id)
-            ).json()
+            ).json()["results"]
         ]
         self.assertIn(str(self.recordA.id), ids)
         self.assertNotIn(str(self.recordB.id), ids)

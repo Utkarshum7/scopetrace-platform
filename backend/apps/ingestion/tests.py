@@ -632,7 +632,7 @@ class APILayerTestCase(TestCase):
         self._upload_sap()
         response = self.client.get('/api/batches/')
         self.assertEqual(response.status_code, drf_status.HTTP_200_OK)
-        self.assertGreaterEqual(len(response.json()), 1)
+        self.assertGreaterEqual(response.json()['count'], 1)
 
     def test_batch_detail(self):
         resp = self._upload_sap()
@@ -649,7 +649,7 @@ class APILayerTestCase(TestCase):
         batch_id = resp.json()['batch_id']
         response = self.client.get(f'/api/records/?batch={batch_id}')
         self.assertEqual(response.status_code, drf_status.HTTP_200_OK)
-        records = response.json()
+        records = response.json()['results']
         self.assertEqual(len(records), 2)
         for r in records:
             self.assertEqual(r['batch'], batch_id)
@@ -658,21 +658,21 @@ class APILayerTestCase(TestCase):
         self._upload_sap()
         response = self.client.get('/api/records/?status=DRAFT')
         self.assertEqual(response.status_code, drf_status.HTTP_200_OK)
-        for r in response.json():
+        for r in response.json()['results']:
             self.assertEqual(r['status'], 'DRAFT')
 
     def test_records_filter_suspicious_false(self):
         self._upload_sap()
         response = self.client.get('/api/records/?suspicious=false')
         self.assertEqual(response.status_code, drf_status.HTTP_200_OK)
-        for r in response.json():
+        for r in response.json()['results']:
             self.assertFalse(r['is_suspicious'])
 
     def test_records_filter_by_data_source(self):
         self._upload_sap()
         response = self.client.get(f'/api/records/?data_source={self.sap_ds.id}')
         self.assertEqual(response.status_code, drf_status.HTTP_200_OK)
-        self.assertGreaterEqual(len(response.json()), 1)
+        self.assertGreaterEqual(response.json()['count'], 1)
 
     # Approval workflow tests
 

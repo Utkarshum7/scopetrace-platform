@@ -57,25 +57,26 @@ class CarbonApiTests(TestCase):
 
     def test_member_can_read_reference(self):
         self.client.force_authenticate(self.viewer)
+        # activity-types is a bounded selector list (not paginated)
         self.assertEqual(len(self.client.get("/api/activity-types/").json()), 8)
-        self.assertGreaterEqual(len(self.client.get("/api/emission-factors/").json()), 8)
-        datasets = self.client.get("/api/factor-datasets/").json()
+        self.assertGreaterEqual(len(self.client.get("/api/emission-factors/").json()["results"]), 8)
+        datasets = self.client.get("/api/factor-datasets/").json()["results"]
         self.assertTrue(any(d["publisher"] == "DEFRA" and d["checksum"] for d in datasets))
 
     # --- tenant scoping of calculations ---
     def test_calculations_scoped_to_org(self):
         self.client.force_authenticate(self.admin)
-        calcs = self.client.get("/api/calculations/").json()
+        calcs = self.client.get("/api/calculations/").json()["results"]
         self.assertTrue(any(c["emission_record"] == str(self.record.id) for c in calcs))
 
         self.client.force_authenticate(self.userB)
-        calcs_b = self.client.get("/api/calculations/").json()
+        calcs_b = self.client.get("/api/calculations/").json()["results"]
         self.assertFalse(any(c["emission_record"] == str(self.record.id) for c in calcs_b))
 
     # --- record serializer CO2e ---
     def test_record_includes_co2e(self):
         self.client.force_authenticate(self.admin)
-        rows = self.client.get("/api/records/").json()
+        rows = self.client.get("/api/records/").json()["results"]
         row = next(r for r in rows if r["id"] == str(self.record.id))
         self.assertEqual(row["co2e_kg"], "2682.050000")
         self.assertEqual(row["calculation_status"], "CALCULATED")

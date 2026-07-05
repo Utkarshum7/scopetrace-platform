@@ -331,6 +331,7 @@ class OrganizationViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Organization.objects.all()
     serializer_class = OrganizationSerializer
     permission_classes = [IsOrgMember]
+    pagination_class = None  # bounded selector list
 
     def get_queryset(self):
         ctx = resolve_tenant_context(self.request)
@@ -352,3 +353,4 @@ class DataSourceViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelViewSet)
     queryset = DataSource.objects.all().select_related("organization")
     serializer_class = DataSourceSerializer
     permission_classes = [IsOrgMember]
+    pagination_class = None  # bounded selector list

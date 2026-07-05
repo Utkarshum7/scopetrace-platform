@@ -74,6 +74,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
+    'django_filters',
     'corsheaders',
 
     # Local apps
@@ -242,11 +243,15 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
-    # Phase 4 (Metrics API / scale): enable pagination centrally. Left OFF for
-    # now because the current frontend consumes bare arrays (`response.length`);
-    # turning this on requires the frontend to read `results`. Ship together.
-    # 'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    # 'PAGE_SIZE': 50,
+    # Pagination (Phase 4): unbounded transactional lists return a
+    # {count, next, previous, results} envelope. Bounded selector endpoints
+    # (organizations/datasources/activity-types) opt out via pagination_class=None.
+    'DEFAULT_PAGINATION_CLASS': 'apps.core.pagination.StandardResultsPagination',
+    'PAGE_SIZE': 50,
+    # Standardized filtering.
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+    ],
 }
 
 # ---------------------------------------------------------------------------
