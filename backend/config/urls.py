@@ -17,11 +17,13 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
-from apps.core.views import healthz
+from apps.core.views import healthz, healthz_worker
 
 urlpatterns = [
     # Database-aware health probe (used by Render/container orchestrators)
     path('healthz', healthz, name='healthz'),
+    # Celery worker liveness probe (Phase 5)
+    path('healthz/worker/', healthz_worker, name='healthz-worker'),
     path('admin/', admin.site.urls),
     # DRF browsable API session login/logout (moved off /api/auth to avoid
     # clashing with the JWT auth endpoints below)
