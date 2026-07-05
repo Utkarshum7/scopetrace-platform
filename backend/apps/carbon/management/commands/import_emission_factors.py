@@ -145,3 +145,8 @@ class Command(BaseCommand):
             if o["dry_run"]:
                 transaction.set_rollback(True)
                 self.stdout.write(self.style.WARNING("DRY RUN — rolled back, nothing persisted."))
+
+        if not o["dry_run"]:
+            # Invalidate cached reference lists so the new factors are visible.
+            from apps.carbon.cache_mixin import bump_refdata_version
+            bump_refdata_version()

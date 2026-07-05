@@ -16,6 +16,11 @@ from decouple import config, Csv
 from django.core.exceptions import ImproperlyConfigured
 import dj_database_url
 import os
+import sys
+
+# True while running the test suite — used to disable rate limiting so tests
+# don't hit throttle ceilings.
+_TESTING = 'test' in sys.argv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -252,6 +257,17 @@ REST_FRAMEWORK = {
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',
     ],
+    # Rate limiting. Rates are None under test (no throttling); the 'login' scope
+    # is applied to the token endpoint to blunt credential-stuffing.
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': None if _TESTING else config('THROTTLE_ANON', default='100/hour'),
+        'user': None if _TESTING else config('THROTTLE_USER', default='2000/hour'),
+        'login': None if _TESTING else config('THROTTLE_LOGIN', default='10/min'),
+    },
 }
 
 # ---------------------------------------------------------------------------

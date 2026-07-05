@@ -2,6 +2,7 @@ from rest_framework import viewsets
 
 from apps.accounts.mixins import TenantScopedViewSetMixin
 from apps.accounts.permissions import IsOrgMember
+from apps.carbon.cache_mixin import CachedReferenceListMixin
 from apps.carbon.filters import (
     CalculationFilter,
     EmissionFactorFilter,
@@ -22,21 +23,21 @@ from apps.carbon.serializers import (
 
 
 # --- Global reference data (shared; any authenticated member may read) ---
-class ActivityTypeViewSet(viewsets.ReadOnlyModelViewSet):
+class ActivityTypeViewSet(CachedReferenceListMixin, viewsets.ReadOnlyModelViewSet):
     queryset = ActivityType.objects.all()
     serializer_class = ActivityTypeSerializer
     permission_classes = [IsOrgMember]
     pagination_class = None  # bounded reference list
 
 
-class FactorDatasetViewSet(viewsets.ReadOnlyModelViewSet):
+class FactorDatasetViewSet(CachedReferenceListMixin, viewsets.ReadOnlyModelViewSet):
     queryset = EmissionFactorDataset.objects.select_related("region", "imported_by").all()
     serializer_class = EmissionFactorDatasetSerializer
     permission_classes = [IsOrgMember]
     filterset_class = FactorDatasetFilter
 
 
-class EmissionFactorViewSet(viewsets.ReadOnlyModelViewSet):
+class EmissionFactorViewSet(CachedReferenceListMixin, viewsets.ReadOnlyModelViewSet):
     queryset = EmissionFactor.objects.select_related("activity_type", "dataset", "region").all()
     serializer_class = EmissionFactorSerializer
     permission_classes = [IsOrgMember]
