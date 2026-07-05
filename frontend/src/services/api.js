@@ -138,6 +138,19 @@ export const apiService = {
     return response.data;
   },
 
+  // Authenticated CSV export -> triggers a browser download (streamed server-side).
+  async exportRecords(params = {}) {
+    const response = await api.get('/api/records/export/', { params, responseType: 'blob' });
+    const url = URL.createObjectURL(response.data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'scopetrace_records.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
   /**
    * Fetch emission records (paginated). Returns { items, count, next, previous }.
    * @param {Object} params - filters + optional page / page_size

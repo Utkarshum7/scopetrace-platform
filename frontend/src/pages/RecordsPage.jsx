@@ -78,6 +78,14 @@ export const RecordsPage = ({ initialFilters = {} }) => {
     setSelectedRecord(null); // Clear selected drawer details
   };
 
+  const handleExport = () => {
+    const cleanParams = {};
+    Object.keys(filters).forEach((key) => {
+      if (filters[key] !== '') cleanParams[key] = filters[key];
+    });
+    apiService.exportRecords(cleanParams);
+  };
+
   return (
     <div className="flex flex-col gap-6 animate-fadeIn">
       {/* Header */}
@@ -114,6 +122,15 @@ export const RecordsPage = ({ initialFilters = {} }) => {
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
               Record Audit Stream ({pageInfo.count} total)
             </span>
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white text-[11px] font-semibold uppercase tracking-wider transition-all focus:outline-none"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Export CSV
+            </button>
           </div>
 
           <div className="overflow-x-auto">
