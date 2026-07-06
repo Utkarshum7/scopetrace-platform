@@ -4,6 +4,13 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from apps.core.models import Organization, DataSource
 
+
+def generate_workflow_id():
+    # A named, module-level function (not a lambda) — Django's migration
+    # serializer can't serialize a lambda as a field default.
+    return str(uuid.uuid4())
+
+
 class UploadBatch(models.Model):
     """
     Groups entries from a single file upload execution.
@@ -63,6 +70,15 @@ class UploadBatch(models.Model):
                                                 engine's AIRecommendationStage
                                                 (Phase 3). No cancel endpoint
                                                 or task-revocation exists yet.
+
+    Phase 5d: `status` above now reflects INGESTION outcome ONLY. Carbon
+    calculation is a separate chained task (apps.carbon.tasks.calculate_task)
+    with its OWN status axis — see `calculation_status` / `CalculationStatus`
+    below and docs/JOB_LIFECYCLE.md. `finished_at` now marks the end of the
+    WHOLE chain: set by this batch's ingestion FAILED path (chain-terminating
+    — nothing else will run), or by the calculation stage's own completion
+    when ingestion succeeded (COMPLETED/PARTIALLY_COMPLETED) and the chain
+    continued.
     """
     class BatchStatus(models.TextChoices):
         PENDING = "PENDING", "Pending Ingestion"
@@ -82,6 +98,27 @@ class UploadBatch(models.Model):
         BatchStatus.PARTIALLY_COMPLETED,
         BatchStatus.FAILED,
         BatchStatus.CANCELLED,
+    })
+
+    class CalculationStatus(models.TextChoices):
+        """Phase 5d: the carbon-calculation chain link's own status, tracked
+        independently of `status` (ingestion outcome). A calculate-stage
+        crash must be visible without misrepresenting an ingestion that
+        already succeeded — that's the whole reason this is a separate axis
+        rather than folded into `status`. Owned by
+        apps.carbon.services.carbon_service.CarbonCalculationService.
+        calculate_for_batch(), called by both the async calculate_task and
+        the synchronous IngestionService.ingest() convenience path."""
+        NOT_STARTED = "NOT_STARTED", "Not Started"
+        CALCULATING = "CALCULATING", "Calculating"
+        CALCULATED = "CALCULATED", "Calculated"
+        CALCULATION_FAILED = "CALCULATION_FAILED", "Calculation Failed"
+
+    # calculate_task's own idempotency guard checks this — mirrors
+    # TERMINAL_STATUSES above but for the calculation axis.
+    CALCULATION_TERMINAL_STATUSES = frozenset({
+        CalculationStatus.CALCULATED,
+        CalculationStatus.CALCULATION_FAILED,
     })
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -137,7 +174,11 @@ class UploadBatch(models.Model):
     finished_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="When the job reached a terminal state (COMPLETED/PARTIALLY_COMPLETED/FAILED).",
+        help_text=(
+            "When the WHOLE chain finished (Phase 5d): set on ingestion's own FAILED path "
+            "(chain-terminating), or by the calculation stage's completion when ingestion "
+            "succeeded and the chain continued."
+        ),
     )
     worker_id = models.CharField(
         max_length=255,
@@ -158,15 +199,56 @@ class UploadBatch(models.Model):
         null=True,
         blank=True,
         help_text=(
-            "The Celery AsyncResult id captured at enqueue time. Not consumed by anything yet — "
-            "this is what a future cancel endpoint would call AsyncResult(id).revoke() on, "
-            "captured now so that feature needs no further migration."
+            "The id of whichever Celery task is currently active or about to run for this "
+            "batch — the view sets it to ingest_task's id at enqueue, calculate_task "
+            "overwrites it with its own id once the chain reaches it. Not consumed by "
+            "anything yet — this is what a future cancel endpoint would call "
+            "AsyncResult(id).revoke() on, captured now so that feature needs no further "
+            "migration."
         ),
     )
     # duration is deliberately NOT a stored field — it's finished_at minus
     # started_at, trivially computable, and storing a derived value risks
     # drift if either timestamp ever changes. Exposed as a computed
     # `duration_seconds` field in the API (see serializers.py).
+
+    # --- Phase 5d: chained ingest -> calculate ---------------------------
+    calculation_status = models.CharField(
+        max_length=32,
+        choices=CalculationStatus.choices,
+        default=CalculationStatus.NOT_STARTED,
+        help_text=(
+            "The carbon-calculation chain link's own status — see CalculationStatus above. "
+            "Independent of `status`, which reflects ingestion outcome only."
+        ),
+    )
+    workflow_id = models.CharField(
+        max_length=64,
+        default=generate_workflow_id,
+        editable=False,
+        db_index=True,
+        help_text=(
+            "Stable identifier for this batch's entire processing workflow, threaded "
+            "unchanged through every chained task (ingest_task, calculate_task, and any "
+            "future chain links) — independent of each task's own Celery task id, which "
+            "changes at every hop. Set once at batch creation (CharField, not UUIDField, "
+            "so it's format-flexible enough to be adopted directly as an OpenTelemetry "
+            "trace id later without a schema change)."
+        ),
+    )
+    pipeline_version = models.CharField(
+        max_length=32,
+        default="1.0",
+        blank=True,
+        help_text=(
+            "Version label for the shape of the ingest+calculate pipeline that processed "
+            "this batch — distinct from EmissionCalculation.engine_version, which versions "
+            "the carbon-calculation algorithm specifically. Not read by any branching logic "
+            "yet; pure preparation so a future pipeline restructuring (e.g. a third chain "
+            "link, chunked processing) can coexist with batches processed under the old "
+            "shape without a schema redesign."
+        ),
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
