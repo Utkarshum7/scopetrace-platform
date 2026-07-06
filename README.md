@@ -99,41 +99,24 @@ Modern enterprises collect environmental impact data across fragmented systems: 
 
 ## ⚙️ Environment Variables
 
-### Backend Configuration (`backend/.env`)
-Create a `.env` file in the `backend/` directory based on `backend/.env.example`:
+Copy `backend/.env.example` → `backend/.env` and `frontend/.env.example` →
+`frontend/.env`, then fill in real values. Configuration **fails closed**:
+with `DEBUG=False` the backend refuses to boot unless `SECRET_KEY` and
+`DATABASE_URL` are set, rejects a wildcard `ALLOWED_HOSTS`, and requires
+`STORAGE_BACKEND=s3` (with S3 credentials).
 
-```ini
-# Security Configuration
-SECRET_KEY=your-production-secret-key
-DEBUG=False
-ALLOWED_HOSTS=scopetrace-api.onrender.com,localhost,127.0.0.1
-
-# Database Configuration (Auto-injected in Render, defaults to SQLite locally)
-DATABASE_URL=postgres://user:password@hostname:5432/dbname
-
-# CORS Allowed Origins
-CORS_ALLOW_ALL_ORIGINS=False
-CORS_ALLOWED_ORIGINS=https://scopetrace.vercel.app
-
-# Optional: Automatic Superuser Seeding
-DJANGO_SUPERUSER_USERNAME=admin
-DJANGO_SUPERUSER_PASSWORD=yoursecurepassword
-DJANGO_SUPERUSER_EMAIL=admin@example.com
-```
-
-### Frontend Configuration (`frontend/.env`)
-Create a `.env` file in the `frontend/` directory based on `frontend/.env.example`:
-
-```ini
-# URL of the backend Django API
-VITE_API_URL=https://scopetrace-api.onrender.com
-```
+The full reference — every variable, its default, and which subsystem reads
+it (Celery, storage, email, throttling, JWT, Docker-Compose-only infra
+credentials) — is in [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) §4, not duplicated here.
 
 ---
 
 ## 🐳 Quick Start with Docker Compose (Recommended)
 
-The entire stack — PostgreSQL, the Django API, and the built frontend — runs in containers with a single command. Postgres data persists in a named volume across restarts and rebuilds (no ephemeral data loss).
+The full stack — PostgreSQL, Redis, MinIO (S3-compatible storage), the
+Django API, a Celery worker, Celery Beat, and the built frontend — runs in
+containers with a single command. Postgres/MinIO/Beat data all persist in
+named volumes across restarts and rebuilds.
 
 ```bash
 # From the repository root
@@ -145,16 +128,20 @@ docker compose up --build
 | Frontend | http://localhost:8080 |
 | API (browsable) | http://localhost:8000/api/ |
 | Health check | http://localhost:8000/healthz |
+| Worker health check | http://localhost:8000/healthz/worker/ |
 | Django Admin | http://localhost:8000/admin/ (`admin` / `admin12345` by default) |
+| MinIO console | http://localhost:9001 (`scopetrace` / `scopetrace123` by default) |
 
-On first start the API container automatically runs migrations, collects static files, and seeds baseline data (one demo Organization, three DataSources, and the admin user) via the `bootstrap_data` command — so the app is usable immediately. Override defaults (DB name/credentials, admin password, `SECRET_KEY`) with a root `.env` file or shell environment; see `docker-compose.yml` for the variables.
-
-To stop and remove the containers (data volume retained):
+On first start the API container automatically runs migrations, collects static files, and seeds baseline data (one demo Organization, three DataSources, the admin user, and one demo user per role) via the `bootstrap_data`/`seed_carbon` commands — so the app, including full async upload processing, is usable immediately. Override defaults (DB/MinIO credentials, admin password, `SECRET_KEY`) with a root `.env` file or shell environment; see `docker-compose.yml` for the variables, or the full reference in [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md).
 
 ```bash
-docker compose down          # keeps the pgdata volume
-docker compose down -v       # also deletes the database volume
+docker compose up --scale worker=3 -d          # horizontal worker scaling, zero code change
+docker compose --profile monitoring up -d flower  # optional Celery monitoring UI, see docs/FLOWER.md
+docker compose down          # keeps all named volumes
+docker compose down -v       # also deletes them (fresh start)
 ```
+
+Full operational detail — health checks, Celery/queue operations, backup & recovery, troubleshooting, production deployment — lives in [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) and [`docs/OPERATIONS_RUNBOOK.md`](docs/OPERATIONS_RUNBOOK.md).
 
 ---
 
@@ -253,6 +240,7 @@ To test the ingestion and analyst flow locally or in production:
 | Method | Endpoint | Auth | Description |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/healthz` | none | Database-aware health probe (200 healthy / 503 if DB unreachable) |
+| `GET` | `/healthz/worker/` | none | Celery worker liveness (real broker round trip + Beat heartbeat freshness) |
 | `POST` | `/api/auth/login/` | none | Obtain JWT access + refresh tokens and the user profile |
 | `POST` | `/api/auth/refresh/` | none | Exchange a refresh token for a new access/refresh pair (rotated) |
 | `POST` | `/api/auth/logout/` | Bearer | Blacklist the refresh token (logout) |
@@ -317,10 +305,24 @@ Below are placeholders representing key pages of the ScopeTrace platform. Replac
 
 ---
 
-## 🔮 Future Improvements
+## 📚 Documentation
 
-1. **Real-Time Stream Ingestion**: Integrate Kafka or RabbitMQ pipelines to ingest live utility readings directly from IoT smart meters instead of manual files.
-2. **Blockchain Audit Ledger**: Export approved transaction hashes to a private blockchain network (e.g., Hyperledger Fabric) to achieve high-trust external regulatory validation.
-3. **Machine Learning Anomaly Detection**: Implement isolation forests or autoencoders to find subtle multivariate anomalies in ESG reporting patterns rather than basic threshold heuristics.
-4. **Standardized Framework Compliance**: Auto-map emission records to ESG standards (CSRD, GRI, SASB) and export ready-made PDF compliance templates.
-5. **Automated Supplier Portals (Scope 3)**: Enable secure third-party portals with OAuth2 authentication where external partners upload shipping and manufacturing statistics directly.
+| Doc | Covers |
+| :--- | :--- |
+| [`ARCHITECTURE_OVERVIEW.md`](docs/ARCHITECTURE_OVERVIEW.md) | System component diagram, async pipeline sequence diagram, queue topology, links to every subsystem doc |
+| [`DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) | Local dev, production deployment, full environment variable reference, Docker/Compose usage, release checklist |
+| [`OPERATIONS_RUNBOOK.md`](docs/OPERATIONS_RUNBOOK.md) | Celery operations, queue/DLQ operational guide, Flower, health checks, common tasks, scaling, step-by-step runbooks |
+| [`INCIDENT_RESPONSE.md`](docs/INCIDENT_RESPONSE.md) | Backup/restore (verified commands), disaster recovery, incident response, troubleshooting table |
+| [`SECURITY.md`](docs/SECURITY.md) | Auth/RBAC/tenancy posture, secrets, rate limiting, dependency vulnerability status, known gaps |
+| [`ROADMAP.md`](docs/ROADMAP.md) | Known limitations and the real Phase 6–10 plan |
+| [`AUTH_RBAC.md`](docs/AUTH_RBAC.md) · [`CARBON_ENGINE_DESIGN.md`](docs/CARBON_ENGINE_DESIGN.md) · [`METRICS_ANALYTICS.md`](docs/METRICS_ANALYTICS.md) · [`MODEL.md`](docs/MODEL.md) · [`SOURCES.md`](docs/SOURCES.md) | Domain design docs — auth, carbon engine, analytics, data model, source formats |
+| [`JOB_LIFECYCLE.md`](docs/JOB_LIFECYCLE.md) · [`RETRY_DLQ.md`](docs/RETRY_DLQ.md) · [`SCHEDULED_TASKS.md`](docs/SCHEDULED_TASKS.md) · [`NOTIFICATIONS.md`](docs/NOTIFICATIONS.md) | Async pipeline design — job lifecycle, retry/backoff/DLQ, Celery Beat, email notifications |
+| [`FLOWER.md`](docs/FLOWER.md) · [`DOCKER.md`](docs/DOCKER.md) · [`CI_CD.md`](docs/CI_CD.md) | Monitoring, Docker image design, GitHub Actions CI |
+| [`DECISIONS.md`](docs/DECISIONS.md) · [`TRADEOFFS.md`](docs/TRADEOFFS.md) | Architectural decisions made and scope deliberately deferred |
+
+## 🗺️ Roadmap
+
+Phases 0–5 (rebrand & infra → correctness → auth/RBAC → carbon engine →
+metrics/analytics → production engineering) are complete. Known limitations
+and the actual Phase 6–10 plan (Enterprise Governance, AI, UX, Observability,
+Production Release): [`docs/ROADMAP.md`](docs/ROADMAP.md).
