@@ -116,6 +116,8 @@ def calculate_task(self, batch_id: str, workflow_id: str) -> str:
 
     from apps.carbon.services.carbon_service import CarbonCalculationService
 
+    from apps.core.tasks import send_notification_task
+
     try:
         calculations = CarbonCalculationService().calculate_for_batch(
             batch, transient_exceptions=CALCULATE_RETRYABLE_EXCEPTIONS
@@ -124,6 +126,12 @@ def calculate_task(self, batch_id: str, workflow_id: str) -> str:
             "calculate_task: workflow %s batch %s calculated (%s, attempt %s) — %s calculations",
             workflow_id, batch_id, attempt_label, attempt, len(calculations),
         )
+        # Phase 5g: this IS the whole chain's final resting state on
+        # success — ingest_task already succeeded (or this wouldn't be
+        # running at all) and calculation just finished too. Dispatched as
+        # a separate, independently-retryable task so mail delivery can
+        # never delay returning "completed" here or affect batch state.
+        send_notification_task.delay(batch_id=batch_id)
         return "completed"
     except CALCULATE_RETRYABLE_EXCEPTIONS:
         logger.warning(
@@ -132,6 +140,13 @@ def calculate_task(self, batch_id: str, workflow_id: str) -> str:
             workflow_id, batch_id, attempt_label,
             exc_info=True,
         )
+        raise
+    except Exception:
+        # Non-retryable — CarbonCalculationService.calculate_for_batch()
+        # already marked the batch CALCULATION_FAILED and re-raised. Also a
+        # final resting state (ingestion already succeeded, so this is the
+        # end of the line for this batch either way) — notify here too.
+        send_notification_task.delay(batch_id=batch_id)
         raise
 
 

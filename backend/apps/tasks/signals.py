@@ -9,6 +9,11 @@ control flow, NOT a failure — task_failure does not fire for an attempt that
 is about to be retried. This is what makes it safe to use this same signal
 for both dead-letter logging AND the batch-status fixup below: both need to
 happen exactly once, only when there is truly nothing left to retry.
+
+Phase 5g: the batch-status fixup below is also one of the three places a
+batch can reach its final resting state (see docs/NOTIFICATIONS.md) — a
+retries-exhausted failure that the DLQ fixup successfully applies dispatches
+the same batch-result notification the normal task completion paths do.
 """
 import logging
 
@@ -25,6 +30,23 @@ def register_dead_letter_handler():
     task_failure.connect(
         _handle_permanently_failed_task, dispatch_uid="apps.tasks.dead_letter_handler"
     )
+
+
+def _notify_batch_result_best_effort(batch_id):
+    """Dispatches apps.core.tasks.send_notification_task, swallowing any
+    dispatch-time failure (e.g. the broker itself being unreachable — the
+    same class of outage that could have caused the retries-exhausted
+    failure this is reacting to). A failed notification dispatch must never
+    make this signal handler itself raise; the DLQ log entry and batch-status
+    fixup above already happened and are the priority — a missed email is a
+    much smaller loss than either of those failing."""
+    try:
+        from apps.core.tasks import send_notification_task
+        send_notification_task.delay(batch_id=batch_id)
+    except Exception:
+        logger.warning(
+            "Could not dispatch send_notification_task for batch %s", batch_id, exc_info=True
+        )
 
 
 def _handle_permanently_failed_task(
@@ -131,6 +153,7 @@ def _handle_permanently_failed_task(
                     "retryable exception whose retries were exhausted)",
                     batch_id,
                 )
+                _notify_batch_result_best_effort(batch_id)
         elif task_name == _CALCULATE_TASK_NAME:
             updated = (
                 UploadBatch.objects.filter(pk=batch_id)
@@ -150,6 +173,7 @@ def _handle_permanently_failed_task(
                     "by a retryable exception whose retries were exhausted)",
                     batch_id,
                 )
+                _notify_batch_result_best_effort(batch_id)
     except Exception:
         logger.critical(
             "DEAD LETTER BATCH FIXUP FAILED: could not mark batch %s terminal for task %s "

@@ -3,12 +3,16 @@ Phase 5f — apps.ingestion.tasks.cleanup_stale_batches_task, the periodic
 backstop for batches left non-terminal (see docs/RETRY_DLQ.md §4.3 and
 docs/SCHEDULED_TASKS.md for the full design).
 """
+from django.contrib.auth import get_user_model
+from django.core import mail
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.core.models import DataSource, Organization
 from apps.ingestion.models import UploadBatch
 from apps.ingestion.tasks import cleanup_stale_batches_task
+
+User = get_user_model()
 
 
 class CleanupStaleBatchesTaskTests(TestCase):
@@ -108,3 +112,27 @@ class CleanupStaleBatchesTaskTests(TestCase):
         self.assertEqual(second, "ingestion=0 calculation=0")
         batch.refresh_from_db()
         self.assertEqual(batch.status, UploadBatch.BatchStatus.FAILED)
+
+    @override_settings(STALE_BATCH_THRESHOLD_MINUTES=30)
+    def test_sweeping_a_stale_batch_dispatches_notification(self):
+        # Phase 5g — closes the loop from docs/RETRY_DLQ.md §4.3: a batch
+        # left stuck by a double-DB-outage now gets both fixed up AND its
+        # uploader notified, once this periodic sweep catches it.
+        user = User.objects.create_user(
+            username="stale-uploader", email="stale-uploader@example.com", password="x"
+        )
+        batch = UploadBatch.objects.create(
+            organization=self.org, data_source=self.ds, file_name="x.csv",
+            uploaded_by=user, status=UploadBatch.BatchStatus.PROCESSING,
+        )
+        self._backdate(batch, minutes_ago=45)
+
+        cleanup_stale_batches_task()
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["stale-uploader@example.com"])
+
+    @override_settings(STALE_BATCH_THRESHOLD_MINUTES=30)
+    def test_no_stale_batches_dispatches_no_notification(self):
+        cleanup_stale_batches_task()
+        self.assertEqual(len(mail.outbox), 0)

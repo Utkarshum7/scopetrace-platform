@@ -12,8 +12,10 @@ swappable without touching business logic.
 
 Calculation is NOT triggered from here — it's a separate, independently-
 retryable task (apps.carbon.tasks.calculate_task), chained after this one by
-apps.ingestion.views.BaseUploadView.post. See docs/JOB_LIFECYCLE.md and
-docs/RETRY_DLQ.md.
+apps.ingestion.views.BaseUploadView.post. See docs/JOB_LIFECYCLE.md,
+docs/RETRY_DLQ.md, and docs/NOTIFICATIONS.md (Phase 5g: a non-retryable
+failure here is a final chain-terminating outcome, so it's one of the
+points that dispatches a batch-result email).
 """
 import logging
 import os
@@ -160,6 +162,19 @@ def ingest_task(self, batch_id: str, storage_key: str, workflow_id: str) -> str:
             exc_info=True,
         )
         raise
+    except Exception:
+        # Non-retryable — IngestionService.ingest_batch() already marked the
+        # batch FAILED and re-raised (see its docstring). Unlike the
+        # retryable branch above, this IS the batch's final resting state:
+        # the chain stops here (Celery chains don't continue past a raised
+        # exception), so calculate_task will never run. Phase 5g: this is
+        # exactly the moment to notify — dispatched as a separate,
+        # independently-retryable task (apps.core.tasks.send_notification_task)
+        # so a slow/down mail server can never delay this task's own
+        # cleanup/re-raise, and can never affect batch state.
+        from apps.core.tasks import send_notification_task
+        send_notification_task.delay(batch_id=batch_id)
+        raise
     finally:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
@@ -190,18 +205,36 @@ def cleanup_stale_batches_task() -> str:
       1. Ingestion itself never finished — status is non-terminal.
       2. Ingestion finished, but calculation never got to run or finish.
 
-    Each is a single atomic conditional UPDATE
-    (`.exclude(...).filter(updated_at__lt=cutoff).update(...)`) — safe to
-    run concurrently with itself (e.g. Beat catching up after being down):
-    once a row is updated it no longer matches the WHERE clause, so a
-    second concurrent sweep simply finds nothing left to do. No distributed
-    lock needed.
+    Each sweep's actual mutation is still a single atomic conditional UPDATE
+    (`.exclude(...).filter(id__in=...).update(...)`) — safe to run
+    concurrently with itself (e.g. Beat catching up after being down): once a
+    row is updated it no longer matches the exclude() condition, so a second
+    concurrent sweep simply finds nothing left to do. No distributed lock
+    needed. (Phase 5g: a plain id list is also read just before each UPDATE,
+    purely so affected batches can be notified afterward — the UPDATE itself
+    still re-applies the same exclude() condition rather than trusting that
+    list, so the atomicity guarantee is unchanged.)
     """
     cutoff = timezone.now() - timezone.timedelta(minutes=settings.STALE_BATCH_THRESHOLD_MINUTES)
 
-    stale_ingestion = (
+    # IDs are collected BEFORE each bulk update specifically so Phase 5g's
+    # notification can be dispatched per-affected-batch afterward — a bulk
+    # .update() only returns a row COUNT, not which rows it touched, and
+    # (like every .update() in this codebase) never fires Django signals, so
+    # there's no other way to know which batches just became notifiable.
+    stale_ingestion_ids = list(
         UploadBatch.objects.exclude(status__in=UploadBatch.TERMINAL_STATUSES)
         .filter(updated_at__lt=cutoff)
+        .values_list("id", flat=True)
+    )
+    stale_ingestion = (
+        UploadBatch.objects.filter(id__in=stale_ingestion_ids)
+        # Re-checked here, not just in the SELECT above: if a batch
+        # genuinely completed in the brief window between that SELECT and
+        # this UPDATE, this exclude() keeps the whole operation atomic and
+        # race-free — the id list is only ever used to know who to notify,
+        # never as a substitute for this condition.
+        .exclude(status__in=UploadBatch.TERMINAL_STATUSES)
         .update(
             status=UploadBatch.BatchStatus.FAILED,
             error_message=(
@@ -215,7 +248,7 @@ def cleanup_stale_batches_task() -> str:
         )
     )
 
-    stale_calculation = (
+    stale_calculation_ids = list(
         UploadBatch.objects.filter(
             status__in=(
                 UploadBatch.BatchStatus.COMPLETED,
@@ -224,6 +257,12 @@ def cleanup_stale_batches_task() -> str:
         )
         .exclude(calculation_status__in=UploadBatch.CALCULATION_TERMINAL_STATUSES)
         .filter(updated_at__lt=cutoff)
+        .values_list("id", flat=True)
+    )
+    stale_calculation = (
+        UploadBatch.objects.filter(id__in=stale_calculation_ids)
+        # Same race-safety note as the ingestion sweep above.
+        .exclude(calculation_status__in=UploadBatch.CALCULATION_TERMINAL_STATUSES)
         .update(
             calculation_status=UploadBatch.CalculationStatus.CALCULATION_FAILED,
             error_message=(
@@ -235,6 +274,11 @@ def cleanup_stale_batches_task() -> str:
             finished_at=timezone.now(),
         )
     )
+
+    if stale_ingestion_ids or stale_calculation_ids:
+        from apps.core.tasks import send_notification_task
+        for stale_batch_id in (*stale_ingestion_ids, *stale_calculation_ids):
+            send_notification_task.delay(batch_id=str(stale_batch_id))
 
     if stale_ingestion or stale_calculation:
         logger.warning(
