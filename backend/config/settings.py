@@ -320,6 +320,19 @@ CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 # dead-letter queue alongside it without renaming this one.
 CELERY_TASK_DEFAULT_QUEUE = config('CELERY_TASK_DEFAULT_QUEUE', default='celery')
 
+# Phase 5d: routing seam for the two chain-link task types, defined now but
+# NOT yet changing behavior — the single worker service (docker-compose.yml)
+# explicitly listens on all three queue names (celery, ingestion,
+# calculation) via `-Q`, so one pool still consumes everything, exactly as
+# before. This lets a future deployment dedicate a worker pool to the
+# calculation queue specifically (e.g. once AI enrichment — Phase 7 — makes
+# it meaningfully slower than ingestion) by adding a `-Q calculation` worker
+# service, with zero code change here or in the tasks themselves.
+CELERY_TASK_ROUTES = {
+    'apps.ingestion.tasks.ingest_task': {'queue': 'ingestion'},
+    'apps.carbon.tasks.calculate_task': {'queue': 'calculation'},
+}
+
 # acks_late + prefetch=1: a task is acknowledged only after it finishes, so a
 # crashed worker's in-flight task is redelivered rather than lost, and adding
 # worker replicas distributes load evenly instead of one worker prefetching a
