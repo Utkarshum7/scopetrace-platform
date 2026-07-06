@@ -60,17 +60,25 @@ class MetricsApiTests(TestCase):
         self.assertEqual(self.client.get("/api/metrics/summary/").status_code, drf.HTTP_401_UNAUTHORIZED)
 
     def test_summary_is_tenant_scoped(self):
+        # Compared as Decimal, not raw string: EmissionCalculation.co2e_tonnes
+        # is DecimalField(decimal_places=9), and Sum()'s returned scale is a
+        # DB-engine detail (Postgres preserves the full declared precision —
+        # e.g. "14.000000000" — SQLite's aggregation does not), not part of
+        # this API's actual contract. The frontend already only ever
+        # Number()/parseFloat()s this field (never compares the raw string),
+        # confirming the string's exact digit count was never a real
+        # contract to begin with.
         self.client.force_authenticate(self.viewer)
         data = self.client.get("/api/metrics/summary/").json()
-        self.assertEqual(data["total_co2e_tonnes"], "14")  # 10 + 4 (Org B's 99 excluded)
-        self.assertEqual(data["by_scope"]["SCOPE_1"], "10")
+        self.assertEqual(Decimal(data["total_co2e_tonnes"]), Decimal("14"))  # 10 + 4 (Org B's 99 excluded)
+        self.assertEqual(Decimal(data["by_scope"]["SCOPE_1"]), Decimal("10"))
 
     def test_timeseries(self):
         self.client.force_authenticate(self.viewer)
         rows = self.client.get("/api/metrics/timeseries/?bucket=month").json()
         by_month = {r["period"][:7]: r["co2e_tonnes"] for r in rows}
-        self.assertEqual(by_month["2024-01"], "10")
-        self.assertEqual(by_month["2024-02"], "4")
+        self.assertEqual(Decimal(by_month["2024-01"]), Decimal("10"))
+        self.assertEqual(Decimal(by_month["2024-02"]), Decimal("4"))
 
     def test_breakdown(self):
         self.client.force_authenticate(self.viewer)
@@ -95,6 +103,9 @@ class MetricsApiTests(TestCase):
         self.client.force_authenticate(self.super)
         data = self.client.get("/api/metrics/platform/").json()
         self.assertEqual(data["totals"]["organizations"], 2)
-        self.assertEqual(data["totals"]["total_co2e_tonnes"], "113")  # 10 + 4 + 99 across all orgs
+        # See test_summary_is_tenant_scoped's comment — Decimal-compared, not
+        # a raw string match, since the exact trailing-zero scale is a
+        # DB-engine (Postgres vs SQLite) detail, not this API's contract.
+        self.assertEqual(Decimal(data["totals"]["total_co2e_tonnes"]), Decimal("113"))  # 10 + 4 + 99 across all orgs
         names = {o["name"] for o in data["organizations"]}
         self.assertEqual(names, {"Org A", "Org B"})
