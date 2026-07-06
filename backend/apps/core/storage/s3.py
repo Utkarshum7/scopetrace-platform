@@ -17,9 +17,33 @@ from storages.utils import clean_name
 from .base import StorageObjectNotFound, StorageService
 
 
+class _MetadataAwareS3Storage(S3Storage):
+    """django-storages' `get_object_parameters(name)` is the documented hook
+    for customizing per-upload ExtraArgs (see its docstring: "Override this
+    method to adjust this on a per-object basis"), but it only receives the
+    object name — not the content being saved — so there is no built-in way
+    to pass different metadata through a normal `.save()` call. This reads a
+    transient instance attribute that `S3StorageService.save()` sets
+    immediately before calling `.save()` and clears immediately after.
+
+    Safe because each S3StorageService owns exactly one dedicated instance of
+    this class (constructed fresh per get_storage_service() call, never
+    cached or shared across concurrent operations) — there is no reentrancy
+    or cross-request interference within that single synchronous save().
+    """
+
+    _pending_metadata = None
+
+    def get_object_parameters(self, name):
+        params = super().get_object_parameters(name)
+        if self._pending_metadata:
+            params["Metadata"] = self._pending_metadata
+        return params
+
+
 class S3StorageService(StorageService):
     def __init__(self):
-        self._storage = S3Storage(
+        self._storage = _MetadataAwareS3Storage(
             bucket_name=settings.AWS_STORAGE_BUCKET_NAME,
             access_key=settings.AWS_ACCESS_KEY_ID,
             secret_key=settings.AWS_SECRET_ACCESS_KEY,
@@ -54,14 +78,22 @@ class S3StorageService(StorageService):
                 return False
             raise
 
-    def save(self, key, file_obj, content_type=None):
+    def save(self, key, file_obj, metadata=None, content_type=None):
         data = file_obj.read() if hasattr(file_obj, "read") else file_obj
         wrapped = ContentFile(data)
         if content_type:
             # django-storages reads this attribute (mirroring Django's
             # UploadedFile) to set the object's Content-Type header.
             wrapped.content_type = content_type
-        return self._storage.save(key, wrapped)
+
+        # S3 object metadata (x-amz-meta-*) must be a flat string->string map.
+        self._storage._pending_metadata = (
+            {str(k): str(v) for k, v in metadata.items()} if metadata else None
+        )
+        try:
+            return self._storage.save(key, wrapped)
+        finally:
+            self._storage._pending_metadata = None
 
     def open(self, key):
         if not self._object_exists(key):

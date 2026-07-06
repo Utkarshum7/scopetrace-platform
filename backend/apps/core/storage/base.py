@@ -24,8 +24,24 @@ class StorageObjectNotFound(StorageError):
 
 class StorageService(ABC):
     @abstractmethod
-    def save(self, key: str, file_obj: IO[bytes], content_type: Optional[str] = None) -> str:
+    def save(
+        self,
+        key: str,
+        file_obj: IO[bytes],
+        metadata: Optional[dict] = None,
+        content_type: Optional[str] = None,
+    ) -> str:
         """Persist `file_obj` durably under `key`.
+
+        `metadata` is an optional, provider-dependent bag of string key/value
+        pairs (e.g. original filename, uploading user, source system) stored
+        alongside the object. Support is best-effort: providers that can
+        persist it (S3-compatible backends, via native object metadata)
+        should; a provider that cannot (local filesystem) accepts the
+        parameter but is permitted to silently ignore it rather than raise —
+        this keeps the interface forward-compatible without forcing every
+        provider to model metadata storage today, and without affecting any
+        existing caller (the parameter defaults to None everywhere).
 
         Returns the key actually stored under (a provider may sanitize or
         namespace it; callers should persist the returned key, not assume

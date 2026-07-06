@@ -126,6 +126,18 @@ class LocalFileSystemStorageServiceTests(TestCase):
         # provider's presigned URL without callers special-casing either one.
         self.assertTrue(url.startswith("http://localhost:8000/media/"))
 
+    def test_save_accepts_and_silently_ignores_metadata(self):
+        # Per the StorageService contract: metadata support is best-effort.
+        # The local backend cannot persist it (FileSystemStorage has no
+        # metadata concept) but must accept the parameter without raising.
+        key = self.service.save(
+            "uploads/org1/batch1/sample.csv",
+            BytesIO(b"data"),
+            metadata={"source-system": "sap-feed"},
+        )
+        with self.service.open(key) as f:
+            self.assertEqual(f.read(), b"data")
+
 
 class S3StorageServiceTests(TestCase):
     """Phase 5b — the S3-compatible provider, verified as a thin delegating
@@ -153,6 +165,48 @@ class S3StorageServiceTests(TestCase):
         self.assertEqual(saved_name, "uploads/org1/batch1/sample.csv")
         self.assertEqual(saved_content.read(), b"a,b\n")
         self.assertEqual(saved_content.content_type, "text/csv")
+
+    def test_save_with_metadata_threads_it_through_pending_attribute_then_clears_it(self):
+        # get_object_parameters(name) — django-storages' own per-object
+        # customization hook — only receives the object name, not the
+        # content, so there's no built-in way to pass metadata through a
+        # normal save() call. S3StorageService bridges that gap via a
+        # transient _pending_metadata attribute on the storage instance; this
+        # verifies OUR side of that contract (set during the call, cleared
+        # after), independent of django-storages' own correctness (verified
+        # separately against real MinIO, not mockable in a meaningful way).
+        captured = {}
+
+        def fake_save(name, content):
+            captured["pending_metadata"] = self.service._storage._pending_metadata
+            return name
+
+        self.service._storage.save.side_effect = fake_save
+
+        self.service.save(
+            "uploads/org1/batch1/sample.csv",
+            BytesIO(b"data"),
+            metadata={"source-system": "sap-feed", "uploaded-by": "42"},
+        )
+
+        self.assertEqual(
+            captured["pending_metadata"], {"source-system": "sap-feed", "uploaded-by": "42"}
+        )
+        # Cleared afterwards so it never leaks into an unrelated later save().
+        self.assertIsNone(self.service._storage._pending_metadata)
+
+    def test_save_without_metadata_leaves_pending_metadata_none(self):
+        captured = {}
+
+        def fake_save(name, content):
+            captured["pending_metadata"] = self.service._storage._pending_metadata
+            return name
+
+        self.service._storage.save.side_effect = fake_save
+
+        self.service.save("uploads/org1/batch1/sample.csv", BytesIO(b"data"))
+
+        self.assertIsNone(captured["pending_metadata"])
 
     def test_open_missing_key_raises_storage_object_not_found(self):
         # NOTE: deliberately patches our own _object_exists, not

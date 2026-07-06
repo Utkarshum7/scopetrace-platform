@@ -22,9 +22,12 @@ class LocalFileSystemStorageService(StorageService):
     def __init__(self):
         self._storage = FileSystemStorage(location=settings.MEDIA_ROOT, base_url=settings.MEDIA_URL)
 
-    def save(self, key, file_obj, content_type=None):
-        # content_type has no effect locally — FileSystemStorage doesn't model
-        # object metadata the way S3 does. Accepted for interface parity only.
+    def save(self, key, file_obj, metadata=None, content_type=None):
+        # content_type/metadata have no effect locally — FileSystemStorage
+        # doesn't model object metadata the way S3 does. Accepted (per the
+        # StorageService contract, metadata support is best-effort) and
+        # silently ignored, rather than raising, so callers never need to
+        # special-case the backend just because it's running locally.
         data = file_obj.read() if hasattr(file_obj, "read") else file_obj
         return self._storage.save(key, ContentFile(data))
 
