@@ -24,20 +24,27 @@ from apps.ingestion.services.ingestion_service import IngestionService
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name="apps.ingestion.tasks.process_upload_batch")
-def process_upload_batch(batch_id: str, storage_key: str) -> str:
+@shared_task(name="apps.ingestion.tasks.process_upload_batch", bind=True)
+def process_upload_batch(self, batch_id: str, storage_key: str) -> str:
     """Run the full ingestion pipeline for an already-created, already-staged
     upload batch (see apps.ingestion.views.BaseUploadView.post, which creates
     the batch PENDING and durably saves the file via StorageService before
     enqueueing this task).
 
     Idempotent under Celery's at-least-once delivery (acks_late — see
-    config/celery.py): a batch already in a terminal state is skipped rather
-    than reprocessed. Without this guard, a task redelivered after a crash
-    that happened AFTER the ingestion transaction committed (but before the
-    broker received the ack) would re-parse the file and hit a
+    config/celery.py): a batch already in a TERMINAL_STATUSES state (Phase
+    5c: COMPLETED, PARTIALLY_COMPLETED, FAILED, or CANCELLED) is skipped
+    rather than reprocessed. Without this guard, a task redelivered after a
+    crash that happened AFTER the ingestion transaction committed (but before
+    the broker received the ack) would re-parse the file and hit a
     unique_together (batch, row_index) IntegrityError on the second
     bulk_create.
+
+    `bind=True` gives access to `self.request` — worker_id and retry_count
+    are captured here (Celery-context observability) before delegating to
+    IngestionService.ingest_batch(), which owns the actual outcome (COMPLETED
+    vs PARTIALLY_COMPLETED vs FAILED) and doesn't know or need to know it's
+    running inside Celery at all.
 
     Retry/backoff/dead-letter handling for genuinely failed tasks is Phase
     5e's concern, not this one — exceptions propagate unmodified here so
@@ -50,13 +57,19 @@ def process_upload_batch(batch_id: str, storage_key: str) -> str:
         logger.error("process_upload_batch: batch %s does not exist", batch_id)
         return "batch-not-found"
 
-    if batch.status in (UploadBatch.BatchStatus.COMPLETED, UploadBatch.BatchStatus.FAILED):
+    if batch.status in UploadBatch.TERMINAL_STATUSES:
         logger.info(
             "process_upload_batch: batch %s already %s — skipping (redelivered task)",
             batch_id,
             batch.status,
         )
         return f"skipped-{batch.status}"
+
+    # Celery-context observability, captured before ingest_batch() writes its
+    # first PROCESSING save() (so this rides along on that same write rather
+    # than needing a separate one).
+    batch.worker_id = self.request.hostname
+    batch.retry_count = self.request.retries
 
     storage = get_storage_service()
     suffix = os.path.splitext(storage_key)[1]

@@ -1,4 +1,9 @@
+from datetime import timedelta
+
+from django.db.models import DurationField, ExpressionWrapper, F
+from django.utils import timezone
 from rest_framework import serializers
+
 from apps.core.models import Organization, DataSource
 from apps.ingestion.models import UploadBatch, EmissionRecord
 
@@ -15,7 +20,55 @@ class DataSourceSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "source_type"]
 
 
-class UploadBatchSerializer(serializers.ModelSerializer):
+class BatchProgressFieldsMixin(serializers.Serializer):
+    """Shared, cheap-to-compute job-lifecycle fields (Phase 5c). No stored
+    duplication of anything derivable from total_rows/failed_rows/status/
+    started_at/finished_at — computed at read time so there's nothing to
+    drift out of sync.
+
+    Deliberately does NOT include `estimated_completion_time` — that field
+    runs a historical-average query per object (see BatchProgressSerializer
+    below) and would be an N+1 query risk if mixed into a list-serving
+    serializer like UploadBatchSerializer. It's reserved for the dedicated,
+    always-single-object /progress/ endpoint.
+    """
+
+    successful_records = serializers.SerializerMethodField()
+    processed_records = serializers.SerializerMethodField()
+    progress_percentage = serializers.SerializerMethodField()
+    duration_seconds = serializers.SerializerMethodField()
+
+    def get_successful_records(self, obj):
+        return obj.total_rows - obj.failed_rows
+
+    def get_processed_records(self, obj):
+        # Coarse-grained by design (see docs/JOB_LIFECYCLE.md): ingestion runs
+        # as one atomic transaction, so there is no meaningful "N of M rows
+        # processed so far" signal to report mid-PROCESSING — only a 0 -> all
+        # jump at the point the transaction commits.
+        if obj.status in (UploadBatch.BatchStatus.COMPLETED, UploadBatch.BatchStatus.PARTIALLY_COMPLETED):
+            return obj.total_rows
+        return 0
+
+    def get_progress_percentage(self, obj):
+        if obj.status in (UploadBatch.BatchStatus.COMPLETED, UploadBatch.BatchStatus.PARTIALLY_COMPLETED):
+            return 100
+        # FAILED reports 0, not 100 — the transaction rolled back, nothing
+        # was durably committed, so anything but 0 would misrepresent it as
+        # having finished successfully.
+        return 0
+
+    def get_duration_seconds(self, obj):
+        if not obj.started_at:
+            return None
+        # When still PROCESSING (finished_at not set yet), this reports
+        # elapsed time so far, not a final duration — useful for a live-
+        # updating "time elapsed" display while polling.
+        end = obj.finished_at or timezone.now()
+        return (end - obj.started_at).total_seconds()
+
+
+class UploadBatchSerializer(BatchProgressFieldsMixin, serializers.ModelSerializer):
     data_source_details = DataSourceSerializer(source="data_source", read_only=True)
 
     class Meta:
@@ -30,6 +83,14 @@ class UploadBatchSerializer(serializers.ModelSerializer):
             "total_rows",
             "failed_rows",
             "parse_errors",
+            "successful_records",
+            "processed_records",
+            "progress_percentage",
+            "started_at",
+            "finished_at",
+            "duration_seconds",
+            "worker_id",
+            "retry_count",
             "uploaded_by",
             "error_message",
             "created_at",
@@ -42,11 +103,83 @@ class UploadBatchSerializer(serializers.ModelSerializer):
             "total_rows",
             "failed_rows",
             "parse_errors",
+            "started_at",
+            "finished_at",
+            "worker_id",
+            "retry_count",
             "uploaded_by",
             "error_message",
             "created_at",
             "updated_at",
         ]
+
+
+class BatchProgressSerializer(BatchProgressFieldsMixin, serializers.ModelSerializer):
+    """Lean, job-lifecycle-focused payload for the polling endpoint
+    (GET /api/batches/{id}/progress/) — deliberately self-contained JSON, no
+    HTTP-polling-specific shape, so a future WebSocket/SSE channel could push
+    this exact same payload without the frontend contract changing (Phase 5c
+    requirement #3). Always single-object — never used for a list — so it's
+    safe to include the historical-average estimated_completion_time query
+    here (see BatchProgressFieldsMixin's docstring for why that field is
+    excluded from UploadBatchSerializer).
+    """
+
+    estimated_completion_time = serializers.SerializerMethodField()
+
+    class Meta:
+        model = UploadBatch
+        fields = [
+            "id",
+            "status",
+            "total_rows",
+            "failed_rows",
+            "successful_records",
+            "processed_records",
+            "progress_percentage",
+            "estimated_completion_time",
+            "started_at",
+            "finished_at",
+            "duration_seconds",
+            "worker_id",
+            "retry_count",
+            "error_message",
+            "parse_errors",
+        ]
+        read_only_fields = fields
+
+    def get_estimated_completion_time(self, obj):
+        # Only meaningful for a job that is actually running right now.
+        if obj.status != UploadBatch.BatchStatus.PROCESSING or not obj.started_at:
+            return None
+
+        # Practical heuristic (Phase 5c requirement #3's "if practical"
+        # qualifier) — NOT a predictor: average duration of the last 5
+        # completed batches for the same DataSource, applied to this batch's
+        # started_at. Returns None with no historical data to estimate from.
+        historical = (
+            UploadBatch.objects.filter(
+                data_source_id=obj.data_source_id,
+                status__in=[
+                    UploadBatch.BatchStatus.COMPLETED,
+                    UploadBatch.BatchStatus.PARTIALLY_COMPLETED,
+                ],
+                started_at__isnull=False,
+                finished_at__isnull=False,
+            )
+            .exclude(pk=obj.pk)
+            .annotate(
+                duration=ExpressionWrapper(
+                    F("finished_at") - F("started_at"), output_field=DurationField()
+                )
+            )
+            .order_by("-finished_at")[:5]
+        )
+        durations = [h.duration for h in historical]
+        if not durations:
+            return None
+        average_duration = sum(durations, timedelta()) / len(durations)
+        return obj.started_at + average_duration
 
 
 class EmissionRecordSerializer(serializers.ModelSerializer):

@@ -3,6 +3,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date
 from django.db import transaction
+from django.utils import timezone
 from apps.core.models import DataSource
 from apps.ingestion.models import UploadBatch, EmissionRecord
 from .sap_parser import SAPFuelParser
@@ -88,20 +89,29 @@ class IngestionService:
         creating a second orphaned batch.
 
         Ensures the batch is PROCESSING before doing any work, regardless of
-        its incoming status (already PROCESSING via `ingest()`'s synchronous
-        path above, or PENDING via the async task).
+        its incoming status (PENDING under CELERY_TASK_ALWAYS_EAGER, QUEUED
+        under real async dispatch, or already PROCESSING — both `ingest()`'s
+        synchronous path above and a crash-recovery redelivery land here with
+        status already PROCESSING). started_at/worker_id/retry_count may
+        already be set on the in-memory `batch` object by the caller (the
+        Celery task sets worker_id/retry_count before calling this — see
+        apps.ingestion.tasks.process_upload_batch) — this plain .save() (no
+        update_fields restriction) persists whatever the caller has already
+        populated, not just status/started_at.
         """
         if batch.status != UploadBatch.BatchStatus.PROCESSING:
             batch.status = UploadBatch.BatchStatus.PROCESSING
-            batch.save(update_fields=["status"])
+            batch.started_at = timezone.now()
+            batch.save()
 
         data_source = batch.data_source
         parser_class = self.PARSER_REGISTRY.get(data_source.source_type)
         if not parser_class:
             err_msg = f"No parser registered for source type: {data_source.source_type}"
             batch.status = UploadBatch.BatchStatus.FAILED
-            batch.error_message = err_msg
-            batch.save(update_fields=["status", "error_message"])
+            batch.error_message = f"Pipeline configuration error: {err_msg}"
+            batch.finished_at = timezone.now()
+            batch.save(update_fields=["status", "error_message", "finished_at"])
             raise ValueError(err_msg)
 
         parser = parser_class()
@@ -200,7 +210,16 @@ class IngestionService:
                 batch.total_rows = total_rows
                 batch.failed_rows = failed_rows
                 batch.parse_errors = errors_summary
-                batch.status = UploadBatch.BatchStatus.COMPLETED
+                # PARTIALLY_COMPLETED (not COMPLETED) whenever any row
+                # failed to parse/validate — even if every row failed. The
+                # pipeline itself did not crash; that's the distinction from
+                # FAILED below. See the BatchStatus docstring in models.py.
+                batch.status = (
+                    UploadBatch.BatchStatus.PARTIALLY_COMPLETED
+                    if failed_rows > 0
+                    else UploadBatch.BatchStatus.COMPLETED
+                )
+                batch.finished_at = timezone.now()
                 batch.save()
 
                 return IngestionResult(
@@ -212,10 +231,16 @@ class IngestionService:
                 )
 
         except Exception as exc:
-            # Ingestion transaction rolled back, mark batch status as FAILED
+            # Ingestion transaction rolled back, mark batch status as FAILED.
+            # Exception type + message + stage context — never a bare/generic
+            # "processing failed" (Phase 5c requirement #6).
             batch.status = UploadBatch.BatchStatus.FAILED
-            batch.error_message = str(exc)
-            batch.save(update_fields=["status", "error_message"])
+            batch.error_message = (
+                f"Ingestion pipeline failed while parsing/validating/persisting: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            batch.finished_at = timezone.now()
+            batch.save(update_fields=["status", "error_message", "finished_at"])
             logger.exception("Ingestion transaction failed for batch %s", batch.id)
             raise exc
 

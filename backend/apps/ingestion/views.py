@@ -15,6 +15,7 @@ from apps.ingestion.models import UploadBatch, EmissionRecord
 from apps.audit.models import AuditTrail
 from apps.ingestion.serializers import (
     UploadBatchSerializer,
+    BatchProgressSerializer,
     EmissionRecordSerializer,
     ApprovalSerializer,
     UploadInputSerializer,
@@ -98,15 +99,41 @@ class BaseUploadView(APIView):
         except Exception as exc:
             logger.exception("Failed to persist durable upload for batch %s", batch.id)
             batch.status = UploadBatch.BatchStatus.FAILED
-            batch.error_message = f"Failed to persist upload: {exc}"
-            batch.save(update_fields=["status", "error_message"])
+            batch.error_message = (
+                f"Failed to persist upload to durable storage: {type(exc).__name__}: {exc}"
+            )
+            batch.finished_at = timezone.now()
+            batch.save(update_fields=["status", "error_message", "finished_at"])
             return Response(
-                {"error": "Upload storage unavailable", "detail": str(exc)},
+                {
+                    "error": "Upload storage unavailable",
+                    "detail": str(exc),
+                    # The batch record already exists (created PENDING above)
+                    # even though the file never reached durable storage —
+                    # a client should always have an id to look up, per the
+                    # comment on batch creation above.
+                    "batch_id": batch.id,
+                    "status": batch.status,
+                },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
         try:
-            process_upload_batch.delay(str(batch.id), storage_key)
+            result = process_upload_batch.delay(str(batch.id), storage_key)
+            batch.refresh_from_db()
+            if batch.status == UploadBatch.BatchStatus.PENDING:
+                # Still PENDING after .delay() returned means real async
+                # dispatch happened and the task genuinely hasn't started yet
+                # (sitting in the broker) — record that and remember the
+                # task id (future cancellation hook). Under
+                # CELERY_TASK_ALWAYS_EAGER (tests, local DEBUG) the task has
+                # ALREADY fully run inside .delay() by this point, so status
+                # is already terminal and this branch is skipped — writing
+                # QUEUED unconditionally here would otherwise clobber that
+                # terminal status right back to a false "still queued".
+                batch.status = UploadBatch.BatchStatus.QUEUED
+                batch.celery_task_id = result.id
+                batch.save(update_fields=["status", "celery_task_id"])
         except Exception:
             # Only reachable when CELERY_TASK_ALWAYS_EAGER is True (tests,
             # local DEBUG) — CELERY_TASK_EAGER_PROPAGATES re-raises the
@@ -122,9 +149,15 @@ class BaseUploadView(APIView):
 
         # Refresh so the response is honest about current state: under eager
         # mode (tests/local DEBUG) the task has already fully run by this
-        # point; under real async dispatch this will still show PENDING.
+        # point; under real async dispatch this will show QUEUED (or PENDING,
+        # if the try block above hit the except branch).
         batch.refresh_from_db()
 
+        # `batch_id` (not `id`) is the established key here — existing
+        # callers (tests, UploadPage.jsx) already depend on it; the new
+        # progress fields are added on top rather than switching to
+        # BatchProgressSerializer's shape, which would rename it unnecessarily.
+        progress = BatchProgressSerializer(batch).data
         return Response(
             {
                 "batch_id": batch.id,
@@ -134,6 +167,7 @@ class BaseUploadView(APIView):
                 "failed_rows": batch.failed_rows,
                 "errors": batch.parse_errors,
                 "error_message": batch.error_message,
+                **{k: v for k, v in progress.items() if k not in ("id", "error_message", "parse_errors")},
             },
             status=status.HTTP_202_ACCEPTED,
         )
@@ -159,6 +193,20 @@ class UploadBatchViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelViewSet
     queryset = UploadBatch.objects.all().select_related("data_source", "uploaded_by")
     serializer_class = UploadBatchSerializer
     permission_classes = [IsOrgMember]
+
+    @action(detail=True, methods=["GET"])
+    def progress(self, request, pk=None):
+        """GET /api/batches/{id}/progress/ — the polling endpoint (Phase 5c).
+
+        Lean, job-lifecycle-focused payload (see BatchProgressSerializer) —
+        intentionally the same shape a future WebSocket/SSE push would send,
+        so migrating the transport later never requires a frontend contract
+        change. Reuses this ViewSet's existing tenant scoping/permissions
+        (get_object() -> TenantScopedViewSetMixin.get_queryset()) rather than
+        introducing a separate, easy-to-forget authorization path.
+        """
+        batch = self.get_object()
+        return Response(BatchProgressSerializer(batch).data)
 
 
 class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelViewSet):

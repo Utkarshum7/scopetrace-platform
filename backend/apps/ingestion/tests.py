@@ -412,8 +412,10 @@ class ServiceLayerTestCase(TestCase):
             service = IngestionService()
             result = service.ingest(self.sap_ds, temp_name, uploaded_by=self.user)
 
-            # Verify batch status and counts
-            self.assertEqual(result.batch.status, UploadBatch.BatchStatus.COMPLETED)
+            # Verify batch status and counts. Phase 5c: any row-level
+            # failure yields PARTIALLY_COMPLETED, not COMPLETED — the
+            # pipeline itself didn't crash, but not every row succeeded.
+            self.assertEqual(result.batch.status, UploadBatch.BatchStatus.PARTIALLY_COMPLETED)
             self.assertEqual(result.total_rows, 5)
             self.assertEqual(result.failed_rows, 2)
             self.assertEqual(result.suspicious_rows, 1)
