@@ -1,5 +1,9 @@
 # ScopeTrace — Enterprise Carbon Accounting & ESG Data Platform
 
+[![Backend CI](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/backend-ci.yml)
+[![Frontend CI](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/frontend-ci.yml)
+[![Docker Build Verification](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/docker-build.yml/badge.svg)](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/docker-build.yml)
+
 > **ScopeTrace**  
 > A production-grade, full-stack enterprise platform that ingests corporate greenhouse gas (GHG) emission data from heterogeneous sources, normalizes it to standardized base activity units — the foundation for CO₂ equivalent (CO₂e) reporting — and guides analysts through an immutable audit and review workflow across Scopes 1, 2, and 3.
 

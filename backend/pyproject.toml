@@ -1,0 +1,17 @@
+[tool.ruff]
+# Checked in so `ruff check .` behaves identically locally and in CI —
+# not relying on CLI flags anyone could forget to pass (Phase 5i).
+target-version = "py312"
+extend-exclude = ["venv", "venv_check", "*/migrations/*"]
+
+[tool.ruff.lint]
+# Defaults (pyflakes-equivalent: unused imports/variables, undefined names,
+# etc.) — deliberately not opting into a wider rule set (pycodestyle style
+# rules, import sorting, etc.) yet. This project had zero linting before
+# Phase 5i; starting with the highest-signal, lowest-noise rule set is what
+# let `ruff check` land as a BLOCKING CI gate on day one with only 5
+# pre-existing (trivial, fixed) issues, rather than the hundreds a stricter
+# preset would have surfaced — same reasoning as the frontend's
+# react/prop-types finding. Broadening the rule set is a reasonable future
+# increment, not something to do speculatively now.
+select = ["E4", "E7", "E9", "F"]

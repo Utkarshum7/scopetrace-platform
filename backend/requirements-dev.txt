@@ -1,0 +1,8 @@
+# Development/CI-only tooling (Phase 5i) — deliberately NOT in requirements.txt.
+# Neither of these is ever imported by application code or needed at
+# runtime; keeping them out of the production image (api/worker/beat, all
+# built from requirements.txt) means a lint/security tool's own dependency
+# tree never bloats what actually ships. Installed only in CI (and locally,
+# on demand) via: pip install -r requirements.txt -r requirements-dev.txt
+ruff==0.15.20
+pip-audit==2.10.1

@@ -1,0 +1,79 @@
+name: Frontend CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: frontend
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+  lint:
+    name: Lint (eslint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Blocking: Phase 5i cleaned the pre-existing 107-problem backlog to
+      # 0 errors (react/prop-types disabled — never actually followed in
+      # this JS-only project; ~4 dead `import React` statements removed).
+      # See docs/CI_CD.md.
+      - name: eslint
+        run: npm run lint
+
+  security:
+    name: Security scan (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Advisory, not blocking: existing findings (esbuild/vite dev-server-
+      # only, form-data, js-yaml — all in dev/transitive dependencies) may
+      # need version bumps with their own testing burden. Full output is
+      # still always visible in the log below. See docs/CI_CD.md.
+      - name: npm audit (advisory)
+        continue-on-error: true
+        run: npm audit --audit-level=high
