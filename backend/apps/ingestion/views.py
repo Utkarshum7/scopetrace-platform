@@ -129,10 +129,19 @@ class BaseUploadView(APIView):
             # tasks — a stable identifier for the whole chain's execution,
             # independent of each task's own (different) Celery task id.
             # Not relying solely on Celery task IDs, per the requirement.
+            #
+            # batch_id/workflow_id are passed as KEYWORD arguments (not
+            # positional) specifically so apps.tasks.signals's task_failure
+            # handler (Phase 5e) can reliably extract them via kwargs.get(...)
+            # for the dead-letter log, regardless of which task in the chain
+            # failed — the two tasks have different positional signatures
+            # (ingest_task also takes storage_key), so positional extraction
+            # would need per-task-name special-casing in a generic signal
+            # handler; a shared keyword convention avoids that entirely.
             workflow_id = str(batch.workflow_id)
             result = chain(
-                ingest_task.si(str(batch.id), storage_key, workflow_id),
-                calculate_task.si(str(batch.id), workflow_id),
+                ingest_task.si(batch_id=str(batch.id), storage_key=storage_key, workflow_id=workflow_id),
+                calculate_task.si(batch_id=str(batch.id), workflow_id=workflow_id),
             ).delay()
             batch.refresh_from_db()
             if batch.status == UploadBatch.BatchStatus.PENDING:

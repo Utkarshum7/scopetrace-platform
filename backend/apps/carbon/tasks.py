@@ -1,6 +1,6 @@
 """
 Async carbon calculation — second link in the ingest -> calculate chain
-(Phase 5d).
+(Phase 5d; retry/backoff Phase 5e).
 
 Thin wrapper, same philosophy as apps.ingestion.tasks.ingest_task: no
 business logic here, delegates to CarbonCalculationService.
@@ -14,11 +14,39 @@ business logic.
 import logging
 
 from celery import shared_task
+from django.db import InterfaceError, OperationalError
 
 logger = logging.getLogger(__name__)
 
+# Retry policy for calculate_task (Phase 5e) — designed INDEPENDENTLY of
+# ingest_task's, not shared, even though the exception tuple happens to
+# coincide today (see docs/RETRY_DLQ.md for the full rationale). Same
+# rationale for scoping to Django's transient-connectivity exceptions only
+# (not a bare Exception catch-all): calculate_one() already degrades a bad
+# individual record to UNRESOLVED rather than raising, so anything that
+# reaches this task's try/except is either a genuine DB connectivity issue
+# (worth retrying) or a deterministic bug (not worth retrying).
+#
+# max_retries=5 (more than ingest_task's 3), backoff 2s/4s/8s/16s/32s (capped
+# 120s): calculate_task has a narrower failure surface than ingest_task (DB
+# only — no storage/file I/O), so a false-positive retry loop is less of a
+# concern; and giving up on calculation after a successful ingestion is more
+# wasteful to abandon early than giving up on ingestion itself — the
+# expensive parse/persist work is already done, retrying the remaining
+# (cheap, single bulk_create) calculation step costs little, so a bit more
+# patience before finally marking CALCULATION_FAILED is worth it.
+CALCULATE_RETRYABLE_EXCEPTIONS = (OperationalError, InterfaceError)
 
-@shared_task(name="apps.carbon.tasks.calculate_task", bind=True)
+
+@shared_task(
+    name="apps.carbon.tasks.calculate_task",
+    bind=True,
+    autoretry_for=CALCULATE_RETRYABLE_EXCEPTIONS,
+    retry_backoff=2,
+    retry_backoff_max=120,
+    retry_jitter=True,
+    max_retries=5,
+)
 def calculate_task(self, batch_id: str, workflow_id: str) -> str:
     """Compute + persist CO2e for an already-ingested batch.
 
@@ -35,13 +63,29 @@ def calculate_task(self, batch_id: str, workflow_id: str) -> str:
     guard against for that case here; this only ever runs when ingestion
     reached COMPLETED or PARTIALLY_COMPLETED.
 
-    Idempotent under Celery's at-least-once delivery (acks_late): a batch
-    whose calculation_status is already terminal (CALCULATED/
-    CALCULATION_FAILED) is skipped, not reprocessed. Without this guard, a
-    redelivered task would re-run bulk_create() and hit EmissionCalculation's
-    unique_current_calc_per_record constraint.
+    Idempotent under Celery's at-least-once delivery (acks_late) AND under
+    retries (Phase 5e) — both redeliver the task as a brand-new message
+    executed from the top: a batch whose calculation_status is already
+    terminal (CALCULATED/CALCULATION_FAILED) is skipped, not reprocessed.
+    Without this guard, a redelivered task would re-run bulk_create() and hit
+    EmissionCalculation's unique_current_calc_per_record constraint.
+    CALCULATE_RETRYABLE_EXCEPTIONS is passed as calculate_for_batch's
+    transient_exceptions so a retryable exception does NOT get marked
+    CALCULATION_FAILED prematurely — see that method's docstring and
+    docs/RETRY_DLQ.md.
+
+    A permanently-failed task (non-retryable exception, or retries
+    exhausted) is caught by apps.tasks.signals's task_failure handler, which
+    logs it to the dead-letter table (apps.tasks.models.FailedTaskLog) AND
+    marks the batch CALCULATION_FAILED if a retryable exception left it
+    non-terminal.
     """
     from apps.ingestion.models import UploadBatch
+
+    attempt = self.request.retries + 1
+    attempt_label = "initial attempt" if self.request.retries == 0 else (
+        f"retry attempt {self.request.retries}/{self.max_retries}"
+    )
 
     try:
         batch = UploadBatch.objects.select_related("data_source", "organization").get(pk=batch_id)
@@ -52,10 +96,15 @@ def calculate_task(self, batch_id: str, workflow_id: str) -> str:
     if batch.calculation_status in UploadBatch.CALCULATION_TERMINAL_STATUSES:
         logger.info(
             "calculate_task: workflow %s batch %s calculation already %s — "
-            "skipping (redelivered task)",
-            workflow_id, batch_id, batch.calculation_status,
+            "skipping (redelivered task, %s)",
+            workflow_id, batch_id, batch.calculation_status, attempt_label,
         )
         return f"skipped-{batch.calculation_status}"
+
+    logger.info(
+        "calculate_task: workflow %s batch %s starting (%s)",
+        workflow_id, batch_id, attempt_label,
+    )
 
     # Celery-context observability. celery_task_id is overwritten here (the
     # view set it to ingest_task's id at enqueue) so it always points at
@@ -67,9 +116,20 @@ def calculate_task(self, batch_id: str, workflow_id: str) -> str:
 
     from apps.carbon.services.carbon_service import CarbonCalculationService
 
-    calculations = CarbonCalculationService().calculate_for_batch(batch)
-    logger.info(
-        "calculate_task: workflow %s batch %s calculated — %s calculations",
-        workflow_id, batch_id, len(calculations),
-    )
-    return "completed"
+    try:
+        calculations = CarbonCalculationService().calculate_for_batch(
+            batch, transient_exceptions=CALCULATE_RETRYABLE_EXCEPTIONS
+        )
+        logger.info(
+            "calculate_task: workflow %s batch %s calculated (%s, attempt %s) — %s calculations",
+            workflow_id, batch_id, attempt_label, attempt, len(calculations),
+        )
+        return "completed"
+    except CALCULATE_RETRYABLE_EXCEPTIONS:
+        logger.warning(
+            "calculate_task: workflow %s batch %s transient failure on %s — "
+            "will retry if attempts remain",
+            workflow_id, batch_id, attempt_label,
+            exc_info=True,
+        )
+        raise
