@@ -141,11 +141,12 @@ services:
     build:
       context: ./backend
     # -Q lists every queue name explicitly (Phase 5d's ingestion/calculation
-    # routing seam, config/settings.py CELERY_TASK_ROUTES, plus the default
-    # 'celery' queue apps.core.tasks.ping still uses) — one worker pool
-    # consumes all three today; a future deployment can give calculation its
-    # own dedicated worker service by adding `-Q calculation` there instead.
-    command: ["celery", "-A", "config", "worker", "--loglevel=info", "-Q", "celery,ingestion,calculation"]
+    # routing seam, Phase 5f's maintenance queue, config/settings.py
+    # CELERY_TASK_ROUTES, plus the default 'celery' queue apps.core.tasks.ping
+    # still uses) — one worker pool consumes all four today; a future
+    # deployment can give calculation (or maintenance) its own dedicated
+    # worker service by adding e.g. `-Q calculation` there instead.
+    command: ["celery", "-A", "config", "worker", "--loglevel=info", "-Q", "celery,ingestion,calculation,maintenance"]
     environment:
       <<: *backend-env
       # `api` is the single migration/seed owner (see entrypoint.sh) — the
@@ -166,6 +167,42 @@ services:
       retries: 5
       start_period: 10s
 
+  # Celery Beat — the periodic-task scheduler (Phase 5f). MUST stay a single
+  # instance: unlike `worker` above, this is NOT horizontally scalable —
+  # running two Beat schedulers would independently fire every periodic task
+  # on its own timer, double-dispatching every scheduled job. Never add
+  # `--scale beat=N>1` or a second Beat service.
+  #
+  # Deliberately its own service rather than `celery worker -B` (Beat bundled
+  # into the worker process) specifically because `worker` above IS meant to
+  # be scaled (`--scale worker=3` is a real, documented capability) — bundling
+  # Beat into a scalable service would silently break the instant someone
+  # scaled it.
+  #
+  # --schedule points at a file on a dedicated named volume so the "last run
+  # time" bookkeeping (Celery's PersistentScheduler) survives container
+  # restarts/rebuilds — without it, every restart would immediately re-fire
+  # any task whose interval had already elapsed since the image was last
+  # built. Not critical for correctness (every scheduled task here is an
+  # idempotent, self-healing sweep — see config/settings.py's
+  # CELERY_BEAT_SCHEDULE comment), just avoids unnecessary duplicate runs.
+  beat:
+    build:
+      context: ./backend
+    command: ["celery", "-A", "config", "beat", "--loglevel=info", "--schedule=/app/beat-data/celerybeat-schedule"]
+    environment:
+      <<: *backend-env
+      RUN_MIGRATIONS: "false"
+    volumes:
+      - beatdata:/app/beat-data
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
   frontend:
     build:
       context: ./frontend
@@ -179,3 +216,4 @@ services:
 volumes:
   pgdata:
   miniodata:
+  beatdata:

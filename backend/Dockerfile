@@ -16,10 +16,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Normalise line endings + make the entrypoint executable (robust across
-# Windows checkouts), then drop to a non-root user.
+# Windows checkouts), then drop to a non-root user. beat-data is pre-created
+# here (empty) so its ownership is already correct when docker-compose.yml's
+# `beat` service mounts a named volume onto it — Docker seeds a fresh named
+# volume from whatever already exists in the image at that path, permissions
+# included; without this, the volume would appear owned by root and appuser
+# (the Celery Beat process) couldn't write its schedule file there.
 RUN sed -i 's/\r$//' /app/entrypoint.sh \
     && chmod +x /app/entrypoint.sh \
     && adduser --disabled-password --gecos "" appuser \
+    && mkdir -p /app/beat-data \
     && chown -R appuser:appuser /app
 USER appuser
 

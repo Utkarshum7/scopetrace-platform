@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from datetime import timedelta
 from pathlib import Path
+from celery.schedules import crontab
 from decouple import config, Csv
 from django.core.exceptions import ImproperlyConfigured
 import dj_database_url
@@ -329,9 +330,20 @@ CELERY_TASK_DEFAULT_QUEUE = config('CELERY_TASK_DEFAULT_QUEUE', default='celery'
 # calculation queue specifically (e.g. once AI enrichment — Phase 7 — makes
 # it meaningfully slower than ingestion) by adding a `-Q calculation` worker
 # service, with zero code change here or in the tasks themselves.
+#
+# Phase 5f: scheduled/maintenance tasks (see CELERY_BEAT_SCHEDULE below) get
+# their own 'maintenance' queue for the same reason — a burst of periodic
+# sweep work must never compete with or delay time-sensitive ingestion/
+# calculation processing. Same "one pool consumes everything today" story:
+# the worker service's `-Q` list was extended to include it, not split into
+# a dedicated worker.
 CELERY_TASK_ROUTES = {
     'apps.ingestion.tasks.ingest_task': {'queue': 'ingestion'},
     'apps.carbon.tasks.calculate_task': {'queue': 'calculation'},
+    'apps.ingestion.tasks.cleanup_stale_batches_task': {'queue': 'maintenance'},
+    'apps.carbon.tasks.recalculate_missing_calculations_task': {'queue': 'maintenance'},
+    'apps.tasks.tasks.cleanup_old_failed_task_logs_task': {'queue': 'maintenance'},
+    'apps.core.tasks.heartbeat_task': {'queue': 'maintenance'},
 }
 
 # acks_late + prefetch=1: a task is acknowledged only after it finishes, so a
@@ -346,6 +358,52 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 # `celery events` work without a config change when Phase 5h adds them.
 CELERY_WORKER_SEND_TASK_EVENTS = True
 CELERY_TASK_SEND_SENT_EVENT = True
+
+# ---------------------------------------------------------------------------
+# Celery Beat — scheduled maintenance tasks (Phase 5f).
+#
+# Static, code-defined schedule (Celery's built-in CELERY_BEAT_SCHEDULE +
+# the default file-based PersistentScheduler) rather than django-celery-beat's
+# DB-backed, admin-editable schedule. Chosen deliberately: every schedule
+# change here goes through code review and git history, consistent with this
+# project's audit-first posture (AuditTrail exists specifically to make
+# changes reviewable) — an unaudited runtime schedule-editing surface would
+# be a real regression for an ESG compliance product, not just "less
+# flexible". No new dependency, no new DB tables. See docs/SCHEDULED_TASKS.md
+# for the full design and per-task rationale.
+#
+# Every task below is routed to the 'maintenance' queue above, and every one
+# is an idempotent, self-healing sweep (conditional UPDATE/DELETE, or a
+# monotonically-overwritten cache write) — safe to run concurrently with
+# itself (e.g. Beat catching up after being down) with no distributed lock,
+# and safe to simply skip a run if Beat itself was briefly down: the next
+# scheduled invocation picks up whatever slack accumulated. None of them
+# carry a per-task Celery retry policy for the same reason — an unhandled
+# exception is logged (apps.tasks's task_failure DLQ handler still fires;
+# see apps/tasks/signals.py) and the next scheduled run naturally retries
+# the work.
+STALE_BATCH_THRESHOLD_MINUTES = config('STALE_BATCH_THRESHOLD_MINUTES', default=30, cast=int)
+FAILED_TASK_LOG_RETENTION_DAYS = config('FAILED_TASK_LOG_RETENTION_DAYS', default=90, cast=int)
+CELERY_HEARTBEAT_TTL_SECONDS = config('CELERY_HEARTBEAT_TTL_SECONDS', default=180, cast=int)
+
+CELERY_BEAT_SCHEDULE = {
+    'cleanup-stale-batches': {
+        'task': 'apps.ingestion.tasks.cleanup_stale_batches_task',
+        'schedule': timedelta(minutes=15),
+    },
+    'recalculate-missing-calculations': {
+        'task': 'apps.carbon.tasks.recalculate_missing_calculations_task',
+        'schedule': crontab(hour=3, minute=30),
+    },
+    'cleanup-old-failed-task-logs': {
+        'task': 'apps.tasks.tasks.cleanup_old_failed_task_logs_task',
+        'schedule': crontab(hour=3, minute=0),
+    },
+    'celery-heartbeat': {
+        'task': 'apps.core.tasks.heartbeat_task',
+        'schedule': timedelta(minutes=1),
+    },
+}
 
 # Cache — use Redis when configured, otherwise Django's default local-memory
 # cache. No behavior change today (nothing reads the cache yet); the Phase 4
