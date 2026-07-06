@@ -138,6 +138,14 @@ export const apiService = {
     return response.data;
   },
 
+  // Lean job-lifecycle payload for polling (see useBatchProgress). Same
+  // shape a future WebSocket/SSE push would send — deliberately not just
+  // getBatchDetail() again, to keep frequent-polling payloads small.
+  async getBatchProgress(batchId) {
+    const response = await api.get(`/api/batches/${batchId}/progress/`);
+    return response.data;
+  },
+
   // Authenticated CSV export -> triggers a browser download (streamed server-side).
   async exportRecords(params = {}) {
     const response = await api.get('/api/records/export/', { params, responseType: 'blob' });
