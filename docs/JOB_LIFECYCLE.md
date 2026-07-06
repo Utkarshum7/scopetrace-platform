@@ -5,6 +5,115 @@ lifecycle: state machine, progress tracking, the polling API, observability,
 and error handling. Builds directly on Phase 5b (async upload processing via
 Celery) and Phase 5a (Celery/Redis foundation).
 
+Phase 5d — the single processing task split into a two-stage chain:
+`apps.ingestion.tasks.ingest_task` (parse/validate/normalize/persist) then
+`apps.carbon.tasks.calculate_task` (compute + persist CO₂e), chained via
+Celery's `chain()`. See §0 below for the design, then §1 for how it changed
+the state machine.
+
+---
+
+## 0. Chained orchestration (Phase 5d)
+
+**Why a chain, not a group or chord.** `calculate_task` depends on
+`ingest_task`'s output existing in the DB — a sequential dependency, not
+parallel work, so `chain()` is the right primitive:
+
+```python
+chain(
+    ingest_task.si(str(batch.id), storage_key, workflow_id),
+    calculate_task.si(str(batch.id), workflow_id),
+).delay()
+```
+
+`.si()` (immutable signatures), not `.s()` — `calculate_task` re-fetches
+`EmissionRecord`s from the DB (via `activity_input_from_record()`, which
+already existed for the synchronous `recalculate` action and
+`backfill_calculations`) rather than receiving `ingest_task`'s return value
+through Celery's result backend. A `group`/`chord` (fan-out + a completion
+callback) would be the right primitive for a **future** large-file feature —
+parallel chunk-ingestion with a chord callback finalizing the batch — but
+there's no parallel work to exploit at today's scale (10MB file cap,
+sub-second processing observed in every test), so building for it now would
+be speculative.
+
+**Two independent status axes.** `UploadBatch.status` reflects **ingestion**
+outcome only (unchanged from Phase 5c — `PENDING → QUEUED → PROCESSING →
+COMPLETED/PARTIALLY_COMPLETED/FAILED`). A new `UploadBatch.calculation_status`
+(`NOT_STARTED → CALCULATING → CALCULATED/CALCULATION_FAILED`) tracks the
+calculation stage separately — owned by
+`CarbonCalculationService.calculate_for_batch()`, called by both
+`calculate_task` and the synchronous `IngestionService.ingest()` convenience
+path. Splitting these was necessary, not just tidy: before 5d, ingestion and
+calculation shared one transaction, so a calculation crash rolled back
+already-good ingested rows. After the split, `calculate_for_batch()` runs in
+its **own** transaction — a calculation failure no longer touches durably-
+committed ingestion data, which is the entire point of the split.
+
+This falls out of the exception-handling shape that already existed:
+`ingest_batch()`'s crash path already `raise`s, and Celery chains stop at the
+first raised exception — so `calculate_task` automatically never runs for a
+batch whose ingestion genuinely crashed, with no extra guard code needed.
+`PARTIALLY_COMPLETED` is a normal return (not an exception), so the chain
+correctly proceeds to calculation even when some rows failed validation —
+there are still valid records to calculate for.
+
+**`finished_at` ownership moved.** Before 5d, `ingest_batch()`'s success path
+set `finished_at`. Now: `ingest_task`'s own `FAILED` path still sets it
+(chain-terminating — nothing else will run), but on success, `finished_at` is
+set by `calculate_for_batch()`'s completion instead — because ingestion
+succeeding no longer means the whole job is done. `duration_seconds`
+therefore now reports the full chain's wall-clock time, not just ingestion's.
+
+**Two independent idempotency guards.** `calculate_task` needed its own
+guard, mirroring `ingest_task`'s: `EmissionCalculation` has
+`UniqueConstraint(fields=["emission_record"], condition=Q(is_current=True))`
+— a redelivered `calculate_task` re-running `bulk_create()` after its first
+attempt already committed would raise `IntegrityError`, not silently
+duplicate. `calculate_task` checks `UploadBatch.CALCULATION_TERMINAL_STATUSES`
+before doing any work, exactly as `ingest_task` checks `TERMINAL_STATUSES`.
+Verified live against a real Docker Compose stack: manually redelivering
+`calculate_task` for an already-`CALCULATED` batch returns `"skipped-
+CALCULATED"` and the calculation count stays at 1.
+
+**Workflow correlation ID — not just a Celery task ID.**
+`UploadBatch.workflow_id` (set once at batch creation, a `CharField` not a
+`UUIDField` so it's format-flexible enough to be adopted directly as an
+OpenTelemetry trace ID later without a schema change) is threaded unchanged
+through both task signatures. Each task has its own, *different* Celery task
+ID (`self.request.id`) — `workflow_id` is what correlates log lines across
+both stages regardless of which task emitted them. Verified live: both
+`ingest_task` and `calculate_task`'s log lines for the same upload share the
+identical `workflow_id`.
+
+**`celery_task_id`, revisited.** `chain(...).delay()` returns the
+`AsyncResult` for the **last** task (`calculate_task`), not the first — its
+`.parent` is `ingest_task`'s real, already-queued result. Since the only
+practical cancellation window is "before the task starts" (see §6),
+`celery_task_id` is set to `result.parent.id` at enqueue — `ingest_task`'s
+own id — and `calculate_task` overwrites it with its own id once the chain
+reaches it, so the field always points at whichever task is currently active
+or about to run.
+
+**`pipeline_version`.** A new `UploadBatch.pipeline_version` field
+(default `"1.0"`) labels the *shape* of the pipeline that processed a batch —
+distinct from `EmissionCalculation.engine_version`, which versions the
+calculation algorithm specifically. Not read by any branching logic yet;
+pure preparation so a future pipeline restructuring (a third chain link,
+chunked processing) can coexist with batches processed under the old shape
+without a schema redesign.
+
+**Queue routing.** `CELERY_TASK_ROUTES` (config/settings.py) routes
+`ingest_task` to an `ingestion` queue and `calculate_task` to a `calculation`
+queue — a seam, not yet a behavior change. The single worker service listens
+on all three queue names (`celery,ingestion,calculation` via `-Q`), so one
+pool still consumes everything today. This lets a future deployment dedicate
+a worker pool to calculation specifically (e.g. once AI enrichment — Phase 7
+— makes it meaningfully slower than ingestion) by adding a `-Q calculation`
+worker service, with zero code change. Verified live: the worker's own
+startup log lists all three queues, and a real upload flows through both
+routed queues end-to-end.
+
 ---
 
 ## 1. State machine
@@ -22,13 +131,16 @@ QUEUED / PROCESSING ──► CANCELLED   (declared, NOT implemented this phase)
 |---|---|
 | `(create)` → `PENDING` | `BaseUploadView.post()` creates the batch, before the file is durably staged |
 | `PENDING` → `FAILED` | `StorageService.save()` raised — the upload never reaches the queue at all. `started_at` stays `None` (processing never began); `finished_at` is set. |
-| `PENDING` → `QUEUED` | File saved durably, `process_upload_batch.delay()` returned, and (checked via a DB re-read, not assumed) the task has **not** already run — i.e. real async dispatch, sitting in the broker. `celery_task_id` is recorded here. |
+| `PENDING` → `QUEUED` | File saved durably, `chain(ingest_task, calculate_task).delay()` returned, and (checked via a DB re-read, not assumed) the chain has **not** already run — i.e. real async dispatch, sitting in the broker. `celery_task_id` is recorded here (`ingest_task`'s id — see §0). |
 | `{PENDING,QUEUED,PROCESSING}` → `PROCESSING` | The task begins executing. **Not** gated on "incoming status == QUEUED" — see the eager-mode note below. `started_at`, `worker_id`, `retry_count` are set/refreshed here. |
-| `PROCESSING` → `COMPLETED` | Pipeline finished, `failed_rows == 0` |
-| `PROCESSING` → `PARTIALLY_COMPLETED` | Pipeline finished, `failed_rows > 0` (even 100% failed) — the **job** completed; this is distinct from a pipeline crash |
-| `PROCESSING` → `FAILED` | Unhandled exception during parsing/validation/persistence. `error_message` always includes exception type + message + stage context — never a bare "processing failed". |
+| `PROCESSING` → `COMPLETED` | Ingestion finished, `failed_rows == 0` (Phase 5d: `status` reflects ingestion only — see §0 for `calculation_status`, the separate calculation-stage axis) |
+| `PROCESSING` → `PARTIALLY_COMPLETED` | Ingestion finished, `failed_rows > 0` (even 100% failed) — the **job** completed; this is distinct from a pipeline crash |
+| `PROCESSING` → `FAILED` | Unhandled exception during parsing/validation/persistence. `error_message` always includes exception type + message + stage context — never a bare "processing failed". Chain-terminating: `calculate_task` never runs. |
 | `{COMPLETED,PARTIALLY_COMPLETED,FAILED,CANCELLED}` → *(terminal)* | A redelivered task (Celery's `acks_late`) is skipped, never reprocessed — see `UploadBatch.TERMINAL_STATUSES` |
 | `{QUEUED,PROCESSING}` → `CANCELLED` | **Not implemented this phase** — see §6 |
+
+Separately, `calculation_status` (Phase 5d): `NOT_STARTED → CALCULATING →
+CALCULATED`/`CALCULATION_FAILED`, owned by `calculate_task` — see §0.
 
 ### Why `PROCESSING` is reachable from three different incoming statuses
 
@@ -129,10 +241,13 @@ New `UploadBatch` fields:
 | Field | Source | Notes |
 |---|---|---|
 | `started_at` | `IngestionService.ingest_batch()` | Set/refreshed every real processing attempt, including crash-recovery redeliveries |
-| `finished_at` | `ingest_batch()` | Set on every terminal transition (`COMPLETED`/`PARTIALLY_COMPLETED`/`FAILED`), and on the pre-queue `FAILED` (storage save failure) |
-| `worker_id` | `process_upload_batch`'s `self.request.hostname` (Celery, `bind=True`) | Real Celery worker hostname — verified non-empty even under eager-mode tests (Celery still populates a request context) |
-| `retry_count` | `self.request.retries` | Captured for real now — always `0` until Phase 5e adds retry policies, at which point this reports real values with **zero further schema change** |
-| `celery_task_id` | The view, right after `.delay()` returns | Not consumed by anything yet — this is what a future cancel endpoint calls `AsyncResult(id).revoke()` on |
+| `finished_at` | `CarbonCalculationService.calculate_for_batch()`, or `ingest_batch()`'s own `FAILED` path | Phase 5d: marks the end of the WHOLE CHAIN, not just ingestion — see §0 |
+| `worker_id` | Whichever task is currently active (`self.request.hostname`, Celery `bind=True`) | Real Celery worker hostname — verified non-empty even under eager-mode tests; overwritten by `calculate_task` once the chain reaches it |
+| `retry_count` | `self.request.retries`, same "last active task" ownership as `worker_id` | Captured for real now — always `0` until Phase 5e adds retry policies, at which point this reports real values with **zero further schema change** |
+| `celery_task_id` | The view sets it to `ingest_task`'s id at enqueue; `calculate_task` overwrites it with its own id | Always points at whichever task is currently active or about to run — this is what a future cancel endpoint calls `AsyncResult(id).revoke()` on |
+| `calculation_status` | `calculate_for_batch()` | Phase 5d: the calculation stage's own axis, independent of `status` — see §0 |
+| `workflow_id` | Set once at batch creation, threaded through both task signatures | Stable across every chain link, unlike each task's own (different) Celery task id — see §0 |
+| `pipeline_version` | Model default (`"1.0"`) | Not read by any branching logic yet — see §0 |
 | `duration` | *(not stored)* | Trivially `finished_at - started_at`; storing a derived value risks drift if either timestamp ever changes. Exposed as computed `duration_seconds`. |
 
 ---
@@ -202,3 +317,12 @@ worker) — including observing `QUEUED` for real (unreachable under eager
 mode, where the task always finishes before the view can write it) and a
 real `worker_id` (`celery@<container-hostname>`) on a genuine cross-container
 task dispatch.
+
+**Phase 5d additions** (`apps/ingestion/tests_tasks.py`): `IngestTaskTests`
+(ingestion-only assertions — `calculation_status` stays `NOT_STARTED` and no
+`EmissionCalculation` rows exist after `ingest_task` alone) and
+`CalculateTaskTests` (the calculation stage's own idempotency guard,
+`finished_at`/`worker_id` ownership). Both were also live-verified against
+the real Docker Compose stack — including a manual `calculate_task`
+redelivery against an already-`CALCULATED` batch, confirming
+`"skipped-CALCULATED"` and no duplicate calculation.
