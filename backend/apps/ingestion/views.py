@@ -13,7 +13,7 @@ from rest_framework.decorators import action
 from apps.core.models import DataSource, Organization
 from apps.core.storage import get_storage_service
 from apps.ingestion.models import UploadBatch, EmissionRecord
-from apps.audit.models import AuditTrail
+from apps.audit.services import append_entry
 from apps.ingestion.serializers import (
     UploadBatchSerializer,
     BatchProgressSerializer,
@@ -344,11 +344,17 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
                 # save() triggers full_clean() which enforces the audit lock.
                 record.save()
 
-                # Create append-only AuditTrail entry
-                AuditTrail.objects.create(
+                # Append-only, hash-chained AuditTrail entry (Phase 6a) — must
+                # go through append_entry(), never AuditTrail.objects.create()
+                # directly, so sequence/prev_hash/entry_hash are assigned
+                # atomically under AuditChainState's lock. Still inside this
+                # same transaction.atomic() block, so the chain-state lock is
+                # held for exactly as long as the record-level change it's
+                # accompanying — consistent with the row lock already taken
+                # above for the approval check.
+                append_entry(
                     organization=record.organization,
                     record=record,
-                    record_uuid_backup=record.id,
                     action="RECORD_APPROVAL",
                     changed_by=approved_by,
                     changes={"status": [old_status, EmissionRecord.RecordStatus.APPROVED]},
@@ -403,10 +409,11 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
                 emission_record=record, is_current=True
             ).update(is_current=False)
             calc.save()
-            AuditTrail.objects.create(
+            # See the approve() action's comment above — same append_entry()
+            # requirement, same reasoning.
+            append_entry(
                 organization=record.organization,
                 record=record,
-                record_uuid_backup=record.id,
                 action="RECORD_RECALCULATION",
                 changed_by=changed_by,
                 changes={"co2e_kg": str(calc.co2e_kg), "status": calc.resolution_status},

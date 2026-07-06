@@ -34,4 +34,6 @@ urlpatterns = [
     path('api/', include('apps.ingestion.urls')),
     # Carbon engine — activity types, factor datasets/factors, calculations
     path('api/', include('apps.carbon.urls')),
+    # Governance / audit — hash-chain verification (Phase 6a)
+    path('api/', include('apps.audit.urls')),
 ]

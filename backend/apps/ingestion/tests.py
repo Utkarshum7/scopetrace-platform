@@ -10,6 +10,7 @@ from rest_framework import status as drf_status
 from apps.core.models import Organization, DataSource
 from apps.ingestion.models import UploadBatch, EmissionRecord
 from apps.audit.models import AuditTrail
+from apps.audit.services import append_entry
 from apps.ingestion.services.base_parser import ParsedRow
 from apps.ingestion.services.sap_parser import SAPFuelParser
 from apps.ingestion.services.utility_parser import UtilityElectricityParser
@@ -80,8 +81,11 @@ class ESGDomainModelTestCase(TestCase):
         self.assertEqual(record.normalized_value, 5200.0)
 
     def test_audit_trail_immutability(self):
-        # 1. Create an audit log entry
-        log = AuditTrail.objects.create(
+        # 1. Create an audit log entry — via append_entry() (Phase 6a), the
+        # only sanctioned creation path now that entries are hash-chained;
+        # AuditTrail.objects.create() directly would fail full_clean() with
+        # sequence/prev_hash/entry_hash unset.
+        log = append_entry(
             organization=self.org,
             action="RECORD_INGEST",
             changed_by=self.user,
