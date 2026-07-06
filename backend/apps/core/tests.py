@@ -10,7 +10,7 @@ from django.test import TestCase, override_settings
 from apps.core.storage import StorageObjectNotFound, get_storage_service
 from apps.core.storage.providers.local import LocalFileSystemStorageService
 from apps.core.storage.providers.s3 import S3StorageService
-from apps.core.tasks import ping
+from apps.core.tasks import HEARTBEAT_CACHE_KEY, heartbeat_task, ping
 
 
 class CeleryFoundationTests(TestCase):
@@ -60,6 +60,88 @@ class CeleryFoundationTests(TestCase):
         body = response.json()
         self.assertEqual(body["status"], "ok")
         self.assertEqual(body["workers"], ["celery@worker1"])
+
+
+class BeatHeartbeatTests(TestCase):
+    """Phase 5f — apps.core.tasks.heartbeat_task and the beat_heartbeat field
+    healthz_worker reports alongside its existing active ping check."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.delete(HEARTBEAT_CACHE_KEY)
+
+    def test_heartbeat_task_writes_cache_entry(self):
+        from django.core.cache import cache
+
+        result = heartbeat_task.delay()
+        self.assertEqual(result.get(), "ok")
+
+        payload = cache.get(HEARTBEAT_CACHE_KEY)
+        self.assertIsNotNone(payload)
+        self.assertIn("timestamp", payload)
+        self.assertIn("worker_id", payload)
+
+    @override_settings(CELERY_BROKER_URL="redis://localhost:6379/0")
+    def test_healthz_worker_reports_stale_heartbeat_when_missing(self):
+        mock_inspect = MagicMock()
+        mock_inspect.ping.return_value = {"celery@worker1": {"ok": "pong"}}
+        with patch("config.celery.app.control.inspect", return_value=mock_inspect):
+            response = self.client.get("/healthz/worker/")
+        self.assertEqual(response.json()["beat_heartbeat"], {"status": "stale"})
+
+    @override_settings(CELERY_BROKER_URL="redis://localhost:6379/0")
+    def test_healthz_worker_reports_fresh_heartbeat_after_task_runs(self):
+        heartbeat_task.delay()
+
+        mock_inspect = MagicMock()
+        mock_inspect.ping.return_value = {"celery@worker1": {"ok": "pong"}}
+        with patch("config.celery.app.control.inspect", return_value=mock_inspect):
+            response = self.client.get("/healthz/worker/")
+
+        beat = response.json()["beat_heartbeat"]
+        self.assertEqual(beat["status"], "ok")
+        self.assertIsNotNone(beat["worker_id"])
+        self.assertLess(beat["age_seconds"], 5)
+
+    @override_settings(CELERY_BROKER_URL="")
+    def test_beat_heartbeat_reported_even_when_broker_not_configured(self):
+        # The heartbeat field is additive context independent of the
+        # authoritative pass/fail check — it should still appear (as
+        # "stale") even on the earliest-return failure path.
+        response = self.client.get("/healthz/worker/")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["beat_heartbeat"], {"status": "stale"})
+
+
+class CeleryBeatScheduleTests(TestCase):
+    """Phase 5f — CELERY_BEAT_SCHEDULE configuration (docs/SCHEDULED_TASKS.md
+    documents the rationale for each entry; this test catches drift)."""
+
+    def test_all_four_maintenance_tasks_are_scheduled(self):
+        from django.conf import settings
+
+        schedule = settings.CELERY_BEAT_SCHEDULE
+        expected_tasks = {
+            "cleanup-stale-batches": "apps.ingestion.tasks.cleanup_stale_batches_task",
+            "recalculate-missing-calculations": "apps.carbon.tasks.recalculate_missing_calculations_task",
+            "cleanup-old-failed-task-logs": "apps.tasks.tasks.cleanup_old_failed_task_logs_task",
+            "celery-heartbeat": "apps.core.tasks.heartbeat_task",
+        }
+        for entry_name, task_name in expected_tasks.items():
+            self.assertIn(entry_name, schedule)
+            self.assertEqual(schedule[entry_name]["task"], task_name)
+
+    def test_maintenance_tasks_routed_to_maintenance_queue(self):
+        from django.conf import settings
+
+        routes = settings.CELERY_TASK_ROUTES
+        for task_name in (
+            "apps.ingestion.tasks.cleanup_stale_batches_task",
+            "apps.carbon.tasks.recalculate_missing_calculations_task",
+            "apps.tasks.tasks.cleanup_old_failed_task_logs_task",
+            "apps.core.tasks.heartbeat_task",
+        ):
+            self.assertEqual(routes[task_name]["queue"], "maintenance")
 
 
 class StorageServiceFactoryTests(TestCase):

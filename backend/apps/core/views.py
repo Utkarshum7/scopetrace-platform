@@ -1,8 +1,11 @@
 import logging
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import connection
 from django.http import JsonResponse
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.views.decorators.http import require_GET
 
 logger = logging.getLogger(__name__)
@@ -56,14 +59,22 @@ def healthz_worker(request):
       - one or more workers respond -> 200, worker hostnames included as a
         lightweight liveness metric.
 
-    Phase 5h adds a complementary Beat-driven passive heartbeat on top of this
-    (inspect().ping() can hang under some broker-partition conditions); this
-    endpoint alone is sufficient for Phase 5a's scope (proving the pipeline
-    exists and works at all).
+    Phase 5f adds a complementary Beat-driven passive heartbeat on top of this
+    (inspect().ping() can hang under some broker-partition conditions):
+    apps.core.tasks.heartbeat_task writes a timestamp to cache once a minute,
+    and its freshness is reported below as an additional `beat_heartbeat`
+    field — additive context only, never changing this endpoint's pass/fail
+    HTTP status, which remains driven by the active inspect().ping() check
+    alone (extend, not redesign). This endpoint alone was already sufficient
+    for Phase 5a's scope (proving the pipeline exists and works at all).
     """
     if not settings.CELERY_BROKER_URL:
         return JsonResponse(
-            {"status": "unhealthy", "detail": "CELERY_BROKER_URL is not configured."},
+            {
+                "status": "unhealthy",
+                "detail": "CELERY_BROKER_URL is not configured.",
+                **_beat_heartbeat(),
+            },
             status=503,
         )
 
@@ -74,17 +85,46 @@ def healthz_worker(request):
     except Exception as exc:  # noqa: BLE001 - report any broker connectivity failure
         logger.warning("Celery worker health check failed: broker unreachable: %s", exc)
         return JsonResponse(
-            {"status": "unhealthy", "detail": f"broker unreachable: {exc}"},
+            {"status": "unhealthy", "detail": f"broker unreachable: {exc}", **_beat_heartbeat()},
             status=503,
         )
 
     if not replies:
         return JsonResponse(
-            {"status": "unhealthy", "detail": "broker reachable, but no workers responded."},
+            {
+                "status": "unhealthy",
+                "detail": "broker reachable, but no workers responded.",
+                **_beat_heartbeat(),
+            },
             status=503,
         )
 
     return JsonResponse(
-        {"status": "ok", "workers": sorted(replies.keys())},
+        {"status": "ok", "workers": sorted(replies.keys()), **_beat_heartbeat()},
         status=200,
     )
+
+
+def _beat_heartbeat() -> dict:
+    """Reads apps.core.tasks.heartbeat_task's last cache write.
+
+    Returns a `beat_heartbeat` dict — `{"status": "stale"}` if the key is
+    missing/expired (Beat down, or every worker down, or simply not deployed
+    yet — e.g. local `manage.py runserver` without a worker/beat process),
+    otherwise `{"status": "ok", "worker_id": ..., "age_seconds": ...}`.
+    """
+    from apps.core.tasks import HEARTBEAT_CACHE_KEY
+
+    payload = cache.get(HEARTBEAT_CACHE_KEY)
+    if not payload:
+        return {"beat_heartbeat": {"status": "stale"}}
+
+    last_seen = parse_datetime(payload["timestamp"])
+    age_seconds = (timezone.now() - last_seen).total_seconds()
+    return {
+        "beat_heartbeat": {
+            "status": "ok",
+            "worker_id": payload.get("worker_id"),
+            "age_seconds": round(age_seconds, 1),
+        }
+    }
