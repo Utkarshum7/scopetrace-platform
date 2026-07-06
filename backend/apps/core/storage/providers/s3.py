@@ -8,6 +8,8 @@ S3Storage, which already handles multipart upload, retries, and presigned
 URL signing correctly — this class stays a thin adapter, never a boto3
 reimplementation, so the correctness burden stays on a well-tested library.
 """
+import hashlib
+
 from botocore.exceptions import ClientError
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -87,10 +89,18 @@ class S3StorageService(StorageService):
             # UploadedFile) to set the object's Content-Type header.
             wrapped.content_type = content_type
 
+        # Checksum groundwork for future duplicate detection / audit
+        # integrity / provenance (see base.py's save() docstring) — computed
+        # from the exact bytes being uploaded, merged into the metadata that
+        # already flows to S3's native object metadata. The caller's own
+        # metadata takes precedence for every other key; "sha256" is always
+        # the freshly computed value, never caller-overridable, since its
+        # entire value is being an objective fact about the uploaded bytes.
+        merged_metadata = dict(metadata) if metadata else {}
+        merged_metadata["sha256"] = hashlib.sha256(data).hexdigest()
+
         # S3 object metadata (x-amz-meta-*) must be a flat string->string map.
-        self._storage._pending_metadata = (
-            {str(k): str(v) for k, v in metadata.items()} if metadata else None
-        )
+        self._storage._pending_metadata = {str(k): str(v) for k, v in merged_metadata.items()}
         try:
             return self._storage.save(key, wrapped)
         finally:

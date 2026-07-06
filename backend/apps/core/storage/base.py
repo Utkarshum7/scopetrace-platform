@@ -32,6 +32,17 @@ class StorageService(ABC):
         provider to model metadata storage today, and without affecting any
         existing caller (the parameter defaults to None everywhere).
 
+        Providers that can persist metadata should also compute a SHA-256
+        checksum of the content and merge it into that metadata as
+        `"sha256"` — provenance/audit/future duplicate-detection groundwork.
+        Like metadata generally, this is best-effort: a provider with no
+        metadata persistence path (local filesystem) has nothing to put a
+        checksum in, so it doesn't compute one at all rather than computing
+        a value that's immediately discarded. Deliberately NOT surfaced as a
+        return value or a new interface method today, so nothing about this
+        interface needs to change later to make use of it (a future
+        `get_metadata(key)` method, if ever needed, would be additive).
+
         Returns the key actually stored under (a provider may sanitize or
         namespace it; callers should persist the returned key, not assume
         it equals the input).

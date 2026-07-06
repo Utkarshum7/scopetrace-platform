@@ -1,3 +1,4 @@
+import hashlib
 import shutil
 import tempfile
 from io import BytesIO
@@ -166,6 +167,10 @@ class S3StorageServiceTests(TestCase):
         self.assertEqual(saved_content.read(), b"a,b\n")
         self.assertEqual(saved_content.content_type, "text/csv")
 
+    # SHA-256 of b"data", used to assert the checksum below without
+    # depending on hashlib inside the test itself.
+    _DATA_SHA256 = "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+
     def test_save_with_metadata_threads_it_through_pending_attribute_then_clears_it(self):
         # get_object_parameters(name) — django-storages' own per-object
         # customization hook — only receives the object name, not the
@@ -189,13 +194,23 @@ class S3StorageServiceTests(TestCase):
             metadata={"source-system": "sap-feed", "uploaded-by": "42"},
         )
 
+        # Caller-supplied keys are preserved, and "sha256" is always added —
+        # an objective fact about the uploaded bytes, never caller-overridable.
         self.assertEqual(
-            captured["pending_metadata"], {"source-system": "sap-feed", "uploaded-by": "42"}
+            captured["pending_metadata"],
+            {
+                "source-system": "sap-feed",
+                "uploaded-by": "42",
+                "sha256": self._DATA_SHA256,
+            },
         )
         # Cleared afterwards so it never leaks into an unrelated later save().
         self.assertIsNone(self.service._storage._pending_metadata)
 
-    def test_save_without_metadata_leaves_pending_metadata_none(self):
+    def test_save_without_caller_metadata_still_computes_sha256(self):
+        # Checksum groundwork (future duplicate detection / audit integrity /
+        # provenance) is computed unconditionally for a provider that can
+        # persist metadata — even when the caller passes none at all.
         captured = {}
 
         def fake_save(name, content):
@@ -206,7 +221,27 @@ class S3StorageServiceTests(TestCase):
 
         self.service.save("uploads/org1/batch1/sample.csv", BytesIO(b"data"))
 
-        self.assertIsNone(captured["pending_metadata"])
+        self.assertEqual(captured["pending_metadata"], {"sha256": self._DATA_SHA256})
+        self.assertIsNone(self.service._storage._pending_metadata)
+
+    def test_save_computes_sha256_from_the_actual_uploaded_bytes(self):
+        # A different payload must produce a different (correct) checksum —
+        # guards against a hardcoded/stale value slipping through.
+        captured = {}
+
+        def fake_save(name, content):
+            captured["pending_metadata"] = self.service._storage._pending_metadata
+            return name
+
+        self.service._storage.save.side_effect = fake_save
+
+        payload = b"a completely different payload"
+        expected = hashlib.sha256(payload).hexdigest()
+
+        self.service.save("uploads/other.csv", BytesIO(payload))
+
+        self.assertEqual(captured["pending_metadata"]["sha256"], expected)
+        self.assertNotEqual(expected, self._DATA_SHA256)
 
     def test_open_missing_key_raises_storage_object_not_found(self):
         # NOTE: deliberately patches our own _object_exists, not
