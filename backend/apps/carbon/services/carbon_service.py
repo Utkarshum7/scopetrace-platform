@@ -7,6 +7,8 @@ Pure/stateless with respect to the database: it never writes. Callers
 testable and Celery-ready (Phase 5). Batch resources are preloaded once, so a
 1M-record run performs no per-row queries during resolution.
 """
+import logging
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -25,6 +27,8 @@ from apps.carbon.services.pipeline import (
 )
 from apps.carbon.services.resolution import ActivityTypeResolver, FactorIndex
 from apps.carbon.services.units import UnitConverter
+
+logger = logging.getLogger(__name__)
 
 ENGINE_VERSION = "1.0"
 
@@ -112,13 +116,23 @@ class CarbonCalculationService:
             calculations.append(self.to_calculation(context, organization))
         return calculations
 
-    def calculate_for_batch(self, batch) -> list:
+    def calculate_for_batch(self, batch, transient_exceptions: tuple = ()) -> list:
         """Compute + persist EmissionCalculations for every EmissionRecord in
         `batch` (Phase 5d) — the calculate stage of the ingest->calculate
         chain's second link (apps.carbon.tasks.calculate_task), and also
         called inline by the synchronous IngestionService.ingest()
         convenience path so direct/test callers see identical end-to-end
         behavior to before the chain existed.
+
+        `transient_exceptions` (Phase 5e): exception types that propagate
+        WITHOUT marking calculation_status CALCULATION_FAILED — critical for
+        retries, exactly mirroring IngestionService.ingest_batch's parameter
+        of the same name and for the same reason: marking FAILED before a
+        retry happens would make calculate_task's own idempotency guard skip
+        every subsequent retry attempt. Defaults to `()` (never matches
+        anything), so the synchronous ingest() caller keeps today's exact
+        behavior. Only apps.carbon.tasks.calculate_task passes its own
+        retryable-exception tuple here.
 
         Re-fetches records from the DB via activity_input_from_record()
         rather than depending on the original parse pass's in-memory Row
@@ -170,6 +184,16 @@ class CarbonCalculationService:
                 batch.save(update_fields=["calculation_status", "finished_at"])
 
             return calculations
+        except transient_exceptions:
+            # Phase 5e: retry-eligible — do NOT mark CALCULATION_FAILED here,
+            # see the transient_exceptions docstring above.
+            logger.warning(
+                "Calculation transient failure for batch %s — expecting a "
+                "retry, not marking CALCULATION_FAILED",
+                batch.id,
+                exc_info=True,
+            )
+            raise
         except Exception as exc:
             batch.calculation_status = UploadBatch.CalculationStatus.CALCULATION_FAILED
             batch.error_message = f"Calculation failed: {type(exc).__name__}: {exc}"

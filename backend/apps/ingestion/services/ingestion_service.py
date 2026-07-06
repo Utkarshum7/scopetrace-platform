@@ -90,7 +90,9 @@ class IngestionService:
 
         return result
 
-    def ingest_batch(self, batch: UploadBatch, file_path: str) -> IngestionResult:
+    def ingest_batch(
+        self, batch: UploadBatch, file_path: str, transient_exceptions: tuple = ()
+    ) -> IngestionResult:
         """Run the parse -> validate -> normalize -> persist pipeline against
         an ALREADY-CREATED batch. Phase 5d: calculation is a SEPARATE stage
         (CarbonCalculationService.calculate_for_batch(), its own transaction)
@@ -112,6 +114,20 @@ class IngestionService:
         apps.ingestion.tasks.ingest_task) — this plain .save() (no
         update_fields restriction) persists whatever the caller has already
         populated, not just status/started_at.
+
+        `transient_exceptions` (Phase 5e): exception types that should
+        propagate WITHOUT marking the batch FAILED — critical for retries.
+        Without this, a transient DB blip would mark FAILED on attempt 1
+        (before a retry even happens), and the FAILED status would then make
+        ingest_task's own idempotency guard skip every subsequent retry
+        attempt as "already terminal", silently defeating the retry policy
+        entirely. Defaults to `()`, an empty tuple — `except ():` never
+        matches anything, so the synchronous `ingest()` caller (which never
+        retries) keeps today's exact behavior: any exception immediately
+        marks the batch FAILED. Only apps.ingestion.tasks.ingest_task passes
+        its own retryable-exception tuple here. The batch is marked FAILED
+        for a transient exception only once retries are truly exhausted —
+        see apps.tasks.signals's task_failure handler.
         """
         if batch.status != UploadBatch.BatchStatus.PROCESSING:
             batch.status = UploadBatch.BatchStatus.PROCESSING
@@ -244,6 +260,20 @@ class IngestionService:
                     errors=errors_summary,
                 )
 
+        except transient_exceptions:
+            # Phase 5e: a retry-eligible exception — the transaction already
+            # rolled back on its own (transaction.atomic()'s normal behavior),
+            # but do NOT mark the batch FAILED here. The caller (ingest_task,
+            # via autoretry_for) is about to retry; marking FAILED now would
+            # make the NEXT attempt's idempotency guard see an already-
+            # terminal batch and skip it, permanently defeating the retry.
+            logger.warning(
+                "Ingestion transient failure for batch %s — expecting a retry, "
+                "not marking FAILED",
+                batch.id,
+                exc_info=True,
+            )
+            raise
         except Exception as exc:
             # Ingestion transaction rolled back, mark batch status as FAILED.
             # Exception type + message + stage context — never a bare/generic
