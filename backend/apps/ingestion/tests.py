@@ -3,7 +3,6 @@ import json
 from decimal import Decimal
 from datetime import date, timedelta
 from django.test import TestCase
-from django.urls import reverse
 from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient

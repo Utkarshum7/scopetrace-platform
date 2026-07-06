@@ -14,7 +14,6 @@ from django.utils import timezone
 
 from apps.carbon.models import (
     EmissionCalculation,
-    EmissionFactorDataset,
     OrgFactorPolicy,
 )
 from apps.carbon.precision import to_decimal

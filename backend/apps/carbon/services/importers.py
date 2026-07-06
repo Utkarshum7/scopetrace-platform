@@ -11,7 +11,7 @@ touching the import command. Columns:
 import csv
 import io
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 

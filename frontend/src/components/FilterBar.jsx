@@ -1,5 +1,3 @@
-import React from 'react';
-
 /**
  * FilterBar Component
  * Renders an inline, dynamic filter control bar styled with premium dark-glassmorphic panels.

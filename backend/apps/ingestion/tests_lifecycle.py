@@ -15,7 +15,6 @@ from rest_framework import status as drf_status
 from rest_framework.test import APIClient
 
 from apps.accounts.models import Membership, Role
-from apps.carbon.models import EmissionCalculation
 from apps.carbon.tasks import calculate_task
 from apps.core.models import DataSource, Organization
 from apps.core.storage import get_storage_service

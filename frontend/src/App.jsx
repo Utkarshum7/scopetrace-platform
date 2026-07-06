@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import DashboardPage from './pages/DashboardPage';
 import UploadPage from './pages/UploadPage';
 import RecordsPage from './pages/RecordsPage';

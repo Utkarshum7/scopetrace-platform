@@ -1,5 +1,3 @@
-import React from 'react';
-
 /**
  * StatusBadge Component
  * Renders a highly visual premium pill badge showing the validation/approval state of records or batches.
