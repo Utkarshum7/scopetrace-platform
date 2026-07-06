@@ -3,6 +3,93 @@
 # This file is the single-click deployment spec for Render.
 # Commit it to the repo root, then connect the repo in the Render dashboard.
 # Render will auto-discover this file and provision all services automatically.
+#
+# ─────────────────────────────────────────────────────────────────────────
+# CONFIDENCE NOTE (read before deploying) — per explicit instruction not to
+# guess unsupported Render configuration:
+#
+#   HIGH CONFIDENCE — already proven working in this exact file, or
+#   long-established, stable Render IaC features:
+#     - `type: web` / `type: worker`, buildCommand/releaseCommand/startCommand
+#     - `databases:` + `fromDatabase` (Postgres) — unchanged from before
+#     - `envVarGroups:` for sharing secrets across services without duplication
+#     - `sync: false` for dashboard-only secrets never committed to git
+#
+#   NEEDS VERIFICATION AGAINST RENDER'S CURRENT DOCS BEFORE DEPLOYING —
+#   marked inline with `# VERIFY:` — I cannot confirm these live (no deploy
+#   access), and Render has changed service-type naming before:
+#     1. `type: redis` for the managed Redis instance — Render's own product
+#        naming for this has shifted over time (Redis / Key Value). If
+#        `type: redis` is rejected by Render's blueprint validator, check
+#        Render's current docs for the replacement keyword (e.g. `keyvalue`)
+#        and swap it in the one place it's used below.
+#     2. `fromService: {..., envVarKey: SECRET_KEY}` for sharing the
+#        auto-generated SECRET_KEY across api/worker/beat without each
+#        generating its own (which would break JWT/session signing
+#        consistency across processes) — a documented cross-service
+#        reference pattern, but not verified live in this session.
+#
+# If either turns out unsupported, the safe fallback is: provision Redis
+# manually in the Render dashboard and paste its connection string into each
+# service's REDIS_URL as a `sync: false` secret instead of an automatic
+# reference; likewise generate SECRET_KEY once and paste it into all three
+# services' dashboards identically. Functionally equivalent, just not
+# expressed as IaC.
+# ─────────────────────────────────────────────────────────────────────────
+
+# Shared, non-service-specific secrets — referenced by api/worker/beat below
+# via `envVarGroups: [scopetrace-shared]` instead of repeating the same
+# sync:false entries three times. See docs/DEPLOYMENT_GUIDE.md §4 for what
+# each of these actually configures.
+envVarGroups:
+  - name: scopetrace-shared
+    envVars:
+      # ─────────────────────────────────────────────────────
+      # Object storage (Phase 5b) — REQUIRED, STORAGE_BACKEND fails closed
+      # to 's3' whenever DEBUG=False (which every service below sets).
+      # Provider-agnostic: the SAME four AWS_* variables configure any
+      # S3-compatible backend — only their values change per provider:
+      #
+      #   AWS S3:          AWS_S3_ENDPOINT_URL blank, AWS_S3_ADDRESSING_STYLE=virtual,
+      #                     AWS_S3_REGION_NAME = the real AWS region (e.g. us-east-1)
+      #   Cloudflare R2:    AWS_S3_ENDPOINT_URL = https://<account-id>.r2.cloudflarestorage.com,
+      #                     AWS_S3_ADDRESSING_STYLE=virtual, AWS_S3_REGION_NAME=auto
+      #   Backblaze B2:     AWS_S3_ENDPOINT_URL = https://s3.<region>.backblazeb2.com,
+      #                     AWS_S3_ADDRESSING_STYLE=virtual
+      #   Self-hosted MinIO: AWS_S3_ENDPOINT_URL = https://your-minio-host,
+      #                     AWS_S3_ADDRESSING_STYLE=path (MinIO requires path-style)
+      #
+      # This project does not hard-code or favor any one provider — pick one
+      # and fill in these five values via the Render dashboard (sync: false
+      # means they are NEVER stored in this committed file).
+      - key: STORAGE_BACKEND
+        value: "s3"
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_STORAGE_BUCKET_NAME
+        sync: false
+      - key: AWS_S3_REGION_NAME
+        sync: false
+      - key: AWS_S3_ENDPOINT_URL
+        sync: false
+      - key: AWS_S3_ADDRESSING_STYLE
+        sync: false
+      # ─────────────────────────────────────────────────────
+      # Email notifications (Phase 5g) — OPTIONAL. Leave unset to use the
+      # console backend (notifications logged, not delivered) — a safe
+      # default even in production; see docs/NOTIFICATIONS.md. Set EMAIL_HOST
+      # to switch to real SMTP.
+      # ─────────────────────────────────────────────────────
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        value: "noreply@scopetrace.local"
 
 services:
   # ─────────────────────────────────────────────────────────
@@ -14,12 +101,17 @@ services:
     rootDir: backend
     buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
     # Migrate the schema and idempotently seed baseline data on every release so
-    # a fresh database is usable immediately.
+    # a fresh database is usable immediately. This is also the ONLY place
+    # migrations run — worker/beat below never do (mirrors docker-compose.yml's
+    # RUN_MIGRATIONS=false pattern: exactly one migration owner, so scaling
+    # worker replicas never races migrations against each other).
     releaseCommand: python manage.py migrate && python manage.py bootstrap_data && python manage.py seed_carbon
     startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     # Database-aware health check — Render stops routing to the instance if the
     # DB is unreachable, instead of the old always-200 /api/ router root.
     healthCheckPath: /healthz
+    envVarGroups:
+      - scopetrace-shared
     envVars:
       - key: SECRET_KEY
         generateValue: true          # Render auto-generates a cryptographic secret
@@ -30,6 +122,12 @@ services:
       - key: DATABASE_URL
         fromDatabase:
           name: scopetrace-db
+          property: connectionString
+      # VERIFY: see the confidence note at the top of this file.
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: scopetrace-redis
           property: connectionString
       - key: CORS_ALLOW_ALL_ORIGINS
         value: "False"
@@ -46,6 +144,99 @@ services:
         value: "admin@scopetrace.local"
       - key: DJANGO_SUPERUSER_PASSWORD
         sync: false
+
+  # ─────────────────────────────────────────────────────────
+  # Celery worker — Background Worker (Phase 5a–5g)
+  # Same codebase as `api`, different process. No releaseCommand (api alone
+  # owns migrations/seeding) and no healthCheckPath (worker services aren't
+  # HTTP-reachable on Render — liveness is checked via GET /healthz/worker/
+  # on the `api` service instead, which does a real `celery inspect ping`
+  # control-plane round trip to whichever worker(s) are running).
+  # ─────────────────────────────────────────────────────────
+  - type: worker
+    name: scopetrace-worker
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    # -Q lists every queue explicitly — see docs/ARCHITECTURE_OVERVIEW.md §3
+    # for the full queue topology. One worker service consumes all five
+    # today, same as docker-compose.yml's `worker`; splitting a queue onto
+    # its own dedicated worker service later needs no code change, only a
+    # second service here with a narrower `-Q`.
+    startCommand: celery -A config worker --loglevel=info -Q celery,ingestion,calculation,maintenance,notifications
+    envVarGroups:
+      - scopetrace-shared
+    envVars:
+      # VERIFY: see the confidence note at the top of this file.
+      - key: SECRET_KEY
+        fromService:
+          type: web
+          name: scopetrace-api
+          envVarKey: SECRET_KEY
+      - key: DEBUG
+        value: "False"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: scopetrace-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: scopetrace-redis
+          property: connectionString
+
+  # ─────────────────────────────────────────────────────────
+  # Celery Beat — the periodic-task scheduler (Phase 5f). MUST stay a
+  # single instance — never scale this service. Running two Beat
+  # schedulers would independently fire every periodic task on its own
+  # timer, double-dispatching every scheduled job (same rule as
+  # docker-compose.yml's `beat` service).
+  #
+  # No persistent disk is attached for the schedule bookkeeping file —
+  # unlike docker-compose.yml's `beatdata` volume, Render's ephemeral
+  # filesystem means a restart loses "last run time" state. This is a minor
+  # inefficiency, not a correctness risk: every scheduled task
+  # (config/settings.py CELERY_BEAT_SCHEDULE) is an idempotent, self-healing
+  # sweep — see docs/SCHEDULED_TASKS.md. Attaching a Render persistent disk
+  # (`disks:` key, paid-plan feature) is a reasonable future enhancement,
+  # not required for correctness.
+  # ─────────────────────────────────────────────────────────
+  - type: worker
+    name: scopetrace-beat
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A config beat --loglevel=info
+    envVarGroups:
+      - scopetrace-shared
+    envVars:
+      # VERIFY: see the confidence note at the top of this file.
+      - key: SECRET_KEY
+        fromService:
+          type: web
+          name: scopetrace-api
+          envVarKey: SECRET_KEY
+      - key: DEBUG
+        value: "False"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: scopetrace-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: scopetrace-redis
+          property: connectionString
+
+  # ─────────────────────────────────────────────────────────
+  # Redis — Celery broker/result-backend AND the Django cache backend
+  # (Phase 4/5a). VERIFY: see the confidence note at the top of this file —
+  # `type: redis` is this file's single least-certain line.
+  # ─────────────────────────────────────────────────────────
+  - type: redis
+    name: scopetrace-redis
+    plan: free
+    ipAllowList: []   # no external access — only other Render services in this blueprint reach it
 
 # ─────────────────────────────────────────────────────────
 # PostgreSQL — Managed Database

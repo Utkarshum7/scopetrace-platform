@@ -157,7 +157,7 @@ patched silently.
 | API returns 503 at `/healthz/worker/`, `detail: "CELERY_BROKER_URL is not configured"` | `REDIS_URL`/`CELERY_BROKER_URL` unset | `echo $REDIS_URL` in the `api` container | Set `REDIS_URL` |
 | `/healthz/worker/` 503, `detail: "broker unreachable"` | Redis down | `docker compose exec redis redis-cli ping` | Restart `redis` |
 | `/healthz/worker/` 503, `detail: "no workers responded"` | No worker process running (or it crashed) | `docker compose ps worker`; `docker compose logs worker` | `docker compose up -d worker`; investigate the crash in logs |
-| Django boots with `ImproperlyConfigured: STORAGE_BACKEND must be 's3'` | `DEBUG=False` without `STORAGE_BACKEND=s3` set | Env vars | See [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) §3.3 — this is exactly current `render.yaml`'s known gap |
+| Django boots with `ImproperlyConfigured: STORAGE_BACKEND must be 's3'` | `DEBUG=False` without `STORAGE_BACKEND=s3` + credentials set | Env vars | Set the five `AWS_*` variables — see [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) §3.3/§4.5 |
 | Uploads accepted (`202`) but never leave `QUEUED` | Worker not consuming the right queue, or down | §9.1 of `OPERATIONS_RUNBOOK.md` | Same |
 | A batch is `FAILED` with no clear reason | Check `error_message` on the batch first, then `FailedTaskLog` | `GET /api/batches/{id}/`; Django Admin → Failed Task (Dead Letter) | See §3 of `OPERATIONS_RUNBOOK.md` |
 | Duplicate notification email for one batch | Rare, accepted trade-off — a worker crash between `send_mail()` succeeding and Celery acking the message causes at-least-once redelivery | Check worker logs around that timestamp for a crash/restart | Not a bug to "fix" — see [`NOTIFICATIONS.md`](NOTIFICATIONS.md)'s accepted-limitation note |

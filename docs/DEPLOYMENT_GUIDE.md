@@ -23,21 +23,30 @@ flowchart TB
         L_BEAT[beat] --> L_REDIS
     end
 
-    subgraph "Production (current target)"
+    subgraph "Production (render.yaml, as of the Phase 5 closeout milestone)"
         P_FE["Vercel\n(static frontend build)"] -->|"HTTPS"| P_API["Render web service\n(gunicorn)"]
-        P_API --> P_DB[("Render/managed PostgreSQL")]
-        P_API -.->|"⚠️ NOT YET PROVISIONED\nsee §3.3"| P_REDIS[("Redis")]
-        P_API -.->|"⚠️ NOT YET PROVISIONED\nsee §3.3"| P_STORAGE[("S3-compatible storage")]
-        P_WORKER["⚠️ NO WORKER SERVICE\nsee §3.3"]
+        P_WORKER2["Render worker service\n(celery worker)"]
+        P_BEAT["Render worker service\n(celery beat, single instance)"]
+        P_API --> P_DB[("Render managed PostgreSQL")]
+        P_API --> P_REDIS[("Render Redis ⚠️ VERIFY\nsee §3.3")]
+        P_WORKER2 --> P_DB
+        P_WORKER2 --> P_REDIS
+        P_WORKER2 -.->|"storage credentials\nmanually provisioned"| P_STORAGE[("S3-compatible storage\n(operator-chosen provider)")]
+        P_BEAT --> P_DB
+        P_BEAT --> P_REDIS
+        P_API -.->|"storage credentials\nmanually provisioned"| P_STORAGE
     end
 ```
 
 Local development and Docker Compose fully exercise the real Phase 5
 architecture (Redis, S3-compatible storage via MinIO, worker, beat) — this
 is the environment every milestone in this project has been verified
-against. **Production (`render.yaml`) does not yet match it** — see §3.3,
-a load-bearing gap this guide documents honestly rather than pretending it
-already works.
+against. **`render.yaml` now provisions the matching production topology**
+(Redis, a worker service, a Beat service, and object-storage configuration)
+as of the dedicated Phase 5 closeout milestone that follows 5k — see §3.3
+for exactly what's high-confidence vs. what still needs verification against
+Render's current platform before a real deploy (I have no Render deploy
+access to test this file live).
 
 ---
 
@@ -139,8 +148,17 @@ npm run lint
 - **Backend API**: Render web service (`runtime: python`, `rootDir:
   backend`), `gunicorn config.wsgi:application`, health-checked at
   `/healthz`.
+- **Celery worker**: Render worker service, same codebase, `celery -A config
+  worker -Q celery,ingestion,calculation,maintenance,notifications`.
+- **Celery Beat**: a second Render worker service, single instance only,
+  `celery -A config beat`.
+- **Redis**: Render-managed instance — Celery broker/result-backend and the
+  Django cache.
 - **Database**: Render-managed PostgreSQL (`render.yaml`'s `databases:`
   block).
+- **Object storage**: provider-configurable (AWS S3 / Cloudflare R2 /
+  Backblaze B2 / any S3-compatible host) — credentials provisioned manually
+  via the Render dashboard (`sync: false`), never committed. See §3.3.
 
 ### 3.2 Release flow (`render.yaml`)
 
@@ -156,63 +174,75 @@ management commands — `bootstrap_data` only creates what's missing;
 checksum), so re-running them on every release is safe and is what keeps a
 fresh database immediately usable.
 
-### 3.3 ⚠️ Known gap: `render.yaml` predates Phase 5 and will not run this codebase correctly
+### 3.3 `render.yaml`'s alignment with Phase 5 — history and current status
 
-Found while writing this guide, not previously documented anywhere:
-`render.yaml` has not been updated since early in the project (its
-`envVars:` list still matches roughly Phase 2's shape) and is missing
-everything Phase 5 added. Concretely, deploying today's code with today's
-`render.yaml`, unchanged, would:
+**Originally found while writing this guide** (documented honestly, not
+silently patched, as this milestone's own explicit instruction): `render.yaml`
+had not been updated since early in the project (its `envVars:` list still
+matched roughly Phase 2's shape) and was missing everything Phase 5 added —
+deploying that version would have failed to even boot (`STORAGE_BACKEND`
+fails closed to `'s3'` whenever `DEBUG=False`, and no `STORAGE_BACKEND`/
+`AWS_S3_*`/Redis/worker/beat config existed at all). Flagged as **Critical**
+in the Production Readiness Review that followed Milestone 5k, deliberately
+**not** fixed as a side effect of that documentation-only milestone —
+`render.yaml` changes affect real deployment/secrets and warranted their own
+explicit, deliberate pass.
 
-1. **Fail to boot at all.** `STORAGE_BACKEND` fails closed to `'s3'`
-   whenever `DEBUG=False` (`config/settings.py`) — `render.yaml` sets
-   `DEBUG: "False"` but defines no `STORAGE_BACKEND` or any `AWS_S3_*`
-   variable, so Django raises `ImproperlyConfigured` at settings-import
-   time, before the process can even start serving requests.
-2. **Have no Redis** — no service block provisions one, and no
-   `REDIS_URL` is set. Without it, `CELERY_BROKER_URL`/`CELERY_RESULT_BACKEND`
-   are empty and Celery has no broker to dispatch to.
-3. **Have no worker or beat service at all.** Even if (1) and (2) were
-   fixed, uploads would be accepted (`202 Accepted`, `status: QUEUED`) and
-   then sit in the queue forever — nothing would ever consume `ingestion`/
-   `calculation`/`maintenance`/`notifications` messages in production.
+**That pass is this file's current state.** `render.yaml` now provisions:
 
-This is flagged as a **Critical** finding in this milestone's Production
-Readiness Review (see the end of this milestone's implementation report)
-rather than silently fixed as a side effect of a documentation milestone —
-render.yaml changes affect real deployment/secrets and deserve their own
-explicit, deliberate pass. What a corrected `render.yaml` needs to add, so
-this guide states the target accurately rather than aspirationally:
+- A Render `type: redis` managed instance, referenced by `api`/`worker`/
+  `beat` via `fromService` (not copy-pasted).
+- A `type: worker` service (`scopetrace-worker`) running
+  `celery -A config worker -Q celery,ingestion,calculation,maintenance,notifications`.
+- A second `type: worker` service (`scopetrace-beat`) running
+  `celery -A config beat` — no `releaseCommand` on either (only `api` owns
+  migrations/seeding), and deliberately no persistent disk for Beat's
+  schedule file (Render's filesystem is ephemeral; losing that bookkeeping
+  on restart is a minor inefficiency, not a correctness risk, since every
+  scheduled task is idempotent/self-healing — see
+  [`SCHEDULED_TASKS.md`](SCHEDULED_TASKS.md)).
+- An `envVarGroups: [scopetrace-shared]` block holding `STORAGE_BACKEND` +
+  the five `AWS_S3_*` variables (provider-configurable — the same five
+  variables configure AWS S3, Cloudflare R2, Backblaze B2, or a
+  self-hosted MinIO-compatible host; only their *values* differ per
+  provider, documented inline in `render.yaml` itself) and the optional
+  `EMAIL_*` variables, shared across `api`/`worker`/`beat` without
+  duplicating the same `sync: false` secret three times.
 
-- A Redis instance (Render's managed Key Value/Redis offering, or an
-  external one) and `REDIS_URL` wired to both `api` and the new services
-  below.
-- An S3-compatible bucket (Cloudflare R2 / Backblaze B2 / AWS S3) and
-  `STORAGE_BACKEND=s3` + `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/
-  `AWS_STORAGE_BUCKET_NAME`/`AWS_S3_REGION_NAME`/`AWS_S3_ENDPOINT_URL`/
-  `AWS_S3_ADDRESSING_STYLE` set accordingly (§4 has the full reference).
-- A `type: worker` background service running
-  `celery -A config worker --loglevel=info -Q celery,ingestion,calculation,maintenance,notifications`,
-  `RUN_MIGRATIONS=false` (mirrors `docker-compose.yml`'s `worker`).
-- A second `type: worker` service for Beat:
-  `celery -A config beat --loglevel=info --schedule=/opt/render/project/beat-data/celerybeat-schedule`
-  (or an ephemeral schedule path — Beat is single-instance only, see
-  [`SCHEDULED_TASKS.md`](SCHEDULED_TASKS.md); Render's persistent disks
-  would be needed for the schedule file to survive restarts, though every
-  scheduled task is idempotent/self-healing so losing that bookkeeping on
-  restart is a minor inefficiency, not a correctness risk).
-- Optionally, `EMAIL_HOST`/`EMAIL_PORT`/`EMAIL_HOST_USER`/
-  `EMAIL_HOST_PASSWORD` for real outbound notification email (defaults to
-  the console backend — notifications are logged, not delivered, until
-  this is set; see [`NOTIFICATIONS.md`](NOTIFICATIONS.md)).
+**Two pieces of this file could not be verified against Render's live
+platform** (no deploy access) and are marked `# VERIFY:` directly in
+`render.yaml`: the `type: redis` service-type keyword itself (Render has
+renamed this product before), and `fromService: {..., envVarKey:
+SECRET_KEY}` for sharing one auto-generated `SECRET_KEY` across all three
+Python services (needed so JWT/session signing is consistent across
+processes — each service independently calling `generateValue: true` would
+give them three *different* secrets). If either is rejected by Render's
+blueprint validator, the documented fallback is to provision Redis manually
+and paste its connection string as a `sync: false` secret on each service,
+and to generate `SECRET_KEY` once and paste the identical value into all
+three services' dashboards — functionally equivalent, just not expressed
+as IaC.
 
-### 3.4 What already works today, unaffected by §3.3
+**Object storage is explicitly not something Render's blueprint can
+provision** (it's a separate cloud service, chosen and owned outside
+Render) — `render.yaml` only declares the five variable *names* the app
+needs (`sync: false`, so no value is ever committed); an operator fills in
+real values for whichever provider they've chosen once a bucket exists.
 
-The web tier alone (API + DB + frontend, no async processing) — read-only
-browsing, authentication, the Metrics API, Django Admin — would function.
-Anything that depends on the async pipeline (file upload processing,
-scheduled maintenance, email notifications) will not, until §3.3 is
-addressed.
+### 3.4 Before the first real deploy of this corrected blueprint
+
+1. Provision an actual object-storage bucket (any S3-compatible provider)
+   and fill in the five `AWS_*` secrets via the Render dashboard — nothing
+   in `render.yaml` itself can do this step, by design (§3.3).
+2. Deploy once, then check Render's build logs for whether `type: redis`
+   and the `fromService envVarKey` reference were accepted — if either was
+   rejected, apply the documented fallback in §3.3 rather than guessing
+   further at blueprint syntax.
+3. Confirm `GET /healthz` and `GET /healthz/worker/` both return `200` post-deploy — the second specifically proves the new worker service is
+   actually consuming from the broker, not just that it deployed.
+4. Do one real end-to-end upload through the live API before considering
+   the deploy verified — this project's own established practice
+   throughout Phase 5 (a health check passing is necessary, not sufficient).
 
 ---
 

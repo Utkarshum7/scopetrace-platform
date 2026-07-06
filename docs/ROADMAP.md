@@ -20,7 +20,7 @@ depth:
 | Batch cancellation is declared but inert (no cancel endpoint, no task revocation) | Reserved interface, same pattern as the carbon engine's AI stages | [`JOB_LIFECYCLE.md`](JOB_LIFECYCLE.md) §6 |
 | No frontend automated test suite | Never built — `npm run build`/`lint` are the only frontend CI gates today | [`CI_CD.md`](CI_CD.md) |
 | No secret-scanning CI step | Not yet added | [`SECURITY.md`](SECURITY.md) §9 |
-| `render.yaml` doesn't provision Redis, a worker/beat service, or storage credentials | Predates Phase 5; documented rather than silently left broken | [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) §3.3 |
+| `render.yaml`'s `type: redis` and cross-service `SECRET_KEY` sharing are unverified against Render's live platform (no deploy access) | Fixed in the Phase 5 closeout milestone; two specific lines flagged `# VERIFY:` rather than asserted with false confidence | [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) §3.3 |
 | No formal RPO/RTO, no tested DR drill | Not yet formalized | [`INCIDENT_RESPONSE.md`](INCIDENT_RESPONSE.md) §2 |
 | 5 known Django CVEs unpatched (fix available) | Advisory CI finding, not yet remediated | [`SECURITY.md`](SECURITY.md) §5 |
 | Three `FEATURE_*` flags declared in settings but read nowhere | Dead code from Phase 2/3's actual (unconditional) implementation | [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) §4.9 |

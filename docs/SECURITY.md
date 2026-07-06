@@ -100,9 +100,11 @@ are confined to `apps/core/storage/providers/`).
 
 ## 9. Known gaps / recommendations (summary)
 
-1. **`render.yaml` is missing storage credentials entirely for production**
-   — see [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) §3.3. Not a
-   vulnerability in shipped code, but a deployment-readiness blocker.
+1. **`render.yaml`'s Redis service type and cross-service `SECRET_KEY`
+   sharing are unverified against Render's live platform** — see
+   [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) §3.3. Not a vulnerability in
+   shipped code; verify before the first real deploy of the corrected
+   blueprint.
 2. Django 6.0.5's 5 known CVEs — schedule a version bump.
 3. No secret-scanning CI step.
 4. No IP/network restriction on `/admin/`.
