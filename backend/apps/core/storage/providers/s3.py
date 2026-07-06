@@ -14,7 +14,8 @@ from django.core.files.base import ContentFile
 from storages.backends.s3 import S3Storage
 from storages.utils import clean_name
 
-from .base import StorageObjectNotFound, StorageService
+from ..base import StorageService
+from ..exceptions import StorageObjectNotFound
 
 
 class _MetadataAwareS3Storage(S3Storage):

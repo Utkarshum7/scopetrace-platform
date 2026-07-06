@@ -7,8 +7,8 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase, override_settings
 
 from apps.core.storage import StorageObjectNotFound, get_storage_service
-from apps.core.storage.local import LocalFileSystemStorageService
-from apps.core.storage.s3 import S3StorageService
+from apps.core.storage.providers.local import LocalFileSystemStorageService
+from apps.core.storage.providers.s3 import S3StorageService
 from apps.core.tasks import ping
 
 

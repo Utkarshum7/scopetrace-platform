@@ -4,22 +4,11 @@ StorageService — the provider-independent durable file storage contract.
 Ingestion (and any future feature needing durable file storage) depends only
 on this interface, never on a concrete provider. Swapping providers — S3 ->
 Cloudflare R2 -> Backblaze B2 -> Google Cloud Storage -> Azure Blob -> local
-dev — is a settings change plus, at most, one new thin adapter class; it is
-never a change to caller code.
+dev — is a settings change plus, at most, one new thin adapter class under
+providers/; it is never a change to caller code.
 """
 from abc import ABC, abstractmethod
 from typing import IO, Optional
-
-
-class StorageError(Exception):
-    """Base class for all storage-layer failures, deliberately provider-agnostic.
-    Callers catch this (or StorageObjectNotFound), never a provider SDK's
-    native exception type (e.g. botocore.exceptions.ClientError) — catching
-    the SDK's exception would leak the provider straight back through."""
-
-
-class StorageObjectNotFound(StorageError):
-    """Raised by open() when `key` does not exist."""
 
 
 class StorageService(ABC):

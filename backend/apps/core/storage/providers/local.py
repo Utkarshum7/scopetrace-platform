@@ -15,7 +15,8 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import FileSystemStorage
 
-from .base import StorageObjectNotFound, StorageService
+from ..base import StorageService
+from ..exceptions import StorageObjectNotFound
 
 
 class LocalFileSystemStorageService(StorageService):
@@ -28,6 +29,11 @@ class LocalFileSystemStorageService(StorageService):
         # StorageService contract, metadata support is best-effort) and
         # silently ignored, rather than raising, so callers never need to
         # special-case the backend just because it's running locally.
+        # No checksum is computed here (unlike the S3 provider) — with no
+        # metadata persistence path to put it in, computing one would just be
+        # wasted work whose result is immediately discarded. See base.py's
+        # save() docstring: checksum support is part of the same
+        # best-effort, provider-dependent contract as metadata generally.
         data = file_obj.read() if hasattr(file_obj, "read") else file_obj
         return self._storage.save(key, ContentFile(data))
 
