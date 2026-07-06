@@ -337,6 +337,14 @@ CELERY_TASK_DEFAULT_QUEUE = config('CELERY_TASK_DEFAULT_QUEUE', default='celery'
 # calculation processing. Same "one pool consumes everything today" story:
 # the worker service's `-Q` list was extended to include it, not split into
 # a dedicated worker.
+#
+# Phase 5g: send_notification_task gets its own 'notifications' queue rather
+# than reusing 'maintenance' — a distinct concern (user-facing email
+# delivery, dispatched from live ingestion/calculation traffic) from
+# 'maintenance's periodic system sweeps, even though both are equally
+# "not time-critical for the core pipeline". Keeping them separate means a
+# burst of scheduled maintenance work can never delay outbound notification
+# emails, and vice versa.
 CELERY_TASK_ROUTES = {
     'apps.ingestion.tasks.ingest_task': {'queue': 'ingestion'},
     'apps.carbon.tasks.calculate_task': {'queue': 'calculation'},
@@ -344,6 +352,7 @@ CELERY_TASK_ROUTES = {
     'apps.carbon.tasks.recalculate_missing_calculations_task': {'queue': 'maintenance'},
     'apps.tasks.tasks.cleanup_old_failed_task_logs_task': {'queue': 'maintenance'},
     'apps.core.tasks.heartbeat_task': {'queue': 'maintenance'},
+    'apps.core.tasks.send_notification_task': {'queue': 'notifications'},
 }
 
 # acks_late + prefetch=1: a task is acknowledged only after it finishes, so a
@@ -404,6 +413,39 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': timedelta(minutes=1),
     },
 }
+
+# ---------------------------------------------------------------------------
+# Email notifications (Phase 5g) — see docs/NOTIFICATIONS.md.
+#
+# Unlike STORAGE_BACKEND, this does NOT fail closed when DEBUG=False: sending
+# an email is a side effect of a batch finishing, never a requirement for the
+# batch pipeline itself to work correctly (apps.core.notifications.
+# notify_batch_result never runs on the ingestion/calculation request path —
+# only from apps.core.tasks.send_notification_task, dispatched fire-and-
+# forget). So the safe default even in production is the console backend
+# (notifications are logged, not actually delivered) until SMTP is
+# explicitly configured via EMAIL_HOST — a missed notification config is a
+# silently-degraded nice-to-have, not a production incident, unlike a
+# missing STORAGE_BACKEND which would make uploads themselves fail.
+EMAIL_HOST = config('EMAIL_HOST', default='')
+if EMAIL_HOST:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+    EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+    EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+    EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
+    # Swapping to any ESP (SendGrid/SES/Mailgun/...) later is a EMAIL_BACKEND
+    # + credential change only — application code (apps.core.notifications)
+    # never references a provider by name, exactly like StorageService's
+    # provider-agnostic callers.
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+# Fails fast rather than hanging a worker slot indefinitely on a dead/
+# firewalled SMTP host — matches the same defensive-timeout pattern already
+# used elsewhere (healthz_worker's inspect(timeout=2.0), axios's 60s upload
+# timeout).
+EMAIL_TIMEOUT = config('EMAIL_TIMEOUT', default=10, cast=int)
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@scopetrace.local')
 
 # Cache — use Redis when configured, otherwise Django's default local-memory
 # cache. No behavior change today (nothing reads the cache yet); the Phase 4

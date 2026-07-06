@@ -141,12 +141,13 @@ services:
     build:
       context: ./backend
     # -Q lists every queue name explicitly (Phase 5d's ingestion/calculation
-    # routing seam, Phase 5f's maintenance queue, config/settings.py
-    # CELERY_TASK_ROUTES, plus the default 'celery' queue apps.core.tasks.ping
-    # still uses) — one worker pool consumes all four today; a future
-    # deployment can give calculation (or maintenance) its own dedicated
-    # worker service by adding e.g. `-Q calculation` there instead.
-    command: ["celery", "-A", "config", "worker", "--loglevel=info", "-Q", "celery,ingestion,calculation,maintenance"]
+    # routing seam, Phase 5f's maintenance queue, Phase 5g's notifications
+    # queue, config/settings.py CELERY_TASK_ROUTES, plus the default 'celery'
+    # queue apps.core.tasks.ping still uses) — one worker pool consumes all
+    # five today; a future deployment can give calculation (or maintenance,
+    # or notifications) its own dedicated worker service by adding e.g.
+    # `-Q calculation` there instead.
+    command: ["celery", "-A", "config", "worker", "--loglevel=info", "-Q", "celery,ingestion,calculation,maintenance,notifications"]
     environment:
       <<: *backend-env
       # `api` is the single migration/seed owner (see entrypoint.sh) — the
