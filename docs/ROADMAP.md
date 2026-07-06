@@ -24,7 +24,7 @@ depth:
 | No formal RPO/RTO, no tested DR drill | Not yet formalized | [`INCIDENT_RESPONSE.md`](INCIDENT_RESPONSE.md) §2 |
 | 5 known Django CVEs unpatched (fix available) | Advisory CI finding, not yet remediated | [`SECURITY.md`](SECURITY.md) §5 |
 | Three `FEATURE_*` flags declared in settings but read nowhere | Dead code from Phase 2/3's actual (unconditional) implementation | [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) §4.9 |
-| No cryptographic audit hash-chain | Append-only at the model layer today; a real hash-chain is Phase 6 scope | [`SECURITY.md`](SECURITY.md) §6 |
+| ~~No cryptographic audit hash-chain~~ | **Implemented in Phase 6a** — per-org SHA-256 chain, tamper-evident, with verification command/API/admin action | [`GOVERNANCE.md`](GOVERNANCE.md) §6a |
 | Seed emission factors are an illustrative DEFRA 2024 subset, not the full official dataset | Documented since Phase 3 | [`CARBON_ENGINE_DESIGN.md`](CARBON_ENGINE_DESIGN.md) |
 | No read-replica / DB routing support | Not needed at current scale | [`OPERATIONS_RUNBOOK.md`](OPERATIONS_RUNBOOK.md) §8 |
 | README screenshots are stock placeholder images | Explicitly marked as TODO in the file itself, awaiting a real deployment to screenshot | `README.md` |

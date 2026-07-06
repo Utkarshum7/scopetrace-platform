@@ -264,6 +264,7 @@ To test the ingestion and analyst flow locally or in production:
 | `GET` | `/api/metrics/breakdown/` | Bearer | tCO₂e by scope / activity_type / data_source |
 | `GET` | `/api/metrics/activity/` | Bearer (Org Admin / Auditor) | Tenant audit-trail activity feed |
 | `GET` | `/api/metrics/platform/` | Bearer (Platform Admin) | Cross-tenant overview + active organizations |
+| `GET` | `/api/audit/verify/` | Bearer (Org Admin / Auditor) | Verify the organization's audit hash-chain integrity |
 
 Emission records include read-only `co2e_kg`, `co2e_tonnes`, `calculation_status`, `factor_provenance`, and an explainable `calculation_trace`.
 

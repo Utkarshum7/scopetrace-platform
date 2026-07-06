@@ -74,10 +74,14 @@ checklist).
 `AuditTrail` is append-only at the model layer (`EmissionRecord.clean()`
 blocks all saves once `status=APPROVED`, forcing corrections through the
 separate, versioned `EmissionCalculation` table rather than mutating a
-locked record). No cryptographic hash-chain exists yet (an earlier project
-iteration's README claimed one that didn't actually exist — corrected in
-Phase 1; a real hash-chain is tracked as future work, see
-[`ROADMAP.md`](ROADMAP.md) / Phase 6 "Enterprise Governance").
+locked record). **Phase 6a** added a per-organization cryptographic
+SHA-256 hash-chain over `AuditTrail`, making tampering tamper-*evident*
+(detectable on verification), plus QuerySet-level blocking of bulk
+delete/update and `on_delete=PROTECT` on the organization FK — see
+[`GOVERNANCE.md`](GOVERNANCE.md) §6a for the design, the explicit
+"detectable, not impossible without an external anchor" trade-off, and the
+three verification surfaces (`verify_audit_chain` command,
+`GET /api/audit/verify/`, admin action).
 
 ## 7. Admin panel exposure
 
