@@ -1,7 +1,6 @@
 import os
 import logging
 from dataclasses import dataclass
-from datetime import date
 from django.db import transaction
 from django.utils import timezone
 from apps.core.models import DataSource
@@ -55,12 +54,17 @@ class IngestionService:
         uploaded_by=None,
         original_filename: str | None = None,
     ) -> IngestionResult:
-        """Synchronous entry point: create the batch, then run the pipeline.
+        """Synchronous entry point: create the batch, ingest, AND calculate —
+        preserving the fully-synchronous, single-call behavior this method
+        has always had.
 
         Kept for direct/service-level callers and existing tests. The
-        asynchronous path (Phase 5b) creates the batch itself — PENDING,
-        before the file is even durably staged — and calls `ingest_batch`
-        directly; see apps.ingestion.tasks.process_upload_batch.
+        asynchronous path (Phase 5d) achieves the same end state via two
+        separate, independently-retryable Celery tasks chained together:
+        apps.ingestion.tasks.ingest_task (calls ingest_batch() below, exactly
+        as this method does) then apps.carbon.tasks.calculate_task (calls
+        CarbonCalculationService.calculate_for_batch(), exactly as this
+        method does below) — see docs/JOB_LIFECYCLE.md.
         """
         # Prefer the original uploaded filename for lineage/audit. Fall back to
         # the temp file's basename only when the caller does not supply one
@@ -76,17 +80,27 @@ class IngestionService:
             status=UploadBatch.BatchStatus.PROCESSING,
             uploaded_by=uploaded_by,
         )
-        return self.ingest_batch(batch, file_path)
+        result = self.ingest_batch(batch, file_path)
+
+        # Calculation is a separate stage/transaction from ingestion (Phase
+        # 5d) even on this synchronous path — imported lazily to keep the
+        # carbon engine an optional dependency of the ingestion pipeline.
+        from apps.carbon.services.carbon_service import CarbonCalculationService
+        CarbonCalculationService().calculate_for_batch(batch)
+
+        return result
 
     def ingest_batch(self, batch: UploadBatch, file_path: str) -> IngestionResult:
-        """Run the parse -> validate -> normalize -> persist -> calculate
-        pipeline against an ALREADY-CREATED batch.
+        """Run the parse -> validate -> normalize -> persist pipeline against
+        an ALREADY-CREATED batch. Phase 5d: calculation is a SEPARATE stage
+        (CarbonCalculationService.calculate_for_batch(), its own transaction)
+        — this method's job ends once records are durably persisted.
 
         This is the shared core `ingest()` delegates to. It exists as its own
-        method so the asynchronous upload path (Phase 5b) can hand it a batch
-        that was created — and durably staged via StorageService — before the
-        Celery task ever ran, without duplicating batch-creation logic or
-        creating a second orphaned batch.
+        method so the asynchronous upload path (Phase 5b/5d) can hand it a
+        batch that was created — and durably staged via StorageService —
+        before the Celery task ever ran, without duplicating batch-creation
+        logic or creating a second orphaned batch.
 
         Ensures the batch is PROCESSING before doing any work, regardless of
         its incoming status (PENDING under CELERY_TASK_ALWAYS_EAGER, QUEUED
@@ -95,7 +109,7 @@ class IngestionService:
         status already PROCESSING). started_at/worker_id/retry_count may
         already be set on the in-memory `batch` object by the caller (the
         Celery task sets worker_id/retry_count before calling this — see
-        apps.ingestion.tasks.process_upload_batch) — this plain .save() (no
+        apps.ingestion.tasks.ingest_task) — this plain .save() (no
         update_fields restriction) persists whatever the caller has already
         populated, not just status/started_at.
         """
@@ -131,7 +145,6 @@ class IngestionService:
                 ]
 
                 records_to_create = []
-                record_row_pairs = []
                 failed_validation_count = 0
                 suspicious_count = 0
 
@@ -183,14 +196,10 @@ class IngestionService:
                         scope_category=scope_category,
                     )
                     records_to_create.append(record)
-                    record_row_pairs.append((record, row))
 
                 # 5. Bulk create records
                 if records_to_create:
                     EmissionRecord.objects.bulk_create(records_to_create)
-
-                # 5b. Compute carbon (CO2e) for each record in bulk.
-                self._calculate_carbon(data_source.organization, record_row_pairs)
 
                 # 6. Update batch status to COMPLETED
                 total_rows = len(parsed_rows) + len(parse_errors)
@@ -219,7 +228,12 @@ class IngestionService:
                     if failed_rows > 0
                     else UploadBatch.BatchStatus.COMPLETED
                 )
-                batch.finished_at = timezone.now()
+                # finished_at is NOT set here (Phase 5d) — ingestion
+                # succeeding no longer means the whole job is done; the
+                # calculation stage is still pending. It's set either by
+                # this method's own FAILED path below (chain-terminating) or
+                # by CarbonCalculationService.calculate_for_batch()'s
+                # completion (the chain continuing).
                 batch.save()
 
                 return IngestionResult(
@@ -243,45 +257,3 @@ class IngestionService:
             batch.save(update_fields=["status", "error_message", "finished_at"])
             logger.exception("Ingestion transaction failed for batch %s", batch.id)
             raise exc
-
-    def _calculate_carbon(self, organization, record_row_pairs):
-        """
-        Compute a CO2e EmissionCalculation for each ingested record (bulk).
-
-        Imported lazily to keep the carbon engine an optional dependency of the
-        ingestion pipeline. Unresolved factors do not fail the batch — the
-        calculation is stored with an UNRESOLVED status for later review.
-        """
-        if not record_row_pairs:
-            return
-
-        from apps.carbon.models import EmissionCalculation
-        from apps.carbon.services.carbon_service import CarbonCalculationService
-        from apps.carbon.services.pipeline import ActivityInput
-
-        inputs = []
-        for record, row in record_row_pairs:
-            activity_date = None
-            if row.date:
-                try:
-                    activity_date = date.fromisoformat(row.date)
-                except ValueError:
-                    activity_date = None
-            inputs.append(ActivityInput(
-                record_id=record.id,
-                organization_id=organization.id,
-                source_type=row.source_type,
-                quantity=record.normalized_value if record.normalized_value is not None else 0,
-                unit=record.normalized_unit or "",
-                scope=record.scope_category or "",
-                match_keys=[row.material_or_mode] if row.material_or_mode else [],
-                activity_date=activity_date,
-                status=record.status,
-            ))
-
-        calculations = CarbonCalculationService().build_calculations(inputs, organization)
-        EmissionCalculation.objects.bulk_create(calculations)
-
-        # Invalidate this org's cached metrics.
-        from apps.carbon.services.metrics_cache import bump_calc_version
-        bump_calc_version(organization.id)

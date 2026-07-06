@@ -91,6 +91,15 @@ class UploadBatchSerializer(BatchProgressFieldsMixin, serializers.ModelSerialize
             "duration_seconds",
             "worker_id",
             "retry_count",
+            # Phase 5d — chained ingest/calculate. Note: this is the BATCH's
+            # own calculation-stage status (NOT_STARTED/CALCULATING/
+            # CALCULATED/CALCULATION_FAILED); EmissionRecordSerializer has an
+            # unrelated field of the same name for a RECORD's CO2e
+            # resolution status (CALCULATED/UNRESOLVED_.../EXCLUDED_FAILED)
+            # — same name, different level, different endpoint.
+            "calculation_status",
+            "workflow_id",
+            "pipeline_version",
             "uploaded_by",
             "error_message",
             "created_at",
@@ -107,6 +116,9 @@ class UploadBatchSerializer(BatchProgressFieldsMixin, serializers.ModelSerialize
             "finished_at",
             "worker_id",
             "retry_count",
+            "calculation_status",
+            "workflow_id",
+            "pipeline_version",
             "uploaded_by",
             "error_message",
             "created_at",
@@ -143,6 +155,9 @@ class BatchProgressSerializer(BatchProgressFieldsMixin, serializers.ModelSeriali
             "duration_seconds",
             "worker_id",
             "retry_count",
+            "calculation_status",
+            "workflow_id",
+            "pipeline_version",
             "error_message",
             "parse_errors",
         ]

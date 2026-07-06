@@ -1,4 +1,5 @@
 import logging
+from celery import chain
 from rest_framework import status, viewsets
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -22,7 +23,8 @@ from apps.ingestion.serializers import (
     OrganizationSerializer,
     DataSourceSerializer,
 )
-from apps.ingestion.tasks import process_upload_batch
+from apps.ingestion.tasks import ingest_task
+from apps.carbon.tasks import calculate_task
 from django.db.models import Prefetch
 
 from apps.accounts.mixins import TenantScopedViewSetMixin
@@ -39,13 +41,16 @@ logger = logging.getLogger(__name__)
 
 class BaseUploadView(APIView):
     """
-    Upload intake endpoint (Phase 5b: asynchronous).
+    Upload intake endpoint (async since Phase 5b; chained ingest/calculate
+    since Phase 5d).
 
     Accepts the file, durably persists it via StorageService, creates the
-    UploadBatch immediately in PENDING, and enqueues process_upload_batch —
-    returning 202 Accepted with the batch id right away. The parse/validate/
-    normalize/calculate pipeline runs off the request thread; poll
-    GET /api/batches/{id}/ for status, total_rows, failed_rows, parse_errors.
+    UploadBatch immediately in PENDING, and enqueues
+    chain(ingest_task, calculate_task) — returning 202 Accepted with the
+    batch id right away. Ingestion and calculation run as two separate,
+    independently-retryable Celery tasks off the request thread; poll
+    GET /api/batches/{id}/ (or the lean /progress/ endpoint) for status,
+    calculation_status, total_rows, failed_rows, parse_errors.
     """
 
     parser_classes = [MultiPartParser, FormParser]
@@ -119,31 +124,47 @@ class BaseUploadView(APIView):
             )
 
         try:
-            result = process_upload_batch.delay(str(batch.id), storage_key)
+            # workflow_id is set once at batch creation (UploadBatch.
+            # workflow_id's default) and threaded unchanged through both
+            # tasks — a stable identifier for the whole chain's execution,
+            # independent of each task's own (different) Celery task id.
+            # Not relying solely on Celery task IDs, per the requirement.
+            workflow_id = str(batch.workflow_id)
+            result = chain(
+                ingest_task.si(str(batch.id), storage_key, workflow_id),
+                calculate_task.si(str(batch.id), workflow_id),
+            ).delay()
             batch.refresh_from_db()
             if batch.status == UploadBatch.BatchStatus.PENDING:
                 # Still PENDING after .delay() returned means real async
-                # dispatch happened and the task genuinely hasn't started yet
-                # (sitting in the broker) — record that and remember the
-                # task id (future cancellation hook). Under
-                # CELERY_TASK_ALWAYS_EAGER (tests, local DEBUG) the task has
-                # ALREADY fully run inside .delay() by this point, so status
-                # is already terminal and this branch is skipped — writing
-                # QUEUED unconditionally here would otherwise clobber that
-                # terminal status right back to a false "still queued".
+                # dispatch happened and the chain genuinely hasn't started
+                # yet (sitting in the broker) — record that and remember
+                # ingest_task's id (future cancellation hook: the only task
+                # actually revoke()-able before it starts). chain(...).delay()
+                # returns the AsyncResult for the LAST task (calculate_task);
+                # .parent is ingest_task's real, already-queued result.
+                # calculate_task overwrites celery_task_id with its own id
+                # once the chain reaches it. Under CELERY_TASK_ALWAYS_EAGER
+                # (tests, local DEBUG) the whole chain has ALREADY run inside
+                # .delay() by this point, so status is already terminal and
+                # this branch is skipped — writing QUEUED unconditionally
+                # here would otherwise clobber that terminal status right
+                # back to a false "still queued".
                 batch.status = UploadBatch.BatchStatus.QUEUED
-                batch.celery_task_id = result.id
+                batch.celery_task_id = result.parent.id if result.parent else result.id
                 batch.save(update_fields=["status", "celery_task_id"])
         except Exception:
             # Only reachable when CELERY_TASK_ALWAYS_EAGER is True (tests,
-            # local DEBUG) — CELERY_TASK_EAGER_PROPAGATES re-raises the
-            # task's own exception synchronously right here. In real async
-            # dispatch .delay() never raises for a downstream task failure.
-            # Either way, IngestionService.ingest_batch already recorded the
-            # failure on the batch itself before re-raising, so the refreshed
-            # batch below already reflects it — nothing further to do here.
+            # local DEBUG) — CELERY_TASK_EAGER_PROPAGATES re-raises whichever
+            # task's exception synchronously right here (ingest_task's, or —
+            # if ingestion succeeded and calculation crashed —
+            # calculate_task's). In real async dispatch .delay() never raises
+            # for a downstream task failure. Either way, the failing stage
+            # already recorded it on the batch itself before re-raising, so
+            # the refreshed batch below already reflects it — nothing
+            # further to do here.
             logger.exception(
-                "process_upload_batch raised synchronously (eager mode) for batch %s",
+                "chain(ingest_task, calculate_task) raised synchronously (eager mode) for batch %s",
                 batch.id,
             )
 

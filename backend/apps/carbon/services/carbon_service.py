@@ -7,12 +7,17 @@ Pure/stateless with respect to the database: it never writes. Callers
 testable and Celery-ready (Phase 5). Batch resources are preloaded once, so a
 1M-record run performs no per-row queries during resolution.
 """
+from django.db import transaction
+from django.utils import timezone
+
 from apps.carbon.models import (
     EmissionCalculation,
     EmissionFactorDataset,
     OrgFactorPolicy,
 )
 from apps.carbon.precision import to_decimal
+from apps.carbon.services.inputs import activity_input_from_record
+from apps.carbon.services.metrics_cache import bump_calc_version
 from apps.carbon.services.pipeline import (
     DEFAULT_STAGES,
     CalculationContext,
@@ -106,3 +111,68 @@ class CarbonCalculationService:
             context = self.calculate_one(activity_input, resources)
             calculations.append(self.to_calculation(context, organization))
         return calculations
+
+    def calculate_for_batch(self, batch) -> list:
+        """Compute + persist EmissionCalculations for every EmissionRecord in
+        `batch` (Phase 5d) — the calculate stage of the ingest->calculate
+        chain's second link (apps.carbon.tasks.calculate_task), and also
+        called inline by the synchronous IngestionService.ingest()
+        convenience path so direct/test callers see identical end-to-end
+        behavior to before the chain existed.
+
+        Re-fetches records from the DB via activity_input_from_record()
+        rather than depending on the original parse pass's in-memory Row
+        objects — this is what lets it run independently, after ingestion
+        has already committed and moved on to a separate task/process.
+        apps.carbon already has a hard dependency on apps.ingestion at the
+        model level (EmissionCalculation.emission_record FKs to
+        ingestion.EmissionRecord) — importing EmissionRecord here is
+        consistent with that, not new coupling; kept lazy (function-local)
+        purely to avoid a module-load-order dependency between the two
+        apps' service layers.
+
+        Owns batch.calculation_status (CALCULATING -> CALCULATED/
+        CALCULATION_FAILED) and batch.finished_at (Phase 5d: marks the end
+        of the WHOLE chain, not just ingestion) — independent of
+        batch.status, which reflects ingestion outcome only. Unresolved
+        factors do NOT raise here — CarbonCalculationService.calculate_one()
+        already degrades a single bad record to UNRESOLVED rather than
+        failing the batch; only a genuine crash (e.g. a DB error during
+        bulk_create) reaches this method's except clause.
+
+        Runs in its own transaction, separate from ingestion's — a
+        calculation-stage failure must never roll back the already-durably-
+        committed ingestion records (that's the whole point of splitting the
+        chain; see docs/JOB_LIFECYCLE.md).
+        """
+        from apps.ingestion.models import EmissionRecord, UploadBatch
+
+        if batch.calculation_status not in UploadBatch.CALCULATION_TERMINAL_STATUSES:
+            batch.calculation_status = UploadBatch.CalculationStatus.CALCULATING
+            batch.save(update_fields=["calculation_status"])
+
+        try:
+            with transaction.atomic():
+                records = list(
+                    EmissionRecord.objects.filter(batch=batch)
+                    .select_related("batch__data_source")
+                )
+
+                calculations = []
+                if records:
+                    inputs = [activity_input_from_record(r) for r in records]
+                    calculations = self.build_calculations(inputs, batch.organization)
+                    EmissionCalculation.objects.bulk_create(calculations)
+                    bump_calc_version(batch.organization_id)
+
+                batch.calculation_status = UploadBatch.CalculationStatus.CALCULATED
+                batch.finished_at = timezone.now()
+                batch.save(update_fields=["calculation_status", "finished_at"])
+
+            return calculations
+        except Exception as exc:
+            batch.calculation_status = UploadBatch.CalculationStatus.CALCULATION_FAILED
+            batch.error_message = f"Calculation failed: {type(exc).__name__}: {exc}"
+            batch.finished_at = timezone.now()
+            batch.save(update_fields=["calculation_status", "error_message", "finished_at"])
+            raise

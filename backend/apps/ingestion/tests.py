@@ -520,7 +520,7 @@ class APILayerTestCase(TestCase):
         # CELERY_TASK_ALWAYS_EAGER (the test runner) the task has already
         # fully run by the time this response is built, so the counts below
         # are real, not placeholders — this is not true against a real async
-        # worker (see apps.ingestion.tasks.process_upload_batch tests).
+        # worker (see apps.ingestion.tests_tasks.IngestTaskTests).
         self.assertEqual(response.status_code, drf_status.HTTP_202_ACCEPTED)
         data = response.json()
         self.assertEqual(data['status'], UploadBatch.BatchStatus.COMPLETED)

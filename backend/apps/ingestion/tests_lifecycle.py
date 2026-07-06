@@ -15,11 +15,13 @@ from rest_framework import status as drf_status
 from rest_framework.test import APIClient
 
 from apps.accounts.models import Membership, Role
+from apps.carbon.models import EmissionCalculation
+from apps.carbon.tasks import calculate_task
 from apps.core.models import DataSource, Organization
 from apps.core.storage import get_storage_service
 from apps.ingestion.models import UploadBatch
 from apps.ingestion.serializers import BatchProgressSerializer
-from apps.ingestion.tasks import process_upload_batch
+from apps.ingestion.tasks import ingest_task
 
 User = get_user_model()
 
@@ -60,20 +62,36 @@ class BatchLifecycleTests(TestCase):
         return batch, key
 
     def test_all_rows_valid_transitions_to_completed(self):
+        # Phase 5d: ingest_task alone completes ingestion but does NOT set
+        # finished_at (the chain isn't done — calculation is still
+        # pending). Running calculate_task too (as the real chain would)
+        # marks the whole job finished.
         batch, key = self._staged_batch(valid=True)
-        process_upload_batch(str(batch.id), key)
+        ingest_task(str(batch.id), key, "wf-completed")
         batch.refresh_from_db()
         self.assertEqual(batch.status, UploadBatch.BatchStatus.COMPLETED)
         self.assertIsNotNone(batch.started_at)
+        self.assertIsNone(batch.finished_at)
+
+        calculate_task(str(batch.id), "wf-completed")
+        batch.refresh_from_db()
+        self.assertEqual(batch.calculation_status, UploadBatch.CalculationStatus.CALCULATED)
         self.assertIsNotNone(batch.finished_at)
         self.assertGreaterEqual(batch.finished_at, batch.started_at)
 
     def test_some_rows_failed_transitions_to_partially_completed(self):
         batch, key = self._staged_batch(valid=False)
-        process_upload_batch(str(batch.id), key)
+        ingest_task(str(batch.id), key, "wf-partial")
         batch.refresh_from_db()
         self.assertEqual(batch.status, UploadBatch.BatchStatus.PARTIALLY_COMPLETED)
         self.assertGreater(batch.failed_rows, 0)
+
+        # The chain still proceeds to calculation — a row-level validation
+        # failure is not a pipeline crash (EXCLUDED_FAILED calculations are
+        # created for the FAILED-status records, same as before the split).
+        calculate_task(str(batch.id), "wf-partial")
+        batch.refresh_from_db()
+        self.assertEqual(batch.calculation_status, UploadBatch.CalculationStatus.CALCULATED)
 
     def test_pipeline_crash_transitions_to_failed_with_specific_error_message(self):
         # An unregistered parser type crashes the pipeline itself — distinct
@@ -90,9 +108,12 @@ class BatchLifecycleTests(TestCase):
         # Called directly (not via .delay()), so nothing catches the
         # exception on the way out — same as it would propagate to a real
         # Celery worker's own failure tracking. IngestionService.ingest_batch
-        # records the FAILED state on the batch BEFORE re-raising.
+        # records the FAILED state on the batch BEFORE re-raising. Because it
+        # raises, Celery's chain would stop here — calculate_task never runs
+        # for a batch whose ingestion genuinely crashed (nothing to guard
+        # against on calculate_task's side for this case).
         with self.assertRaises(ValueError):
-            process_upload_batch(str(batch.id), key)
+            ingest_task(str(batch.id), key, "wf-crash")
         batch.refresh_from_db()
 
         self.assertEqual(batch.status, UploadBatch.BatchStatus.FAILED)
@@ -115,7 +136,7 @@ class BatchLifecycleTests(TestCase):
                 organization=self.org, data_source=self.ds, file_name="x.csv",
                 status=terminal_status,
             )
-            result = process_upload_batch(str(batch.id), "uploads/does-not-matter.csv")
+            result = ingest_task(str(batch.id), "uploads/does-not-matter.csv", "wf-terminal")
             self.assertEqual(result, f"skipped-{terminal_status}")
             batch.refresh_from_db()
             self.assertEqual(batch.status, terminal_status, "redelivery must not alter a terminal batch")
@@ -308,7 +329,8 @@ class BatchProgressEndpointTests(TestCase):
             "id", "status", "total_rows", "failed_rows", "successful_records",
             "processed_records", "progress_percentage", "estimated_completion_time",
             "started_at", "finished_at", "duration_seconds", "worker_id",
-            "retry_count", "error_message", "parse_errors",
+            "retry_count", "calculation_status", "workflow_id", "pipeline_version",
+            "error_message", "parse_errors",
         }
         self.assertEqual(set(data.keys()), expected_keys)
         self.assertEqual(data["total_rows"], 5)
@@ -353,13 +375,13 @@ class RetryObservabilityTests(TestCase):
 
     def test_retry_count_defaults_to_zero_on_first_attempt(self):
         batch, key = self._staged_batch()
-        process_upload_batch.delay(str(batch.id), key)
+        ingest_task.delay(str(batch.id), key, "wf-retry")
         batch.refresh_from_db()
         self.assertEqual(batch.retry_count, 0)
 
     def test_worker_id_is_captured(self):
         batch, key = self._staged_batch()
-        process_upload_batch.delay(str(batch.id), key)
+        ingest_task.delay(str(batch.id), key, "wf-worker")
         batch.refresh_from_db()
         # Real value even under eager mode (verified: Celery's request
         # context still populates .hostname with the local machine's
@@ -410,5 +432,5 @@ class CancellationFutureStateTests(TestCase):
             organization=self.org, data_source=self.ds, file_name="x.csv",
             status=UploadBatch.BatchStatus.CANCELLED,
         )
-        result = process_upload_batch(str(batch.id), "uploads/does-not-matter.csv")
+        result = ingest_task(str(batch.id), "uploads/does-not-matter.csv", "wf-cancelled")
         self.assertEqual(result, "skipped-CANCELLED")
