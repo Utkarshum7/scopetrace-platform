@@ -51,18 +51,37 @@ def _handle_permanently_failed_task(
     exception_type = type(exception).__name__ if exception is not None else "Unknown"
     exception_message = str(exception) if exception is not None else ""
 
-    FailedTaskLog.objects.create(
-        task_name=task_name,
-        task_id=task_id or "",
-        batch_id=batch_id,
-        workflow_id=workflow_id,
-        args=args,
-        kwargs=kwargs,
-        exception_type=exception_type,
-        exception_message=exception_message,
-        traceback=str(einfo) if einfo else "",
-        retries_attempted=retries,
-    )
+    # This handler's own persistence can fail for the same underlying reason
+    # the task itself just exhausted its retries over (most notably: the DB
+    # was the thing that was down, and is still down). That must not raise
+    # out of a signal receiver — Celery would log it as an unhandled error in
+    # the signal dispatch and the worker would otherwise have no record at
+    # all of the original permanent failure. Falling back to a CRITICAL log
+    # line keeps the failure visible (worker stdout / any log aggregator)
+    # even when neither the FailedTaskLog row nor the batch-status fixup
+    # below can be written.
+    try:
+        FailedTaskLog.objects.create(
+            task_name=task_name,
+            task_id=task_id or "",
+            batch_id=batch_id,
+            workflow_id=workflow_id,
+            args=args,
+            kwargs=kwargs,
+            exception_type=exception_type,
+            exception_message=exception_message,
+            traceback=str(einfo) if einfo else "",
+            retries_attempted=retries,
+        )
+    except Exception:
+        logger.critical(
+            "DEAD LETTER LOGGING FAILED: could not persist FailedTaskLog for task %s "
+            "(id=%s, workflow=%s, batch=%s) — the DB may be unavailable, which may "
+            "also be why the original task's retries were exhausted. Original "
+            "failure: %s retries, %s: %s",
+            task_name, task_id, workflow_id, batch_id, retries, exception_type, exception_message,
+            exc_info=True,
+        )
 
     logger.error(
         "DEAD LETTER: task %s (id=%s, workflow=%s, batch=%s) permanently failed "
@@ -86,41 +105,56 @@ def _handle_permanently_failed_task(
     # has marked the batch terminal yet.
     from apps.ingestion.models import UploadBatch
 
-    if task_name == _INGEST_TASK_NAME:
-        updated = (
-            UploadBatch.objects.filter(pk=batch_id)
-            .exclude(status__in=UploadBatch.TERMINAL_STATUSES)
-            .update(
-                status=UploadBatch.BatchStatus.FAILED,
-                error_message=(
-                    f"Ingestion failed permanently after {retries} retries: "
-                    f"{exception_type}: {exception_message}"
-                ),
-                finished_at=timezone.now(),
+    # Same fallback reasoning as the FailedTaskLog write above: this update
+    # can fail for the same reason the task's retries were just exhausted
+    # (the DB itself unavailable). A failure here must not raise out of the
+    # signal receiver, and must not be silent — a batch stuck non-terminal
+    # with no error message and no log trace would be strictly worse than
+    # one that's merely missing its DLQ audit row.
+    try:
+        if task_name == _INGEST_TASK_NAME:
+            updated = (
+                UploadBatch.objects.filter(pk=batch_id)
+                .exclude(status__in=UploadBatch.TERMINAL_STATUSES)
+                .update(
+                    status=UploadBatch.BatchStatus.FAILED,
+                    error_message=(
+                        f"Ingestion failed permanently after {retries} retries: "
+                        f"{exception_type}: {exception_message}"
+                    ),
+                    finished_at=timezone.now(),
+                )
             )
+            if updated:
+                logger.info(
+                    "DEAD LETTER: batch %s marked FAILED (was left non-terminal by a "
+                    "retryable exception whose retries were exhausted)",
+                    batch_id,
+                )
+        elif task_name == _CALCULATE_TASK_NAME:
+            updated = (
+                UploadBatch.objects.filter(pk=batch_id)
+                .exclude(calculation_status__in=UploadBatch.CALCULATION_TERMINAL_STATUSES)
+                .update(
+                    calculation_status=UploadBatch.CalculationStatus.CALCULATION_FAILED,
+                    error_message=(
+                        f"Calculation failed permanently after {retries} retries: "
+                        f"{exception_type}: {exception_message}"
+                    ),
+                    finished_at=timezone.now(),
+                )
+            )
+            if updated:
+                logger.info(
+                    "DEAD LETTER: batch %s marked CALCULATION_FAILED (was left non-terminal "
+                    "by a retryable exception whose retries were exhausted)",
+                    batch_id,
+                )
+    except Exception:
+        logger.critical(
+            "DEAD LETTER BATCH FIXUP FAILED: could not mark batch %s terminal for task %s "
+            "(workflow=%s) — the DB may still be unavailable. This batch will remain "
+            "non-terminal until manually investigated and fixed up.",
+            batch_id, task_name, workflow_id,
+            exc_info=True,
         )
-        if updated:
-            logger.info(
-                "DEAD LETTER: batch %s marked FAILED (was left non-terminal by a "
-                "retryable exception whose retries were exhausted)",
-                batch_id,
-            )
-    elif task_name == _CALCULATE_TASK_NAME:
-        updated = (
-            UploadBatch.objects.filter(pk=batch_id)
-            .exclude(calculation_status__in=UploadBatch.CALCULATION_TERMINAL_STATUSES)
-            .update(
-                calculation_status=UploadBatch.CalculationStatus.CALCULATION_FAILED,
-                error_message=(
-                    f"Calculation failed permanently after {retries} retries: "
-                    f"{exception_type}: {exception_message}"
-                ),
-                finished_at=timezone.now(),
-            )
-        )
-        if updated:
-            logger.info(
-                "DEAD LETTER: batch %s marked CALCULATION_FAILED (was left non-terminal "
-                "by a retryable exception whose retries were exhausted)",
-                batch_id,
-            )

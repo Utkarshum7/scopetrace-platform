@@ -3,7 +3,9 @@ Phase 5e — dead-letter queue: apps.tasks.models.FailedTaskLog and the
 task_failure signal handler (apps/tasks/signals.py).
 """
 import uuid
+from unittest.mock import patch
 
+from django.db import OperationalError
 from django.test import TestCase
 
 from apps.core.models import DataSource, Organization
@@ -141,6 +143,69 @@ class DeadLetterSignalHandlerUnitTests(TestCase):
             einfo=None,
         )
         self.assertTrue(FailedTaskLog.objects.filter(task_id="task-no-batch").exists())
+
+    def test_does_not_raise_when_failed_task_log_write_itself_fails(self):
+        # Discovered via live Docker Compose verification: if the DB outage
+        # that exhausted the task's retries is STILL ongoing when
+        # task_failure fires, FailedTaskLog.objects.create() fails for the
+        # same reason. The handler must fall back to a logged CRITICAL
+        # message instead of raising out of the signal receiver — and must
+        # not let that failure prevent the batch-status fixup from at least
+        # being attempted.
+        batch = UploadBatch.objects.create(
+            organization=self.org, data_source=self.ds, file_name="x.csv",
+            status=UploadBatch.BatchStatus.PROCESSING,
+        )
+
+        with patch(
+            "apps.tasks.models.FailedTaskLog.objects.create",
+            side_effect=OperationalError("db unreachable"),
+        ):
+            _handle_permanently_failed_task(
+                sender=self._FakeSender("apps.ingestion.tasks.ingest_task", retries=3),
+                task_id="task-dlq-write-fails",
+                exception=OperationalError("persistent DB outage"),
+                args=[],
+                kwargs={"batch_id": str(batch.id), "workflow_id": "wf-dlq-write-fails"},
+                traceback=None,
+                einfo=None,
+            )
+
+        # No FailedTaskLog row (the write failed) but the batch fixup still
+        # ran successfully, since it's independent of the FailedTaskLog write.
+        self.assertFalse(FailedTaskLog.objects.filter(task_id="task-dlq-write-fails").exists())
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, UploadBatch.BatchStatus.FAILED)
+
+    def test_does_not_raise_when_batch_fixup_itself_fails(self):
+        # Mirror of the above for the batch-status fixup half: if THAT DB
+        # write also fails (the same outage), the handler must still not
+        # raise out of the signal receiver.
+        batch = UploadBatch.objects.create(
+            organization=self.org, data_source=self.ds, file_name="x.csv",
+            status=UploadBatch.BatchStatus.PROCESSING,
+        )
+
+        with patch(
+            "apps.ingestion.models.UploadBatch.objects.filter",
+            side_effect=OperationalError("db unreachable"),
+        ):
+            _handle_permanently_failed_task(
+                sender=self._FakeSender("apps.ingestion.tasks.ingest_task", retries=3),
+                task_id="task-batch-fixup-fails",
+                exception=OperationalError("persistent DB outage"),
+                args=[],
+                kwargs={"batch_id": str(batch.id), "workflow_id": "wf-batch-fixup-fails"},
+                traceback=None,
+                einfo=None,
+            )
+
+        # The FailedTaskLog write (unpatched here) still succeeded.
+        self.assertTrue(FailedTaskLog.objects.filter(task_id="task-batch-fixup-fails").exists())
+        # The batch fixup failed and was left non-terminal — no exception
+        # propagated, which is the only guarantee this test makes.
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, UploadBatch.BatchStatus.PROCESSING)
 
 
 class DeadLetterSignalWiringTests(TestCase):
