@@ -1,16 +1,45 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from '../services/api';
+import { useBatchProgress } from '../hooks/useBatchProgress';
+
+// Presentation-only lookup for job-lifecycle statuses (apps.ingestion.models
+// UploadBatch.BatchStatus) — QUEUED/PROCESSING are real states a client will
+// actually observe under real async dispatch (eager mode in local dev/tests
+// jumps straight to a terminal status, since the task already finished by
+// the time the upload response comes back).
+const STATUS_PRESENTATION = {
+  PENDING: { label: 'Upload Accepted — Preparing', tone: 'neutral' },
+  QUEUED: { label: 'Queued for Processing', tone: 'neutral' },
+  PROCESSING: { label: 'Processing…', tone: 'neutral' },
+  COMPLETED: { label: 'Completed Successfully', tone: 'success' },
+  PARTIALLY_COMPLETED: { label: 'Completed — Some Rows Failed', tone: 'warning' },
+  FAILED: { label: 'Failed', tone: 'error' },
+  CANCELLED: { label: 'Cancelled', tone: 'neutral' },
+};
+
+const BAR_COLOR_BY_TONE = {
+  neutral: 'bg-brand-500 shadow-[0_0_8px_#10b981]',
+  success: 'bg-emerald-500 shadow-[0_0_8px_#10b981]',
+  warning: 'bg-amber-500 shadow-[0_0_8px_#f59e0b]',
+  error: 'bg-rose-500 shadow-[0_0_8px_#f43f5e]',
+};
 
 export const UploadPage = ({ setView }) => {
   const [dataSources, setDataSources] = useState([]);
   const [selectedSourceType, setSelectedSourceType] = useState('sap'); // 'sap', 'utility', 'travel'
   const [selectedDataSourceId, setSelectedDataSourceId] = useState('');
   const [file, setFile] = useState(null);
-  
+
   const [isLoading, setIsLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState(null);
-  const [successResult, setSuccessResult] = useState(null);
+
+  // Once the 202 response comes back we have a batch_id and switch from
+  // "uploading bytes" to "polling job progress" — the component only ever
+  // reads { data, isTerminal } from this hook, never touches fetch/interval
+  // logic directly (see hooks/useBatchProgress.js).
+  const [batchId, setBatchId] = useState(null);
+  const { data: progress, isTerminal } = useBatchProgress(batchId);
 
   // Fetch registered master data sources
   useEffect(() => {
@@ -45,7 +74,7 @@ export const UploadPage = ({ setView }) => {
     setSelectedSourceType(type);
     setFile(null);
     setErrorMsg(null);
-    setSuccessResult(null);
+    setBatchId(null);
 
     const dbKey = getSourceTypeDBKey(type);
     const matched = dataSources.find(s => s.source_type === dbKey);
@@ -56,7 +85,7 @@ export const UploadPage = ({ setView }) => {
     if (e.target.files && e.target.files[0]) {
       setFile(e.target.files[0]);
       setErrorMsg(null);
-      setSuccessResult(null);
+      setBatchId(null);
     }
   };
 
@@ -74,7 +103,7 @@ export const UploadPage = ({ setView }) => {
     setIsLoading(true);
     setUploadProgress(0);
     setErrorMsg(null);
-    setSuccessResult(null);
+    setBatchId(null);
 
     try {
       const result = await apiService.uploadFile(
@@ -86,7 +115,9 @@ export const UploadPage = ({ setView }) => {
           setUploadProgress(percent);
         }
       );
-      setSuccessResult(result);
+      // Switches the component from "uploading bytes" to "polling job
+      // progress" — useBatchProgress takes over from here.
+      setBatchId(result.batch_id);
       setFile(null);
     } catch (err) {
       console.error(err);
@@ -279,88 +310,15 @@ export const UploadPage = ({ setView }) => {
             </div>
           )}
 
-          {successResult && (
-            <div className="p-4 bg-emerald-950/30 border border-emerald-500/30 text-emerald-300 text-xs rounded-xl flex flex-col gap-3 animate-fadeIn">
-              <div className="flex items-start gap-2.5">
-                <svg className="w-5 h-5 flex-shrink-0 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div className="flex flex-col gap-0.5">
-                  {/* Phase 5b: ingestion is now asynchronous — the response
-                      returns before processing necessarily completes, so the
-                      banner must reflect the batch's actual status rather
-                      than always claiming completion. Live status polling
-                      (instead of this one-shot message) is Phase 5c. */}
-                  {successResult.status === 'COMPLETED' ? (
-                    <>
-                      <span className="font-black text-sm text-white">Ingestion Pipeline Completed Successfully!</span>
-                      <span className="opacity-90">All clean rows normalized and written in a transactional single bulk-load.</span>
-                    </>
-                  ) : successResult.status === 'FAILED' ? (
-                    <>
-                      <span className="font-black text-sm text-white">Ingestion Failed</span>
-                      <span className="opacity-90">{successResult.error_message || 'The batch could not be processed.'}</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="font-black text-sm text-white">Upload Accepted — Processing</span>
-                      <span className="opacity-90">Your file was received and is being ingested in the background. Check Review Ledger shortly for results.</span>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Data Extraction Audit Summary */}
-              <div className="bg-slate-900/60 rounded-lg p-3 border border-slate-800/80 grid grid-cols-3 gap-4 mt-1">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-[10px] text-slate-500 uppercase tracking-wide">Batch ID</span>
-                  <span className="font-mono text-slate-200 font-bold">{successResult.batch_id.slice(0, 8)}...</span>
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-[10px] text-slate-500 uppercase tracking-wide">Processed Rows</span>
-                  <span className="font-mono text-white font-bold">{successResult.total_rows}</span>
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-[10px] text-slate-500 uppercase tracking-wide">Validation Failures</span>
-                  <span className="font-mono text-rose-400 font-bold">{successResult.failed_rows}</span>
-                </div>
-              </div>
-
-              {successResult.errors && successResult.errors.length > 0 && (
-                <div className="flex flex-col gap-1.5 mt-1 border-t border-slate-800/60 pt-2.5">
-                  <span className="font-bold text-slate-300">Parser Ingestion Errors Trace:</span>
-                  <ul className="list-disc list-inside space-y-1 text-rose-300 font-mono text-[11px]">
-                    {successResult.errors.slice(0, 5).map((err, idx) => (
-                      <li key={idx} className="leading-relaxed">
-                        Row #{err.row_index}: {err.error}
-                      </li>
-                    ))}
-                    {successResult.errors.length > 5 && (
-                      <li className="list-none text-slate-500 italic mt-0.5">
-                        ...and {successResult.errors.length - 5} more validation errors.
-                      </li>
-                    )}
-                  </ul>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-3 mt-2">
-                <button
-                  type="button"
-                  onClick={() => setView({ name: 'records', params: { batch: successResult.batch_id } })}
-                  className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg transition-all shadow-md focus:outline-none"
-                >
-                  Review Ingested Data &rarr;
-                </button>
-              </div>
-            </div>
+          {batchId && progress && (
+            <BatchProgressCard batchId={batchId} progress={progress} isTerminal={isTerminal} setView={setView} />
           )}
 
           {/* Submit Trigger */}
           <div className="flex justify-end pt-2">
             <button
               type="submit"
-              disabled={isLoading || filteredDataSources.length === 0}
+              disabled={isLoading || (batchId && !isTerminal) || filteredDataSources.length === 0}
               className="px-6 py-2.5 bg-brand-600 hover:bg-brand-500 disabled:bg-slate-800 disabled:text-slate-600 text-white text-xs font-black uppercase tracking-wider rounded-lg transition-all shadow-md shadow-brand-600/10 flex items-center gap-1.5 focus:outline-none"
             >
               {isLoading && (
@@ -374,6 +332,90 @@ export const UploadPage = ({ setView }) => {
           </div>
         </form>
       </div>
+    </div>
+  );
+};
+
+// Renders whatever useBatchProgress currently has — live while polling,
+// final once isTerminal flips true. Purely presentational: all of the
+// "how do we know this" logic lives in the hook, not here.
+const BatchProgressCard = ({ batchId, progress, isTerminal, setView }) => {
+  const presentation = STATUS_PRESENTATION[progress.status] || { label: progress.status, tone: 'neutral' };
+  const barColor = BAR_COLOR_BY_TONE[presentation.tone];
+  const parseErrors = progress.parse_errors || [];
+
+  return (
+    <div className="p-4 bg-slate-900/60 border border-slate-800/80 rounded-xl flex flex-col gap-3 animate-fadeIn">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-black text-white">{presentation.label}</span>
+        <span className="font-mono text-[11px] text-slate-500">{batchId.slice(0, 8)}...</span>
+      </div>
+
+      <div className="w-full bg-slate-800 rounded-full h-2">
+        <div
+          className={`h-2 rounded-full transition-all duration-500 ${barColor}`}
+          style={{ width: `${progress.progress_percentage}%` }}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] text-slate-500 uppercase tracking-wide">Total Rows</span>
+          <span className="font-mono text-white font-bold">{progress.total_rows}</span>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] text-slate-500 uppercase tracking-wide">Successful</span>
+          <span className="font-mono text-emerald-400 font-bold">{progress.successful_records}</span>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] text-slate-500 uppercase tracking-wide">Failed</span>
+          <span className="font-mono text-rose-400 font-bold">{progress.failed_rows}</span>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] text-slate-500 uppercase tracking-wide">
+            {isTerminal ? 'Duration' : 'Elapsed'}
+          </span>
+          <span className="font-mono text-slate-200 font-bold">
+            {progress.duration_seconds != null ? `${progress.duration_seconds.toFixed(1)}s` : '—'}
+          </span>
+        </div>
+      </div>
+
+      {presentation.tone === 'error' && progress.error_message && (
+        <div className="text-xs text-rose-300 leading-relaxed border-t border-slate-800/60 pt-2.5">
+          {progress.error_message}
+        </div>
+      )}
+
+      {parseErrors.length > 0 && (
+        <div className="flex flex-col gap-1.5 border-t border-slate-800/60 pt-2.5">
+          <span className="font-bold text-slate-300 text-xs">Parser Ingestion Errors Trace:</span>
+          <ul className="list-disc list-inside space-y-1 text-rose-300 font-mono text-[11px]">
+            {parseErrors.slice(0, 5).map((err, idx) => (
+              <li key={idx} className="leading-relaxed">
+                Row #{err.row_index}: {err.error}
+              </li>
+            ))}
+            {parseErrors.length > 5 && (
+              <li className="list-none text-slate-500 italic mt-0.5">
+                ...and {parseErrors.length - 5} more validation errors.
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+
+      {isTerminal && (presentation.tone === 'success' || presentation.tone === 'warning') && (
+        <div className="flex justify-end gap-3 mt-1">
+          <button
+            type="button"
+            onClick={() => setView({ name: 'records', params: { batch: batchId } })}
+            className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg transition-all shadow-md focus:outline-none"
+          >
+            Review Ingested Data &rarr;
+          </button>
+        </div>
+      )}
     </div>
   );
 };
