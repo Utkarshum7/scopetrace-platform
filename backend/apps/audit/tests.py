@@ -198,6 +198,16 @@ class ConcurrentAppendTests(TransactionTestCase):
                     append_entry(organization=org, action="CONCURRENT")
             except Exception as exc:  # noqa: BLE001 - captured for the assertion below
                 errors.append(exc)
+            finally:
+                # Each thread gets its own thread-local DB connection (that's
+                # exactly what makes this a real concurrency test — 10 genuine
+                # connections contending on the AuditChainState row lock).
+                # Django's test teardown only closes the MAIN thread's
+                # connection, so without this each worker's connection leaks
+                # and blocks DROP DATABASE at teardown ("database is being
+                # accessed by other users") — which under Postgres fails the
+                # whole run even though every assertion passed. Close it here.
+                connection.close()
 
         threads = [threading.Thread(target=worker) for _ in range(10)]
         for t in threads:
