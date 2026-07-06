@@ -21,7 +21,9 @@ import shutil
 import tempfile
 
 from celery import shared_task
+from django.conf import settings
 from django.db import InterfaceError, OperationalError
+from django.utils import timezone
 
 from apps.core.storage import get_storage_service
 from apps.ingestion.models import UploadBatch
@@ -161,3 +163,86 @@ def ingest_task(self, batch_id: str, storage_key: str, workflow_id: str) -> str:
     finally:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
+
+
+@shared_task(name="apps.ingestion.tasks.cleanup_stale_batches_task")
+def cleanup_stale_batches_task() -> str:
+    """Phase 5f — periodic backstop for batches stuck non-terminal.
+
+    Closes a gap identified during Phase 5e's live Docker Compose
+    verification (docs/RETRY_DLQ.md §4.3): if a DB outage outlasts a task's
+    *entire* retry budget, the DLQ signal handler's own fallback write can
+    also fail (same outage), leaving a batch non-terminal with no error
+    message — documented then as "will remain non-terminal until manually
+    investigated". This sweep is that investigation, automated: any batch
+    that hasn't been touched (`updated_at`) in longer than
+    `STALE_BATCH_THRESHOLD_MINUTES` and is still non-terminal on either axis
+    almost certainly means whatever was supposed to process it (a worker, a
+    retry, the DLQ fixup) never got the chance to — not that it's still
+    genuinely in flight. Every real ingestion/calculation in this system
+    completes in low-single-digit seconds even across a full retry budget
+    (~14s worst case for ingest_task, ~62s for calculate_task); the default
+    30-minute threshold leaves an enormous margin against false positives
+    while still catching genuinely stuck jobs the same day.
+
+    Two independent sweeps, matching the two independent status axes
+    (see UploadBatch's docstring / docs/JOB_LIFECYCLE.md §0):
+      1. Ingestion itself never finished — status is non-terminal.
+      2. Ingestion finished, but calculation never got to run or finish.
+
+    Each is a single atomic conditional UPDATE
+    (`.exclude(...).filter(updated_at__lt=cutoff).update(...)`) — safe to
+    run concurrently with itself (e.g. Beat catching up after being down):
+    once a row is updated it no longer matches the WHERE clause, so a
+    second concurrent sweep simply finds nothing left to do. No distributed
+    lock needed.
+    """
+    cutoff = timezone.now() - timezone.timedelta(minutes=settings.STALE_BATCH_THRESHOLD_MINUTES)
+
+    stale_ingestion = (
+        UploadBatch.objects.exclude(status__in=UploadBatch.TERMINAL_STATUSES)
+        .filter(updated_at__lt=cutoff)
+        .update(
+            status=UploadBatch.BatchStatus.FAILED,
+            error_message=(
+                f"Marked FAILED by the periodic stale-batch sweep: no processing "
+                f"activity detected for over {settings.STALE_BATCH_THRESHOLD_MINUTES} "
+                f"minutes. This usually means a worker/retry/dead-letter-fixup never "
+                f"got the chance to run to completion (e.g. a prolonged broker/DB "
+                f"outage) — see docs/RETRY_DLQ.md and docs/SCHEDULED_TASKS.md."
+            ),
+            finished_at=timezone.now(),
+        )
+    )
+
+    stale_calculation = (
+        UploadBatch.objects.filter(
+            status__in=(
+                UploadBatch.BatchStatus.COMPLETED,
+                UploadBatch.BatchStatus.PARTIALLY_COMPLETED,
+            )
+        )
+        .exclude(calculation_status__in=UploadBatch.CALCULATION_TERMINAL_STATUSES)
+        .filter(updated_at__lt=cutoff)
+        .update(
+            calculation_status=UploadBatch.CalculationStatus.CALCULATION_FAILED,
+            error_message=(
+                f"Marked CALCULATION_FAILED by the periodic stale-batch sweep: no "
+                f"calculation activity detected for over "
+                f"{settings.STALE_BATCH_THRESHOLD_MINUTES} minutes. See "
+                f"docs/RETRY_DLQ.md and docs/SCHEDULED_TASKS.md."
+            ),
+            finished_at=timezone.now(),
+        )
+    )
+
+    if stale_ingestion or stale_calculation:
+        logger.warning(
+            "cleanup_stale_batches_task: marked %s batch(es) FAILED (ingestion) and "
+            "%s batch(es) CALCULATION_FAILED (calculation) as stale",
+            stale_ingestion, stale_calculation,
+        )
+    else:
+        logger.info("cleanup_stale_batches_task: no stale batches found")
+
+    return f"ingestion={stale_ingestion} calculation={stale_calculation}"

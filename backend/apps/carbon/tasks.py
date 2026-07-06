@@ -133,3 +133,40 @@ def calculate_task(self, batch_id: str, workflow_id: str) -> str:
             exc_info=True,
         )
         raise
+
+
+@shared_task(name="apps.carbon.tasks.recalculate_missing_calculations_task")
+def recalculate_missing_calculations_task() -> str:
+    """Phase 5f — daily safety net: compute CO2e for any EmissionRecord that
+    still has no current EmissionCalculation.
+
+    In steady state this should find nothing — every record gets calculated
+    synchronously (calculate_task, chained right after ingestion) at upload
+    time. It exists for the records that can legitimately fall through that
+    path: a batch whose calculation permanently failed (calculate_task's
+    retries exhausted, logged to the dead-letter table — see
+    docs/RETRY_DLQ.md) and was never manually recalculated, or a record
+    created/edited outside the normal upload flow.
+
+    Deliberately reuses `backfill_calculations`'s existing, already-tested
+    non-force mode (`manage.py backfill_calculations`) rather than
+    duplicating its query/resolution logic — that command already does
+    exactly this: "compute a calculation for every record that has no
+    current calculation", per-organization with preloaded resources and
+    chunked bulk writes. --force is never passed here: this task only fills
+    in what's missing, it never supersedes an existing calculation (that
+    remains an explicit, human-triggered action — recalculate/backfill
+    --force), and APPROVED records without a calculation still get one
+    (backfill_calculations' default mode doesn't exclude APPROVED, only
+    --force does, since --force is about *recomputing existing* calcs,
+    which would violate the audit lock).
+    """
+    import io
+
+    from django.core.management import call_command
+
+    output = io.StringIO()
+    call_command("backfill_calculations", stdout=output)
+    result = output.getvalue().strip()
+    logger.info("recalculate_missing_calculations_task: %s", result)
+    return result
