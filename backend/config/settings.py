@@ -363,8 +363,10 @@ CELERY_TASK_ROUTES = {
 CELERY_TASK_ACKS_LATE = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 
-# Task/worker events — no consumer yet, but zero-cost to enable now so Flower /
-# `celery events` work without a config change when Phase 5h adds them.
+# Task/worker events — enabled since Phase 5a specifically so Flower (Phase
+# 5h — optional, dev-only `docker compose --profile monitoring up flower`)
+# and `celery events` would work with zero further config change whenever
+# either was introduced; Phase 5h is that consumer arriving.
 CELERY_WORKER_SEND_TASK_EVENTS = True
 CELERY_TASK_SEND_SENT_EVENT = True
 

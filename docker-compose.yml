@@ -12,6 +12,11 @@
 #
 # Data persists in the `pgdata` volume across restarts and rebuilds — the whole
 # point of Phase 0 (no more ephemeral SQLite).
+#
+#   Flower (Celery monitoring UI, Phase 5h) — optional, dev-only, NOT started
+#   by `docker compose up` alone:
+#     docker compose --profile monitoring up -d flower
+#   Flower: http://localhost:5555            (scopetrace / scopetrace123 by default)
 
 # Shared backend environment — used by both `api` and `worker` (they must run
 # with identical Django settings; a YAML anchor keeps this one source of truth
@@ -202,6 +207,31 @@ services:
       redis:
         condition: service_healthy
       api:
+        condition: service_healthy
+
+  # Flower — Celery monitoring UI (Phase 5h). Official image, not our own
+  # backend image: Flower is a pure operator/dev convenience that never runs
+  # in production, so it deliberately carries none of its own dependencies
+  # in requirements.txt/Dockerfile — nothing about the production-mirroring
+  # `api`/`worker` image changes to support it.
+  #
+  # `profiles: [monitoring]` is what makes this "optional, dev-only": a plain
+  # `docker compose up` never starts it. Bring it up explicitly with
+  # `docker compose --profile monitoring up -d flower`.
+  flower:
+    image: mher/flower:2.0
+    profiles: ["monitoring"]
+    environment:
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/0"
+      FLOWER_PORT: "5555"
+      # Basic auth by default (not left wide open) — same "sane default,
+      # override via env" pattern already used for MinIO's root credentials.
+      FLOWER_BASIC_AUTH: "${FLOWER_USER:-scopetrace}:${FLOWER_PASSWORD:-scopetrace123}"
+    ports:
+      - "5555:5555"
+    depends_on:
+      redis:
         condition: service_healthy
 
   frontend:

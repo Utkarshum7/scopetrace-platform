@@ -11,8 +11,11 @@ Design notes (see docs/PRODUCTION_ENGINEERING.md for the full rationale):
     prefetching a queue's worth of work). This requires tasks to be safe to
     re-run if redelivered — an idempotency constraint later Phase 5 milestones
     (async ingestion, calculation) are designed around from the start.
-  - Task events are enabled now (zero cost, no consumer yet) so Flower /
-    `celery events` work out of the box once introduced (Phase 5h).
+  - Task events, enabled below, are what Flower (Phase 5h — an optional,
+    dev-only `docker compose --profile monitoring up flower`, see
+    docker-compose.yml) and `celery events` consume for live task/worker
+    visibility — enabling them cost nothing before Flower existed to use
+    them, and needed no further config change once it did.
 """
 import os
 
