@@ -90,6 +90,7 @@ INSTALLED_APPS = [
     'apps.audit',
     'apps.carbon',
     'apps.tasks',
+    'apps.ai',
 ]
 
 MIDDLEWARE = [
@@ -546,6 +547,35 @@ if STORAGE_BACKEND == 's3' and not DEBUG:
             f"STORAGE_BACKEND=s3 requires {', '.join(_missing_s3_vars)} to be set."
         )
 
+
+# ---------------------------------------------------------------------------
+# AI Foundation (Phase 7a) — apps.ai. Advisory-only by design; see
+# docs/AI_ARCHITECTURE.md and docs/adr/0005-0007 for the full rationale.
+#
+# AI_ENABLED is the global kill switch — False by default, so the entire
+# layer is inert until explicitly turned on, exactly like STORAGE_BACKEND's
+# fail-closed-by-default philosophy but applied globally rather than failing
+# closed only in production (AI is opt-in even in DEBUG, since — unlike
+# storage — there is no dev-only convenience backend that makes sense as an
+# always-on default; 'echo' fills that role explicitly, never implicitly).
+#
+# Application code must depend only on apps.ai.services.gateway.invoke_ai()
+# and apps.ai.providers.base.LLMProvider — never import a concrete provider
+# SDK directly outside apps/ai/providers/ (enforced by
+# apps.ai.tests_import_guard, not a ruff rule — see that module's docstring
+# for why).
+# ---------------------------------------------------------------------------
+AI_ENABLED = config('AI_ENABLED', default=False, cast=bool)
+# '' is a valid value (no platform default provider configured) — the
+# factory raises ImproperlyConfigured on first use, not at settings-load
+# time, exactly like STORAGE_BACKEND validating only when actually selected.
+AI_PROVIDER = config('AI_PROVIDER', default='echo' if (DEBUG or _TESTING) else '')
+AI_DEFAULT_MODEL = config('AI_DEFAULT_MODEL', default='claude-sonnet-5')
+AI_DEFAULT_EGRESS_TIER = config('AI_DEFAULT_EGRESS_TIER', default='REDACTED')
+AI_DEFAULT_MONTHLY_BUDGET_USD = config('AI_DEFAULT_MONTHLY_BUDGET_USD', default='50.00')
+
+ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
+OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
 
 # ---------------------------------------------------------------------------
 # Logging — structured console logging (captured by Render / Docker stdout).
