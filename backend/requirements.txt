@@ -24,3 +24,12 @@ redis==5.2.1
 # used by Cloudflare R2, Backblaze B2, and the local MinIO Compose service).
 django-storages==1.14.4
 boto3==1.35.36
+
+# Phase 7a — LLMProvider abstraction (apps.ai). anthropic/openai are each
+# imported ONLY from their matching apps/ai/providers/*.py adapter (enforced
+# by apps.ai.tests_import_guard, never anywhere else). jsonschema validates
+# every AI response envelope against its declared schema at the gateway —
+# see apps/ai/services/gateway.py.
+anthropic==0.116.0
+openai==2.44.0
+jsonschema==4.26.0
