@@ -31,6 +31,12 @@ _PENDING_STATUSES = [
     EmissionRecord.RecordStatus.DRAFT,
     EmissionRecord.RecordStatus.SUSPICIOUS,
     EmissionRecord.RecordStatus.VALIDATED,
+    # Phase 6c: mid-workflow records are still "not yet approved" for this
+    # dashboard count -- without these two, a record would silently vanish
+    # from "pending" the moment it's submitted (or rejected) and only
+    # reappear once approved.
+    EmissionRecord.RecordStatus.SUBMITTED,
+    EmissionRecord.RecordStatus.REJECTED,
 ]
 
 

@@ -272,7 +272,33 @@ class EmissionRecord(models.Model):
         FAILED = "FAILED", "Failed Validation (Excluded from Calculations)"
         SUSPICIOUS = "SUSPICIOUS", "Suspicious (Needs Review)"
         VALIDATED = "VALIDATED", "Validated (Ready for Approval)"
+        SUBMITTED = "SUBMITTED", "Submitted for Approval"
         APPROVED = "APPROVED", "Approved & Audit Locked"
+        REJECTED = "REJECTED", "Rejected (Needs Correction)"
+
+    # Phase 6c — the fixed, non-configurable approval workflow's legal state
+    # transitions: {current_status: {legal target statuses}}. FAILED has no
+    # entry (implicitly empty set) -- it's an ingestion-time data-quality
+    # terminal state, corrected by re-uploading, not by a workflow
+    # transition. APPROVED also has no entry -- terminal, already enforced
+    # by clean()'s pre-existing audit-lock check below. VALIDATED is folded
+    # in alongside DRAFT/SUSPICIOUS even though nothing sets it today, so it
+    # already fits the workflow correctly if it's ever wired up later.
+    #
+    # Enforced HERE (in clean(), not only in
+    # apps.ingestion.services.workflow) for the same reason Phase 6b hooked
+    # save() itself rather than relying on view call sites alone:
+    # EmissionRecordAdmin has no readonly_fields restricting `status`, so a
+    # service-only check would miss Admin edits, direct ORM use, and any
+    # future call site. The service still owns the action->audit-name
+    # mapping and the lock/mutate/save/audit sequencing.
+    WORKFLOW_TRANSITIONS = {
+        RecordStatus.DRAFT: {RecordStatus.SUBMITTED},
+        RecordStatus.SUSPICIOUS: {RecordStatus.SUBMITTED},
+        RecordStatus.VALIDATED: {RecordStatus.SUBMITTED},
+        RecordStatus.SUBMITTED: {RecordStatus.APPROVED, RecordStatus.REJECTED},
+        RecordStatus.REJECTED: {RecordStatus.SUBMITTED},
+    }
 
     class ScopeCategory(models.TextChoices):
         SCOPE_1 = "SCOPE_1", "Scope 1 (Direct)"
@@ -366,6 +392,20 @@ class EmissionRecord(models.Model):
                         "This record has been Approved & Audit Locked. "
                         "No modifications are permitted on locked transaction logs."
                     )
+                # Phase 6c — enforce the fixed approval workflow's legal
+                # transitions for ANY status change, regardless of call
+                # site (service, Admin, shell). Non-status edits (the
+                # common case -- normalized_value corrections, etc.) are
+                # unaffected: this only fires when status is CHANGING.
+                if original.status != self.status:
+                    valid_targets = self.WORKFLOW_TRANSITIONS.get(original.status, set())
+                    if self.status not in valid_targets:
+                        raise ValidationError(
+                            f"Invalid workflow transition: cannot move from "
+                            f"{original.status} to {self.status}. Valid "
+                            f"transitions from {original.status}: "
+                            f"{sorted(valid_targets) if valid_targets else 'none (terminal state)'}."
+                        )
             except EmissionRecord.DoesNotExist:
                 # Record is being created for the first time, skip check
                 pass
