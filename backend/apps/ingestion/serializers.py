@@ -265,11 +265,25 @@ class EmissionRecordSerializer(serializers.ModelSerializer):
         }
 
 
-class ApprovalSerializer(serializers.Serializer):
+class WorkflowActionSerializer(serializers.Serializer):
+    """Phase 6c. Shared by submit/approve -- an optional free-text reason
+    for the transition, threaded into both AuditTrail and
+    EmissionRecordVersion."""
     reason = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Reason/justification for approving this record",
+        help_text="Reason/justification for this workflow transition",
+    )
+
+
+class RejectionSerializer(serializers.Serializer):
+    """Phase 6c. Rejection requires a reason -- unlike submit/approve, a
+    rejection with no stated justification is poor audit hygiene and
+    leaves the submitter with nothing actionable to correct."""
+    reason = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        help_text="Reason the record is being rejected (required)",
     )
 
 

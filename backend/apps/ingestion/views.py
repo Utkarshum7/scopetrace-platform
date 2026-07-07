@@ -15,12 +15,18 @@ from apps.core.storage import get_storage_service
 from apps.ingestion.models import UploadBatch, EmissionRecord, EmissionRecordVersion
 from apps.audit.services import append_entry
 from apps.ingestion.services.versioning import create_version_for_calculation_change
+from apps.ingestion.services.workflow import (
+    InvalidTransitionError,
+    available_actions,
+    transition_record,
+)
 from apps.ingestion.serializers import (
     UploadBatchSerializer,
     BatchProgressSerializer,
     EmissionRecordSerializer,
     EmissionRecordVersionSerializer,
-    ApprovalSerializer,
+    WorkflowActionSerializer,
+    RejectionSerializer,
     UploadInputSerializer,
     OrganizationSerializer,
     DataSourceSerializer,
@@ -260,9 +266,13 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
     permission_classes = [IsOrgMember]
 
     def get_permissions(self):
-        # Approving a record requires an approver role; recalculation requires an
-        # org-admin role; reads require membership.
-        if self.action == "approve":
+        # Phase 6c: submitting for approval requires the same role that can
+        # upload (the preparer decides readiness); approving/rejecting
+        # requires an approver role (unchanged from pre-6c); recalculation
+        # requires an org-admin role; reads require membership.
+        if self.action == "submit":
+            return [CanUpload()]
+        if self.action in ("approve", "reject"):
             return [CanApprove()]
         if self.action == "recalculate":
             return [CanManageOrgResources()]
@@ -302,18 +312,22 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
 
         return queryset
 
-    @action(detail=True, methods=["POST"], serializer_class=ApprovalSerializer)
-    def approve(self, request, pk=None):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        reason = serializer.validated_data.get("reason", "")
-        approved_by = request.user if request.user.is_authenticated else None
-
+    def _apply_workflow_transition(self, request, pk, target_status, reason):
+        """Phase 6c — shared by submit/approve/reject. Approval logic lives
+        here (a thin dispatcher into apps.ingestion.services.workflow), not
+        duplicated per action. Preserves the exact lock-fetch ->
+        object-permission-check structure the pre-6c approve() action
+        established: get_object() is bypassed in favor of a manual
+        select_for_update().get(pk=pk) so the row is locked from the very
+        start of the check-then-update, then check_object_permissions() is
+        called explicitly for tenant isolation (cross-org -> 403, matching
+        existing precedent -- see docs/AUTH_RBAC.md)."""
+        actor = request.user if request.user.is_authenticated else None
         try:
             with transaction.atomic():
                 # Lock the row for the whole check-then-update. Without this,
-                # two concurrent approvals could both pass the state checks and
-                # each write an AuditTrail entry (double approval).
+                # two concurrent transitions could both pass the state check
+                # and each write an AuditTrail entry (e.g. double approval).
                 try:
                     record = EmissionRecord.objects.select_for_update().get(pk=pk)
                 except EmissionRecord.DoesNotExist:
@@ -322,61 +336,15 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
                         status=status.HTTP_404_NOT_FOUND,
                     )
 
-                # Object-level tenant + role enforcement. get_object() is bypassed
-                # here (manual select_for_update), so run the checks explicitly:
-                # a caller may only approve records in their own organization.
                 self.check_object_permissions(request, record)
 
-                # State validations (now guarded by the row lock)
-                if record.status == EmissionRecord.RecordStatus.APPROVED:
-                    return Response(
-                        {"detail": "This record is already Approved & Audit Locked."},
-                        status=status.HTTP_400_BAD_REQUEST,
+                try:
+                    transition_record(
+                        record=record, target_status=target_status,
+                        actor=actor, reason=reason,
                     )
-                if record.status == EmissionRecord.RecordStatus.FAILED:
-                    return Response(
-                        {"detail": "Cannot approve a record that has Failed validation."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                old_status = record.status
-                record.status = EmissionRecord.RecordStatus.APPROVED
-                record.approved_by = approved_by
-                record.approved_at = timezone.now()
-                # Phase 6b: threaded through as transient instance attributes
-                # so EmissionRecord.save() (which creates the
-                # EmissionRecordVersion) can attribute it to the right user
-                # and reason — see that method's own comment.
-                record._version_changed_by = approved_by
-                record._version_reason = reason or "Analyst record approval"
-                # save() triggers full_clean() which enforces the audit lock,
-                # and (Phase 6b) creates a new EmissionRecordVersion snapshot.
-                record.save()
-
-                # Append-only, hash-chained AuditTrail entry (Phase 6a) — must
-                # go through append_entry(), never AuditTrail.objects.create()
-                # directly, so sequence/prev_hash/entry_hash are assigned
-                # atomically under AuditChainState's lock. Still inside this
-                # same transaction.atomic() block, so the chain-state lock is
-                # held for exactly as long as the record-level change it's
-                # accompanying — consistent with the row lock already taken
-                # above for the approval check.
-                changes = {"status": [old_status, EmissionRecord.RecordStatus.APPROVED]}
-                # Phase 6b: cross-reference the version this approval created
-                # in AuditTrail's already-freeform `changes` JSON — no schema
-                # change to the already-shipped 6a AuditTrail migrations, and
-                # keeps the two models' responsibilities separate (governance
-                # vs. record-state reconstruction) while still linking them.
-                if record._created_version is not None:
-                    changes["record_version"] = record._created_version.version_number
-                append_entry(
-                    organization=record.organization,
-                    record=record,
-                    action="RECORD_APPROVAL",
-                    changed_by=approved_by,
-                    changes=changes,
-                    reason=reason or "Analyst record approval",
-                )
+                except InvalidTransitionError as exc:
+                    return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
             return Response(EmissionRecordSerializer(record).data, status=status.HTTP_200_OK)
 
@@ -388,10 +356,53 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
         except DjangoValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as exc:
-            logger.exception("Approval failed for record %s", pk)
+            logger.exception("Workflow transition to %s failed for record %s", target_status, pk)
             return Response(
-                {"detail": f"Approval failed: {str(exc)}"}, status=status.HTTP_400_BAD_REQUEST
+                {"detail": f"Transition failed: {str(exc)}"}, status=status.HTTP_400_BAD_REQUEST
             )
+
+    @action(detail=True, methods=["POST"], serializer_class=WorkflowActionSerializer)
+    def submit(self, request, pk=None):
+        """POST /api/records/{id}/submit/ — DRAFT/SUSPICIOUS/VALIDATED -> SUBMITTED."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reason = serializer.validated_data.get("reason", "")
+        return self._apply_workflow_transition(
+            request, pk, EmissionRecord.RecordStatus.SUBMITTED, reason
+        )
+
+    @action(detail=True, methods=["POST"], serializer_class=WorkflowActionSerializer)
+    def approve(self, request, pk=None):
+        """POST /api/records/{id}/approve/ — SUBMITTED -> APPROVED (audit-locked)."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reason = serializer.validated_data.get("reason", "")
+        return self._apply_workflow_transition(
+            request, pk, EmissionRecord.RecordStatus.APPROVED, reason
+        )
+
+    @action(detail=True, methods=["POST"], serializer_class=RejectionSerializer)
+    def reject(self, request, pk=None):
+        """POST /api/records/{id}/reject/ — SUBMITTED -> REJECTED (reason required)."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reason = serializer.validated_data["reason"]
+        return self._apply_workflow_transition(
+            request, pk, EmissionRecord.RecordStatus.REJECTED, reason
+        )
+
+    @action(detail=True, methods=["GET"], url_path="workflow")
+    def workflow(self, request, pk=None):
+        """GET /api/records/{id}/workflow/ — current status + the legally
+        available next actions. Read-only, so (unlike submit/approve/
+        reject above) this reuses self.get_object() -- tenant scoping +
+        IsOrgMember, matching the /versions/ endpoints' precedent -- rather
+        than the manual lock-fetch pattern the mutating actions need."""
+        record = self.get_object()
+        return Response({
+            "status": record.status,
+            "available_transitions": sorted(available_actions(record.status)),
+        })
 
     @action(detail=True, methods=["POST"])
     def recalculate(self, request, pk=None):
