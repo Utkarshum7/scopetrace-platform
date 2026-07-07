@@ -265,6 +265,16 @@ class EmissionRecordSerializer(serializers.ModelSerializer):
         }
 
 
+# Phase 6f: bounds how much free text a client can push into a single
+# workflow transition's reason -- AuditTrail.reason/EmissionRecordVersion.
+# reason are TextFields (unbounded at the DB layer, deliberately, for
+# flexibility), but nothing legitimate needs an arbitrarily large
+# justification string, and an unbounded client-supplied string accepted
+# straight into the hash-chained audit ledger is a needless storage/CPU
+# (hashing scales with payload size) abuse vector.
+REASON_MAX_LENGTH = 1000
+
+
 class WorkflowActionSerializer(serializers.Serializer):
     """Phase 6c. Shared by submit/approve -- an optional free-text reason
     for the transition, threaded into both AuditTrail and
@@ -272,6 +282,7 @@ class WorkflowActionSerializer(serializers.Serializer):
     reason = serializers.CharField(
         required=False,
         allow_blank=True,
+        max_length=REASON_MAX_LENGTH,
         help_text="Reason/justification for this workflow transition",
     )
 
@@ -283,6 +294,7 @@ class RejectionSerializer(serializers.Serializer):
     reason = serializers.CharField(
         required=True,
         allow_blank=False,
+        max_length=REASON_MAX_LENGTH,
         help_text="Reason the record is being rejected (required)",
     )
 
