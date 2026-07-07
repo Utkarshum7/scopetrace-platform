@@ -123,7 +123,17 @@ def serialize_line_item(calc):
     and typed (not one opaque blob) -- the same reasoning
     EmissionRecordVersion's columns follow -- so a future GHG Protocol /
     CSRD-specific renderer can select/relabel a subset without re-deriving
-    anything from calculation_trace."""
+    anything from calculation_trace.
+
+    Phase 6d: `record = calc.emission_record` resolves correctly EVEN IF
+    the record is now soft-deleted -- forward FK access uses Django's
+    _base_manager (EmissionRecord.Meta.base_manager_name = "all_objects"),
+    not the filtered default. is_deleted/deleted_at are surfaced here
+    (not filtered out) so a reader can see a line item's source record
+    was later deleted, and when -- see
+    docs/adr/0004-soft-delete-orthogonal-fields.md for why compliance
+    reports deliberately preserve deleted records' history.
+    """
     record = calc.emission_record
     return {
         "record_id": str(record.id),
@@ -140,6 +150,8 @@ def serialize_line_item(calc):
         "factor_version": calc.factor_version,
         "approved_by": record.approved_by.username if record.approved_by else None,
         "approved_at": record.approved_at.isoformat() if record.approved_at else None,
+        "is_deleted": record.is_deleted,
+        "deleted_at": record.deleted_at.isoformat() if record.deleted_at else None,
     }
 
 
@@ -147,7 +159,7 @@ CSV_HEADER = [
     "record_id", "calculation_id", "record_version", "reporting_date", "scope",
     "activity_type", "activity_quantity", "activity_unit",
     "co2e_kg", "co2e_tonnes", "factor_publisher", "factor_version",
-    "approved_by", "approved_at",
+    "approved_by", "approved_at", "is_deleted", "deleted_at",
 ]
 
 
@@ -170,5 +182,7 @@ def csv_row(calc):
         calc.factor_version or "",
         record.approved_by.username if record.approved_by else "",
         record.approved_at.isoformat() if record.approved_at else "",
+        record.is_deleted,
+        record.deleted_at.isoformat() if record.deleted_at else "",
     ]
     return [sanitize_csv_cell(v) for v in row]

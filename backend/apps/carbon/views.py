@@ -49,7 +49,10 @@ class EmissionCalculationViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyMode
     queryset = (
         EmissionCalculation.objects
         .select_related("emission_factor", "activity_type")
-        .all()
+        # Phase 6d: __-traversal doesn't respect EmissionRecord.objects'
+        # default is_deleted=False filter -- a soft-deleted record's
+        # calculations must not appear in this active/working list either.
+        .exclude(emission_record__is_deleted=True)
     )
     serializer_class = EmissionCalculationSerializer
     permission_classes = [IsOrgMember]

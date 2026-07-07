@@ -43,7 +43,14 @@ _PENDING_STATUSES = [
 class MetricsService:
     # ------------------------------------------------------------------
     def _base(self, organization, filters):
-        qs = EmissionCalculation.objects.filter(organization=organization, is_current=True)
+        # Phase 6d: __-traversal filters don't respect a related model's
+        # manager (EmissionRecord.objects' is_deleted=False default doesn't
+        # apply across this join), so a soft-deleted record's emissions
+        # must be excluded explicitly here -- a deleted record must not
+        # inflate the org's live dashboard totals.
+        qs = EmissionCalculation.objects.filter(
+            organization=organization, is_current=True, emission_record__is_deleted=False,
+        )
         return self._apply_filters(qs, filters or {})
 
     @staticmethod
