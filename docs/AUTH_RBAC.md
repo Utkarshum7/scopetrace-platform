@@ -71,19 +71,25 @@ and approvals are role-gated.
 | Approve / reject records (`/records/{id}/approve`, `/reject`) | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Manage org resources (write) | ✅ | ✅ | ❌ | ❌ | ❌ |
 | View compliance reports (`/reports/compliance`) | ✅ | ✅ | ❌ | ✅ | ❌ |
+| Soft-delete / restore records, view trash (`/records/{id}` DELETE, `/restore`, `?deleted=true`) | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Cross-tenant access | ✅ | ❌ | ❌ | ❌ | ❌ |
 
 Permission classes: `IsOrgMember` (base), `CanUpload`, `CanApprove`,
-`CanManageOrgResources`, `CanViewActivity`. Each also implements
-`has_object_permission` to verify an object belongs to the request's active
-organization. `submit` reuses `CanUpload` (the same roles that prepare data
-decide when it's ready for review); `approve`/`reject` reuse `CanApprove`,
-unchanged from Phase 2/3 — Phase 6c added the formal Draft → Submitted →
-Approved/Rejected state machine (see [`GOVERNANCE.md`](GOVERNANCE.md) §6c)
-without changing who is allowed to approve. Compliance reports (Phase 6e)
-reuse `CanViewActivity` (Org Admin + Auditor) — the same roles that can view
-the audit-trail activity feed and verify the hash chain — not the broader
-`IsOrgMember` the dashboards/metrics endpoints use.
+`CanManageOrgResources`, `CanViewActivity`, `IsOrgAdmin`. Each also
+implements `has_object_permission` to verify an object belongs to the
+request's active organization. `submit` reuses `CanUpload` (the same roles
+that prepare data decide when it's ready for review); `approve`/`reject`
+reuse `CanApprove`, unchanged from Phase 2/3 — Phase 6c added the formal
+Draft → Submitted → Approved/Rejected state machine (see
+[`GOVERNANCE.md`](GOVERNANCE.md) §6c) without changing who is allowed to
+approve. Compliance reports (Phase 6e) reuse `CanViewActivity` (Org Admin +
+Auditor) — the same roles that can view the audit-trail activity feed and
+verify the hash chain — not the broader
+`IsOrgMember` the dashboards/metrics endpoints use. Soft-delete/restore
+(Phase 6d) use a new `IsOrgAdmin` class (Org Admin only, *every* method) —
+deliberately not `CanManageOrgResources`, which allows reads to any member
+and only restricts writes; reusing it for the `?deleted=true` list would
+have incorrectly let any member view it, since listing is a `GET`.
 
 ---
 

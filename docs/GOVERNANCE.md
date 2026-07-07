@@ -727,3 +727,171 @@ test_reports.py` (generation logging), `apps/ingestion/tests_workflow.py`
 
 **Verified against real PostgreSQL**: full backend test suite passes,
 `makemigrations --check --dry-run` reports no drift.
+
+---
+
+## 6d — Soft Delete and Record Retention
+
+### Objective
+
+Introduce reversible ("soft") deletion for `EmissionRecord` — and, while
+doing so, close a real gap reading the current model relationships
+surfaced: **hard deletion of governed data was possible before this
+milestone.** `EmissionRecord.organization`/`.batch` and
+`EmissionCalculation.emission_record` were all `on_delete=CASCADE`, and
+neither `EmissionRecordAdmin` nor `UploadBatchAdmin` restricted deletion.
+Deleting an `UploadBatch` (or an `Organization`) via Admin would silently
+cascade through and destroy every record and calculation underneath it.
+Full design in
+[`docs/adr/0004-soft-delete-orthogonal-fields.md`](adr/0004-soft-delete-orthogonal-fields.md).
+
+### Design: orthogonal fields, not another workflow status
+
+`is_deleted` + `deleted_at` on `EmissionRecord`, **separate from
+`status`** (6c). Deletion doesn't transition through the approval
+workflow — it freezes whatever status a record was at and hides it;
+restoring un-hides it at that exact same status, with no ambiguity about
+"restore to which status." No dedicated `deleted_by`/`deletion_reason`
+fields, mirroring 6c's own precedent for rejection: `AuditTrail` and the
+`EmissionRecordVersion` snapshot the deletion creates already fully
+capture that provenance.
+
+### The mechanism: a manager split
+
+`EmissionRecord.objects` (default) filters `is_deleted=False`;
+`EmissionRecord.all_objects` stays unfiltered. Every existing call site
+that already queried `EmissionRecord.objects` — `EmissionRecordViewSet`,
+`RecordExportView`, `recalculate()`, `submit`/`approve`/`reject`'s
+lookups — gets correct, deleted-excluding behavior with **zero code
+changes**. Two internal call sites had to be deliberately switched to
+`all_objects` to avoid a real, subtle bug: `EmissionRecord.clean()`'s
+"fetch the original row" lookup, and `EmissionRecord.save()`'s pre-save
+snapshot fetch — both need to see a soft-deleted record's *true* state to
+correctly validate a restore (using the filtered manager there would make
+a restore's own prior row invisible to itself, silently breaking both the
+lock and the version diff). `Meta.base_manager_name = "all_objects"` pins
+Django's own related-object traversal (including forward FK access, e.g.
+`calculation.emission_record`) to the unfiltered manager — confirmed
+**necessary**, not just defensive: `apps/carbon/services/reports.py`
+accesses `calc.emission_record` directly, and without this setting that
+access would raise `DoesNotExist` for a calculation whose record has
+since been soft-deleted, breaking compliance reports outright.
+
+### Integration
+
+- **Audit hash-chain**: soft-delete/restore go through the same
+  lock → mutate → save → `append_entry()` pattern as every 6c workflow
+  transition (`apps/ingestion/services/soft_delete.py`, mirroring
+  `apps/ingestion/services/workflow.py` structurally), with new actions
+  `RECORD_SOFT_DELETE`/`RECORD_RESTORE`.
+- **EmissionRecordVersion**: `is_deleted`/`deleted_at` are now diffed
+  fields (`_COMPARED_FIELDS`) — delete/restore automatically produce a
+  new version snapshot through the *existing* hook, exactly like 6c's
+  workflow transitions got versioning "for free."
+- **Approval workflow**: an `APPROVED` record can still be soft-deleted —
+  that's the point, hiding it without destroying its certified history.
+  `EmissionRecord.clean()`'s audit-lock check gets a narrow, explicit
+  carve-out for only `is_deleted`/`deleted_at`; any other simultaneous
+  field change on a locked record is still rejected in the same `save()`
+  call.
+- **Compliance reports (6e)**: **deliberately not filtered.** Reports
+  query from `EmissionCalculation`, joining to `EmissionRecord` via
+  `emission_record__status=APPROVED` — a `__`-traversal filter is a raw
+  SQL `JOIN` and never applies the related model's manager filtering, so
+  a soft-deleted record's calculations remain in compliance reports
+  automatically. `is_deleted`/`deleted_at` are now surfaced on every line
+  item (JSON and CSV) so a reader can see a line item's source record was
+  later deleted, and when.
+- **Dashboards and the active calculations list**: filtered explicitly.
+  `MetricsService._base()` and `EmissionCalculationViewSet`'s queryset
+  both add `.exclude(emission_record__is_deleted=True)` — since
+  `__`-traversal doesn't respect a manager, this exclusion has to be
+  explicit at these two call sites regardless of the manager split. A
+  deleted record's emissions must not inflate the org's live dashboard
+  totals.
+- **Tenant isolation / RBAC**: same manual lock-fetch +
+  `check_object_permissions()` pattern as submit/approve/reject (403
+  cross-org). A **new** `IsOrgAdmin` permission class (Org Admin only,
+  *every* method) gates soft-delete, restore, and the opt-in
+  `?deleted=true` list — the existing `CanManageOrgResources` was
+  considered and rejected for this: it deliberately allows reads to any
+  member and only restricts writes, which would have incorrectly let any
+  member view the deleted-records list (a `GET`). Caught by this
+  milestone's own RBAC test, not assumed.
+- **Existing export/report APIs**: `RecordExportView`'s CSV and
+  `EmissionRecordViewSet`'s list both stop showing deleted records with
+  zero code changes (manager split); compliance reports are unaffected by
+  design (see above).
+
+### Closing the bypass vectors
+
+`EmissionRecord.delete()` now raises unconditionally (matches
+`AuditTrail`/`EmissionRecordVersion`'s established pattern). A new
+`EmissionRecordQuerySet` blocks bulk `.delete()` **and** bulk `.update()`
+— the latter closes a gap that actually predates this milestone: bulk
+`.update()` bypasses `clean()`/`save()` entirely, so it could set
+`is_deleted=True`, or even `status` (dating back to 6c), with no audit
+trail entry and no version snapshot at all. Confirmed via `grep` that
+nothing in this codebase relies on bulk update/delete on `EmissionRecord`
+today. `EmissionRecord.organization`, `EmissionRecord.batch`, and
+`EmissionCalculation.emission_record` all move from `CASCADE` to
+`PROTECT` (matching `AuditTrail`/`EmissionRecordVersion`'s existing
+`PROTECT` on `organization`) — a batch or organization with any records
+can no longer be hard-deleted; an empty one still can.
+`EmissionRecordAdmin` gets `has_delete_permission = False` and
+`get_queryset()` overridden to `all_objects` (admins retain full
+oversight of soft-deleted records, matching this project's "admin =
+oversight, not just the working view" precedent) — `UploadBatchAdmin`
+doesn't need the same treatment, since Django Admin already surfaces a
+`PROTECT`-caused block gracefully, unlike a raised exception from an
+overridden `.delete()`.
+
+### APIs added
+
+- `DELETE /api/records/{id}/` — soft delete (reason required). A standard
+  REST verb, soft-delete underneath.
+- `POST /api/records/{id}/restore/` — un-hides at whatever status the
+  record already had.
+- `GET /api/records/?deleted=true` — the opt-in "trash" list (Org Admin
+  only).
+
+### Retention policy
+
+The mechanism is implemented fully; an automated **purge**
+(hard-delete-after-N-days) is **not** implemented in this milestone.
+`deleted_at` is exactly the field a future purge sweep would select on,
+so nothing about this decision blocks adding one later — but "do not
+physically delete governed records unless explicitly required" argues
+for treating eventual purging as a deliberate, separately-approved future
+step, not something to bundle into the mechanism's introduction. Until
+such a policy is approved, soft-deleted records are retained
+indefinitely, fully intact, exactly like every other governed record.
+
+### Migration impact
+
+Purely additive: two new columns on `EmissionRecord` (`is_deleted`
+indexed boolean default `False`, `deleted_at` nullable), two mirrored
+columns on `EmissionRecordVersion`, and three `on_delete` metadata
+changes. No data backfill needed for any of them — existing rows get
+`is_deleted=False` from the column default, and an `on_delete` change
+doesn't touch existing row data.
+
+### Verification
+
+42 new tests in `apps/ingestion/tests_soft_delete.py`: delete/restore
+mechanics (including the APPROVED-record carve-out and its narrow scope —
+a business-field change smuggled into the same `save()` call is still
+rejected), hard-delete blocked (instance, bulk delete, bulk update, the
+three `PROTECT` changes — including a test that bypasses
+`EmissionRecord.delete()`'s own override to verify the FK-level
+`PROTECT` holds independently), tenant isolation, RBAC (including the
+`IsOrgAdmin`-vs-`CanManageOrgResources` distinction), `EmissionRecordVersion`
++ `AuditTrail` integration, compliance reports preserving a deleted
+record's history (JSON, CSV, and summary totals) while dashboards and the
+active calculations list correctly exclude it, and real multi-threaded
+concurrent deletes.
+
+**Verified against real PostgreSQL**: full backend test suite passes
+(298 pre-existing tests confirmed unaffected by the manager-split change
+before the new tests were even written), `makemigrations --check
+--dry-run` reports no drift.

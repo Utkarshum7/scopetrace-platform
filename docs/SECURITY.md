@@ -138,6 +138,23 @@ broken chain — previously neither `GET /api/audit/verify/` nor the
 returned it in the response/stdout. Lives in the shared service, so both
 callers get it automatically.
 
+**Phase 6d** added reversible soft deletion for `EmissionRecord` and, in
+the process, closed a real pre-existing gap: `EmissionRecord.organization`/
+`.batch` and `EmissionCalculation.emission_record` were all
+`on_delete=CASCADE` with no delete restrictions in Django Admin — deleting
+an `UploadBatch` or an `Organization` would have silently destroyed every
+governed record and calculation underneath it. All three now `PROTECT`,
+`EmissionRecord.delete()` raises unconditionally (matching `AuditTrail`/
+`EmissionRecordVersion`'s established immutability pattern), and a new
+`EmissionRecordQuerySet` blocks bulk delete/update (the latter closing a
+gap dating back to 6c: bulk `.update()` bypasses `clean()`/`save()`
+entirely, so it could change governed fields with no audit trail entry and
+no version snapshot). Soft-deleted records are excluded from dashboards,
+the active calculations list, and record exports, but **remain in
+compliance reports** — preserving historical, certified data is the point.
+See [`GOVERNANCE.md`](GOVERNANCE.md) §6d and
+[`docs/adr/0004-soft-delete-orthogonal-fields.md`](adr/0004-soft-delete-orthogonal-fields.md).
+
 ## 7. Admin panel exposure
 
 Django Admin (`/admin/`) is reachable at the same host as the API with no

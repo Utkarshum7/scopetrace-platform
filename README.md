@@ -260,6 +260,9 @@ To test the ingestion and analyst flow locally or in production:
 | `GET` | `/api/records/{id}/versions/` | Bearer | List a record's immutable version history, newest first |
 | `GET` | `/api/records/{id}/versions/{n}/` | Bearer | Retrieve one historical version snapshot |
 | `GET` | `/api/records/{id}/versions/{n}/compare/` | Bearer | Field-by-field diff between a historical version and the current record |
+| `DELETE` | `/api/records/{id}/` | Bearer (Org Admin) | Soft delete (reason required); the record is never physically removed |
+| `POST` | `/api/records/{id}/restore/` | Bearer (Org Admin) | Restore a soft-deleted record to its prior status |
+| `GET` | `/api/records/?deleted=true` | Bearer (Org Admin) | List soft-deleted records ("trash") |
 | `GET` | `/api/activity-types/` | Bearer | Activity-type vocabulary (global reference) |
 | `GET` | `/api/factor-datasets/` | Bearer | Emission-factor datasets with provenance (filter publisher/status) |
 | `GET` | `/api/emission-factors/` | Bearer | Emission factors (filter activity_type/region) |
