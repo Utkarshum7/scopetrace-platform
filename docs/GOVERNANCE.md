@@ -2,8 +2,249 @@
 
 Phase 6. The enterprise governance layer built on top of the ScopeTrace
 platform: cryptographic audit integrity, record version history, formal
-approval workflow, compliance reporting, and data retention. This document
-grows one section per milestone (6a → 6g).
+approval workflow, compliance reporting, security hardening, and reversible
+soft deletion. This document grows one section per milestone (§6a → §6g,
+implemented in the order 6a → 6b → 6c → 6e → 6f → 6d — see Phase 6's own
+approval decisions for why soft delete was deliberately sequenced last: it
+touches nearly every queryset, so everything it could interact with needed
+to exist first).
+
+This §"Governance Architecture Overview" is 6g's own deliverable — a
+capstone review written *after* 6a–6f/6d were all implemented and verified,
+cross-checking the per-milestone sections below (§6a onward) against the
+actual current code rather than re-describing them. It does not repeat
+their content; it explains how the eight systems fit together as one
+whole, provides the lifecycle diagram, and states what's still an open
+trade-off versus what's a genuine future extension point.
+
+---
+
+## Governance Architecture Overview (6g)
+
+### The eight systems, and how each depends on the others
+
+| # | System | Milestone | What it's responsible for | Depends on |
+|---|---|---|---|---|
+| 1 | Tenant isolation | Phase 2 | Every governance record carries (or resolves to) an `organization` FK; `resolve_tenant_context()` derives the active org server-side, never from client input | — (foundational; everything else assumes this) |
+| 2 | RBAC | Phase 2, extended 6c/6d | Four org-scoped roles + Platform Admin; each governance action is gated by the narrowest permission class that's actually correct for it (§ below) | Tenant isolation |
+| 3 | Audit hash-chain (`AuditTrail`) | 6a | Tamper-*evident* (not tamper-proof — see Known limitations), append-only, hash-chained ledger of *who did what, when, why* | Tenant isolation (per-org chain) |
+| 4 | Immutable record versioning (`EmissionRecordVersion`) | 6b | *What the record actually looked like* at each point — reconstructable business state, not just an event log | Tenant isolation; cross-referenced into AuditTrail's `changes` JSON, not merged with it |
+| 5 | Approval workflow (`status`) | 6c | The fixed `Draft → Submitted → Approved/Rejected` state machine; the *only* thing that makes a record "certified" | RBAC (who may submit/approve/reject); feeds both AuditTrail and EmissionRecordVersion automatically |
+| 6 | Compliance reporting | 6e | On-demand, reproducible queries over *certified* (`APPROVED`) data, embedding audit-chain + version provenance | Approval workflow (the `APPROVED` filter *is* the report's definition of "reportable"); audit hash-chain (embedded snapshot) |
+| 7 | Soft deletion & retention | 6d | Reversible hide/restore, orthogonal to `status`; closes the hard-delete bypass vectors the other six systems all assumed were already closed | Approval workflow (deletable at any status, including `APPROVED`); versioning + audit (delete/restore are themselves versioned, audited transitions) |
+| 8 | Security hardening | 6f | Cross-cutting: protects the other seven from becoming attack surface themselves (CSV injection in exports/reports, unbounded audit-adjacent input, secret hygiene, broken-chain observability) | All of the above (it hardens what already existed, introduces nothing new to depend on it) |
+
+Reading the dependency column top to bottom is, not coincidentally, close
+to the actual implementation order (2 → 3 → 4 → 5 → 6 → 8 → 7) — each
+milestone's design review (§6a onward) explicitly checked what it needed
+to integrate with *before* writing code, which is why no milestone had to
+retrofit an earlier one except in the two places called out as "gaps
+found" in their own sections (6a's bulk-operation gap, 6b's Admin-bypass
+gap, 6c's `_PENDING_STATUSES` gap, 6d's CASCADE-delete gap — none of which
+were *design* mistakes, all of which were *pre-existing* conditions each
+milestone's own "read the code before writing any" discipline surfaced).
+
+### Record lifecycle diagram
+
+Covers every stage the milestone's own goals named: ingestion, validation,
+approval, calculation, reporting, archival, deletion, audit.
+
+```mermaid
+flowchart TD
+    subgraph S1["1. Ingestion"]
+        UP["File upload<br/>(SAP / Utility / Travel)"] --> PARSE["Parse + normalize<br/>(IngestionService)"]
+    end
+
+    subgraph S2["2. Validation"]
+        PARSE --> VAL{"RowValidator"}
+        VAL -->|"structural failure"| FAILED["FAILED<br/>(terminal, excluded from calc)"]
+        VAL -->|"outlier detected"| SUSP["SUSPICIOUS"]
+        VAL -->|"clean"| DRAFT["DRAFT"]
+    end
+
+    subgraph S3["3. Approval workflow (6c)"]
+        DRAFT -->|"submit<br/>CanUpload"| SUBMITTED["SUBMITTED"]
+        SUSP -->|"submit<br/>CanUpload"| SUBMITTED
+        SUBMITTED -->|"approve<br/>CanApprove"| APPROVED["APPROVED<br/>(audit-locked, terminal)"]
+        SUBMITTED -->|"reject<br/>CanApprove"| REJECTED["REJECTED"]
+        REJECTED -->|"resubmit"| SUBMITTED
+    end
+
+    subgraph S4["4. Calculation"]
+        DRAFT -.->|"initial calc<br/>(chained after ingest)"| CALC1["EmissionCalculation<br/>(factor-pinned, immutable)"]
+        APPROVED -.->|"recalculate<br/>CanManageOrgResources"| CALC2["New EmissionCalculation<br/>(old marked is_current=False)"]
+    end
+
+    subgraph S5["5. Reporting (6e)"]
+        APPROVED --> RPT["Compliance report<br/>(on-demand, APPROVED-only,<br/>CanViewActivity)"]
+        CALC1 -.-> RPT
+        CALC2 -.-> RPT
+    end
+
+    subgraph S67["6/7. Archival &amp; Deletion (6d)"]
+        DRAFT -->|"soft-delete<br/>IsOrgAdmin, reason required"| DEL["is_deleted=True<br/>deleted_at set<br/>(status frozen, unchanged)"]
+        SUBMITTED -->|"soft-delete"| DEL
+        APPROVED -->|"soft-delete"| DEL
+        REJECTED -->|"soft-delete"| DEL
+        DEL -->|"restore<br/>IsOrgAdmin"| POST["record visible again<br/>at its frozen status"]
+    end
+
+    subgraph S8["8. Audit (parallel to every mutating step above)"]
+        AUDIT[("AuditTrail<br/>hash-chained, append-only")]
+        VERSION[("EmissionRecordVersion<br/>immutable snapshot")]
+    end
+
+    SUBMITTED -.-> AUDIT
+    SUBMITTED -.-> VERSION
+    APPROVED -.-> AUDIT
+    APPROVED -.-> VERSION
+    REJECTED -.-> AUDIT
+    REJECTED -.-> VERSION
+    CALC2 -.-> AUDIT
+    CALC2 -.-> VERSION
+    DEL -.-> AUDIT
+    DEL -.-> VERSION
+    POST -.-> AUDIT
+    POST -.-> VERSION
+
+    RPT -.->|"embeds audit_chain<br/>verify_chain() snapshot"| AUDIT
+    RPT -.->|"still includes deleted<br/>records' certified history"| DEL
+```
+
+Verified against the actual code (not re-derived from memory) while
+writing this diagram: the six `AuditTrail.action` values a governance
+record can ever produce are `RECORD_SUBMISSION`, `RECORD_APPROVAL`,
+`RECORD_REJECTION`, `RECORD_RECALCULATION`, `RECORD_SOFT_DELETE`,
+`RECORD_RESTORE` (`apps/ingestion/services/workflow.py`'s
+`_AUDIT_ACTIONS`, `apps/ingestion/views.py`'s `recalculate()`, and
+`apps/ingestion/services/soft_delete.py`) — every arrow into the "Audit"
+subgraph above corresponds to exactly one of these six, with no
+undocumented seventh path that writes to `AuditTrail` outside
+`append_entry()`.
+
+### Cross-system consistency, checked (not assumed)
+
+- **Every mutating governance action goes through exactly one shared
+  choke point**: `record.save()` (business fields + versioning),
+  `append_entry()` (audit chain). No call site anywhere in `apps/
+  ingestion/views.py`, `apps/ingestion/services/workflow.py`, or `apps/
+  ingestion/services/soft_delete.py` constructs an `AuditTrail` row
+  directly, and none calls `EmissionRecordVersion(...).save()` directly
+  outside `apps/ingestion/services/versioning.py`. Verified via `grep`
+  for `AuditTrail.objects.create` and `EmissionRecordVersion(` across
+  `apps/` — the only construction sites are inside the two sanctioned
+  service modules.
+- **Every mutating governance action is both tenant-scoped and
+  RBAC-gated**, and the RBAC gate is the *narrowest correct* one, not a
+  reused broader one out of convenience: `submit` → `CanUpload`,
+  `approve`/`reject` → `CanApprove`, `recalculate` →
+  `CanManageOrgResources`, soft-delete/restore/`?deleted=true` →
+  `IsOrgAdmin` (deliberately *not* `CanManageOrgResources`, which allows
+  reads to any member — see 6d). Compliance reports and the audit-verify
+  endpoint → `CanViewActivity`. No governance-mutating endpoint uses the
+  bare `IsOrgMember`.
+- **Bulk ORM operations are blocked everywhere a governance model would
+  otherwise let them bypass `save()`/`clean()`**: `AuditTrailQuerySet`,
+  `EmissionRecordVersionQuerySet`, and `EmissionRecordQuerySet` each
+  override both `.delete()` and `.update()`. Confirmed no code in this
+  repository calls bulk delete/update on any of the three models (the
+  same `grep` check each of 6a/6b/6d performed at the time is still true
+  today).
+- **Hard deletion of governed data is blocked, not just discouraged**:
+  `AuditTrail.delete()`, `EmissionRecordVersion.delete()`, and
+  `EmissionRecord.delete()` all raise unconditionally.
+  `AuditTrail.organization`, `EmissionRecordVersion.organization`,
+  `EmissionRecord.organization`/`.batch`, and
+  `EmissionCalculation.emission_record` are all `on_delete=PROTECT` — the
+  only `CASCADE` remaining on any FK a governance model participates in
+  is `EmissionRecordVersion.record`/`AuditTrail.record`
+  (`on_delete=SET_NULL`, deliberate: the *snapshot* must survive even if
+  its live record somehow stopped existing, backed by
+  `record_uuid_backup`).
+- **Compliance reports (6e) and dashboards (Phase 4) deliberately
+  disagree about soft-deleted records, on purpose**: reports preserve
+  them (§6e's whole "reproducible from historical data" promise, plus
+  6d's explicit requirement not to let deletion erase certified history);
+  dashboards/exports/the active record list exclude them. This is not an
+  inconsistency — the two systems are answering different questions
+  ("what was certified, ever" vs. "what's currently active") — but it's
+  exactly the kind of thing worth stating plainly here, since read in
+  isolation either §6e or §6d could look like it contradicts the other.
+
+### Remaining governance risks and trade-offs (explicit, not overstated)
+
+1. **Tamper-*evident*, not tamper-***proof***.** (6a's own stated
+   trade-off, still true today.) Someone with raw database access can
+   rewrite history *and* recompute a consistent-looking chain forward
+   from that point. True non-repudiation needs an external anchor
+   (periodically publishing the chain-head hash outside this system's own
+   control) — deliberately out of scope at this project's scale, per the
+   Phase 6 approval.
+2. **No automated retention purge.** (6d's own stated trade-off.)
+   Soft-deleted records are retained indefinitely until a future,
+   separately-approved policy adds one. `deleted_at` already exists for
+   exactly this; nothing about today's design blocks adding it, but
+   nothing enforces a retention ceiling today either.
+3. **PDF compliance reports remain deferred.** (6e/Phase 6 approval
+   Decision 5.) CSV/JSON only. A PDF renderer is additive, not a
+   redesign, when it's actually needed — `apps/carbon/services/
+   reports.py` was deliberately kept renderer-agnostic for this reason.
+4. **No configurable workflow engine, by design, not by omission.**
+   (Phase 6 approval Decision 3.) The approval workflow is a fixed,
+   hardcoded transition graph. Extending it (a new intermediate state, a
+   second reviewer, per-organization custom stages) is a genuine, real
+   redesign, not a config change — worth stating plainly so a future
+   request for "just add a config option" is recognized as the
+   architectural decision it actually is, not a small tweak.
+5. **Backend-only.** Every governance capability in Phase 6 (hash-chain
+   verification, version comparison, workflow actions, compliance
+   reports, soft-delete/restore) is API-only — no frontend UI consumes
+   any of it yet. Out of scope for Phase 6 itself (a backend-governance
+   phase); a real gap for anyone other than an API client or `curl`/
+   Postman user today.
+6. **Single-algorithm hash chain, no rotation story.** SHA-256, fixed.
+   Migrating to a different algorithm later (e.g. if SHA-256 were ever
+   deprecated) has no designed migration path today — would need its own
+   design work (likely a new chain "generation" per organization,
+   analogous to how JWT signing keys are already independently
+   rotatable per 6f).
+
+### Known governance limitations (as of Phase 6g)
+
+Deliberately listed separately from *future enhancements* (see
+`docs/ROADMAP.md` for those) — these are things the system does not do
+**today**, stated plainly, not roadmap items being sold as upcoming work:
+
+- No UI for any Phase 6 capability (see risk 5 above).
+- No automated data-retention purge (see risk 2 above) — soft-deleted
+  records are never automatically hard-deleted.
+- No external anchor for the audit hash-chain (see risk 1 above) —
+  verification proves internal consistency, not immunity from a
+  privileged attacker with DB access and time.
+- No PDF compliance report generation (see risk 3 above).
+- No configurable/multi-stage approval workflow (see risk 4 above) — the
+  state machine is exactly `Draft → Submitted → Approved`/`Rejected`, for
+  every organization, with no per-tenant customization.
+- No secondary/cold storage tier for soft-deleted or historical data —
+  everything lives in the primary operational database indefinitely.
+- No hash-chain algorithm rotation mechanism (see risk 6 above).
+
+### Future extension points (not committed, not scheduled)
+
+- A GHG Protocol / CSRD-specific compliance report renderer, consuming
+  the same `apps/carbon/services/reports.py` queryset/summary functions
+  — no aggregation-logic rewrite needed (6e's explicit design goal).
+- An automated retention/purge policy once approved, selecting on
+  `EmissionRecord.deleted_at` (6d) — the field already exists.
+- A frontend surface for the workflow/versioning/soft-delete/compliance-
+  report APIs — all of Phase 6 is reachable today only via direct API
+  calls.
+- An external hash-chain anchor (periodic external publication of each
+  organization's chain-head hash) if non-repudiation against a
+  privileged-attacker threat model is ever required.
+- Per-record or per-role-scoped RBAC delegation (e.g. a reviewer
+  restricted to specific `DataSource`s) — today's RBAC is org-wide per
+  role, with no finer-grained scoping.
 
 ---
 
@@ -674,7 +915,7 @@ scope rationale in [`docs/adr/0003-security-hardening-scope.md`
      operational visibility.
 8. **Advisory secret-scanning in CI** (`.github/workflows/secret-scan.yml`,
    `gitleaks` over full git history) — closes the gap flagged in
-   `docs/SECURITY.md` §4/§9 ("no secret-scanning CI step exists").
+   `docs/SECURITY.md` §4/§10 ("no secret-scanning CI step exists").
    Advisory (`continue-on-error: true`), mirroring `pip-audit`/`npm
    audit`'s established pattern (see `docs/CI_CD.md` §1.2) rather than
    blocking from day one against unreviewed, pre-existing history.
@@ -895,3 +1136,109 @@ concurrent deletes.
 (298 pre-existing tests confirmed unaffected by the manager-split change
 before the new tests were even written), `makemigrations --check
 --dry-run` reports no drift.
+
+---
+
+## 6g — Governance Documentation & Final Governance Review
+
+### Objective
+
+Documentation-only capstone: review the complete governance architecture
+built across 6a–6f/6d as one whole (not milestone-by-milestone), verify
+every claim in this document set against the actual current code, remove
+or correct anything that had drifted, and produce the lifecycle diagram
+and known-limitations statement the six code-heavy milestones didn't have
+occasion to write. No functionality changes — none of this milestone's
+review surfaced a genuine governance defect requiring one (see the
+"What was reviewed and found already solid" pattern already established
+in 6f for what that would have looked like if it had).
+
+### What this milestone added
+
+- The "Governance Architecture Overview" section above: the eight-system
+  dependency table, the lifecycle diagram (verified to actually render —
+  rendered locally with `@mermaid-js/mermaid-cli` before committing, the
+  same verification discipline 6a's own Mermaid diagrams in
+  `DEPLOYMENT_GUIDE.md` used), the cross-system consistency checks (each
+  one re-verified against current code via `grep`, not re-asserted from
+  memory), the remaining-risks/trade-offs list, and the known-governance-
+  limitations list — deliberately separate from `ROADMAP.md`'s
+  forward-looking future-enhancements framing, per this milestone's own
+  explicit instruction.
+- An addendum to [`docs/adr/0002-compliance-reports-on-demand-not-persisted.md`](adr/0002-compliance-reports-on-demand-not-persisted.md)
+  documenting how 6d's soft-delete (which postdates 6e) interacts with
+  6e's on-demand-generation decision — confirming, not correcting, the
+  original design.
+
+### What was found stale, and fixed
+
+Cross-checking every governance-adjacent doc against the current
+implementation (not just the Phase 6 docs — `docs/DECISIONS.md` and
+`docs/MODEL.md` predate Phase 6 and hadn't been kept in sync):
+
+1. **`docs/MODEL.md`'s schema reference was significantly out of date.**
+   Its `EmissionRecord.status` enum listed 4 values; the current model has
+   7 (`VALIDATED`/`SUBMITTED`/`REJECTED` missing). `is_deleted`/
+   `deleted_at` (6d) weren't listed at all. `AuditTrail`'s field list was
+   missing the entire hash-chain (`sequence`/`prev_hash`/`entry_hash`,
+   6a). `EmissionRecordVersion` and `AuditChainState` (6a/6b) — two whole
+   models — were absent from both the ER diagram and the entity list.
+   Fixed: the ER diagram, the `EmissionRecord`/`AuditTrail` field lists,
+   and two new entity write-ups (`EmissionRecordVersion`,
+   `AuditChainState`), each pointing to `GOVERNANCE.md` for the design
+   rationale rather than duplicating it.
+2. **`docs/DECISIONS.md` had two stale governance-relevant PM
+   resolutions.** One described the pre-RBAC "single analyst user" MVP
+   assumption as current (it was superseded by Phase 2's full RBAC
+   implementation, then extended further by 6c/6d's per-action role
+   gating). One described the pre-6c single-step "Confirm & Lock" approval
+   flow and stated approval blocks "all future edits **or deletions**" —
+   no longer accurate since 6d: an `APPROVED` record cannot be
+   hard-deleted, but *can* be reversibly soft-deleted without losing its
+   certified state. Both entries corrected in place (struck through /
+   annotated as superseded, not silently rewritten) with a pointer to the
+   current design.
+3. **`docs/ARCHITECTURE_OVERVIEW.md`'s "Domain subsystems" table — the
+   project's own stated single entry point — didn't reference
+   `GOVERNANCE.md`, `INFRASTRUCTURE_SECURITY.md`, or `docs/adr/` at all.**
+   Written at Phase 5k, before Phase 6 existed, and never updated
+   afterward. Fixed: added a Governance row and a short paragraph
+   introducing the ADR directory.
+4. **Four stale section-number cross-references**, all pointing to
+   "`SECURITY.md` §9" meaning its "known gaps" section — accurate when
+   written, but 6f's own later edit in the *same milestone* inserted a new
+   §9 ("Privileged-operation input validation"), pushing "known gaps" to
+   §10 without updating three cross-references made earlier in that same
+   milestone plus one in `docs/adr/0003-security-hardening-scope.md`.
+   Found by systematically re-resolving every `§N` cross-reference across
+   the governance doc set against the current numbering, not by
+   inspection alone. Fixed in `docs/GOVERNANCE.md`,
+   `docs/INFRASTRUCTURE_SECURITY.md`, and (twice) `docs/adr/
+   0003-security-hardening-scope.md`.
+
+### What was reviewed and found already consistent (no fix needed)
+
+Every `§6a`–`§6f`/`§6d` cross-reference in `GOVERNANCE.md` itself, every
+`docs/adr/000N-*.md` filename referenced from `GOVERNANCE.md`/
+`SECURITY.md`, and every endpoint in `README.md`'s API table were checked
+against the current file/URL structure and found accurate — documented
+here so this verification pass itself is auditable, not just asserted.
+
+### Migration impact
+
+None. Documentation only.
+
+### Verification
+
+- Every `§N` cross-reference across `docs/GOVERNANCE.md`,
+  `docs/SECURITY.md`, `docs/AUTH_RBAC.md`, `docs/INFRASTRUCTURE_SECURITY.md`,
+  `docs/ROADMAP.md`, and `docs/adr/*.md` resolved against current section
+  numbering.
+- The lifecycle diagram rendered successfully with `@mermaid-js/
+  mermaid-cli` — both the standalone draft and the exact text as inserted
+  into `GOVERNANCE.md` (confirming the `<br/>` line-break syntax used in
+  the committed version, not just the initial draft's `\n` syntax, is
+  valid) — before being committed.
+- `ruff check .` and the full backend test suite re-run after this
+  milestone's doc-only changes, confirming zero code touched and zero
+  regression, exactly as expected for a documentation milestone.
