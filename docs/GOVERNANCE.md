@@ -598,3 +598,132 @@ large-dataset behavior (300 records: bounded query count via
 **Verified against real PostgreSQL**: full backend test suite passes,
 `makemigrations --check --dry-run` reports no drift (confirming no schema
 change was introduced).
+
+---
+
+## 6f — Security Hardening
+
+### Objective
+
+Strengthen application security across what 6a–6e built — without
+introducing unnecessary complexity, and without reaching for
+infrastructure-layer solutions (WAF, firewall, IP allow-lists) inside
+Django where a platform-layer fix is the actually-correct one. Full
+scope rationale in [`docs/adr/0003-security-hardening-scope.md`
+](adr/0003-security-hardening-scope.md).
+
+### What changed, and why each one is real (not padding)
+
+1. **Removed the 3 dead `FEATURE_*` flags** (`FEATURE_JWT_AUTH`,
+   `FEATURE_ENFORCE_TENANT_SCOPE`, `FEATURE_EMISSION_FACTORS`) — confirmed
+   via `grep` to be read nowhere in the codebase, flagged as dead code
+   since the Phase 5k Production Readiness Review.
+2. **Django `6.0.5` → `6.0.6`** — a patch release fixing all 5 CVEs
+   `pip-audit` had been flagging since Phase 5i (`PYSEC-2026-197` through
+   `-201`). Could not be installed/tested in this development sandbox (no
+   outbound PyPI network access here); relies on `backend-ci.yml`'s real
+   Postgres test job, which does have network access, to actually install
+   and verify it — see the ADR for the full reasoning.
+3. **CSV formula-injection ("CSV injection") sanitization**
+   (`apps/core/csv_security.py`, applied in both `RecordExportView` and
+   the 6e `ComplianceReportCSVView`) — a real, not theoretical, exposure:
+   `UploadBatch.file_name` is user-controlled at upload time and was
+   written into `RecordExportView`'s CSV verbatim. A filename like
+   `=cmd|'/c calc'!A1.csv` would be interpreted as a formula by Excel/
+   Sheets when the export is opened as a spreadsheet (OWASP-documented
+   vulnerability class). `sanitize_csv_cell()` prefixes a single quote
+   onto any *string* value starting with `=`, `+`, `-`, `@`, tab, or CR —
+   deliberately a no-op on non-string values (Decimal/int/None), since a
+   legitimate negative number's leading `-` must never be corrupted.
+4. **`max_length=1000` on the `reason` fields** accepted from client input
+   on privileged workflow actions (`WorkflowActionSerializer`,
+   `RejectionSerializer`) — `AuditTrail.reason`/`EmissionRecordVersion.
+   reason` are deliberately unbounded `TextField`s at the DB layer, but
+   nothing legitimate needs an arbitrarily large justification string
+   pushed straight into the hash-chained ledger.
+5. **An independently-rotatable JWT signing key** — `SIMPLE_JWT[
+   'SIGNING_KEY']` is now explicit, sourced from a new optional
+   `JWT_SIGNING_KEY` env var defaulting to `SECRET_KEY` (zero behavior
+   change unless set). Lets an operator rotate the JWT signing key without
+   being forced to also rotate (or being coupled to) the key that signs
+   sessions/CSRF tokens.
+6. **`SECURE_REFERRER_POLICY`/`SECURE_CROSS_ORIGIN_OPENER_POLICY` made
+   explicit** in `settings.py` — verified live (before writing this) that
+   both already matched these exact values via Django 6.0's own defaults;
+   this changes zero runtime behavior. It exists so a security reviewer
+   never has to know Django's undocumented-in-this-codebase defaults to
+   confirm the posture — matches the project's established "explicit over
+   implicit" pattern (the `REST_FRAMEWORK` block already does this for
+   DRF's own defaults).
+7. **Security-relevant logging**, added where a real observability gap
+   existed:
+   - `apps.audit.services.verify_chain()` now emits `CRITICAL` the moment
+     it detects a broken hash chain — a tampering event. Lives in the
+     shared service (not duplicated per caller), so both
+     `GET /api/audit/verify/` and the `verify_audit_chain` management
+     command get this automatically; **neither previously logged
+     anything** when a broken chain was found.
+   - `LoginView` now logs a `WARNING` per failed login attempt (username +
+     remote address, never the password) — baseline credential-stuffing/
+     brute-force observability. Response behavior is completely
+     unchanged; SimpleJWT's own error message was already
+     non-username-enumerating.
+   - Compliance report generation (6e) now logs `INFO` (who, which org,
+     which period, which format) — deliberately *not* an `AuditTrail`
+     entry (report generation stays a pure read, per the 6e ADR), just
+     operational visibility.
+8. **Advisory secret-scanning in CI** (`.github/workflows/secret-scan.yml`,
+   `gitleaks` over full git history) — closes the gap flagged in
+   `docs/SECURITY.md` §4/§9 ("no secret-scanning CI step exists").
+   Advisory (`continue-on-error: true`), mirroring `pip-audit`/`npm
+   audit`'s established pattern (see `docs/CI_CD.md` §1.2) rather than
+   blocking from day one against unreviewed, pre-existing history.
+
+### What was reviewed and found already solid (no gap)
+
+- **`resolve_tenant_context()`'s `X-Organization-ID` header handling**:
+  malformed UUIDs are already caught (`ValidationError`/`ValueError` →
+  clean `PermissionDenied`), no raw string ever reaches a query
+  unparameterized.
+- **An invalid UUID passed to a privileged action's URL** (e.g.
+  `POST /api/records/not-a-uuid/submit/`) — verified empirically (not
+  assumed) that this already returns a clean `400`, not an unhandled
+  `500`: DRF's default exception handler already converts a Django
+  `ValidationError` raised by `UUIDField.get_prep_value()` into a
+  structured `400` response. No fix needed; documented here so this
+  doesn't get "fixed" again by someone who hasn't verified the same thing.
+- **Login error messages**: `TokenObtainPairSerializer` already returns a
+  generic "No active account found with the given credentials" regardless
+  of whether the username exists — already non-enumerating by SimpleJWT's
+  own default behavior.
+
+### What's explicitly infrastructure, not application code
+
+`/admin/` network restriction, a formal RPO/RTO + tested DR drill, and the
+still-unverified `render.yaml` specifics are written up as operator
+action items in the new [`docs/INFRASTRUCTURE_SECURITY.md`](INFRASTRUCTURE_SECURITY.md)
+— kept deliberately separate from this document and from
+[`SECURITY.md`](SECURITY.md), per this milestone's explicit instruction
+not to implement infrastructure features inside Django without a strong
+technical reason. None of these three meet that bar — see
+`INFRASTRUCTURE_SECURITY.md` §1 for exactly why a Django middleware is the
+*wrong* layer for the `/admin/` case specifically.
+
+### Migration impact
+
+None. No model changes.
+
+### Verification
+
+New tests: `apps/core/tests_security.py` (the `sanitize_csv_cell()` unit
+tests, CSV-injection integration tests against both export endpoints with
+an actually-malicious filename/activity-type-code, header presence,
+FEATURE_* removal, JWT signing key defaulting), plus targeted additions to
+existing suites — `apps/audit/tests.py` (broken-chain logging),
+`apps/accounts/tests.py` (failed-login logging, with an explicit assertion
+the password never appears in the log line), `apps/carbon/tests/
+test_reports.py` (generation logging), `apps/ingestion/tests_workflow.py`
+(`reason` length boundary: over the cap rejected, at the cap accepted).
+
+**Verified against real PostgreSQL**: full backend test suite passes,
+`makemigrations --check --dry-run` reports no drift.

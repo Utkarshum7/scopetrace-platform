@@ -32,7 +32,7 @@ Access + refresh tokens with rotation and blacklist-on-logout.
 | `/api/auth/logout/` | POST | Bearer | `{refresh}` | `205` (refresh blacklisted) |
 | `/api/me/` | GET | Bearer | — | user profile, memberships, active org + role |
 
-Configuration (`settings.SIMPLE_JWT`): access lifetime **15 min** (env `JWT_ACCESS_MINUTES`), refresh **7 days** (`JWT_REFRESH_DAYS`), `ROTATE_REFRESH_TOKENS=True`, `BLACKLIST_AFTER_ROTATION=True`.
+Configuration (`settings.SIMPLE_JWT`): access lifetime **15 min** (env `JWT_ACCESS_MINUTES`), refresh **7 days** (`JWT_REFRESH_DAYS`), `ROTATE_REFRESH_TOKENS=True`, `BLACKLIST_AFTER_ROTATION=True`. **Phase 6f**: the signing key is explicit and independently rotatable via `JWT_SIGNING_KEY` (falls back to `SECRET_KEY`); failed login attempts are logged at `WARNING` (username + remote address only) — see [`SECURITY.md`](SECURITY.md) §1.
 
 ### Request flow
 

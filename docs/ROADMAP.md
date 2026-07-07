@@ -19,11 +19,12 @@ depth:
 | No WebSocket/SSE push for progress — polling only | Deliberate scope decision, not an oversight | [`TRADEOFFS.md`](TRADEOFFS.md) §1 |
 | Batch cancellation is declared but inert (no cancel endpoint, no task revocation) | Reserved interface, same pattern as the carbon engine's AI stages | [`JOB_LIFECYCLE.md`](JOB_LIFECYCLE.md) §6 |
 | No frontend automated test suite | Never built — `npm run build`/`lint` are the only frontend CI gates today | [`CI_CD.md`](CI_CD.md) |
-| No secret-scanning CI step | Not yet added | [`SECURITY.md`](SECURITY.md) §9 |
-| `render.yaml`'s `type: redis` and cross-service `SECRET_KEY` sharing are unverified against Render's live platform (no deploy access) | Fixed in the Phase 5 closeout milestone; two specific lines flagged `# VERIFY:` rather than asserted with false confidence | [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) §3.3 |
-| No formal RPO/RTO, no tested DR drill | Not yet formalized | [`INCIDENT_RESPONSE.md`](INCIDENT_RESPONSE.md) §2 |
-| 5 known Django CVEs unpatched (fix available) | Advisory CI finding, not yet remediated | [`SECURITY.md`](SECURITY.md) §5 |
-| Three `FEATURE_*` flags declared in settings but read nowhere | Dead code from Phase 2/3's actual (unconditional) implementation | [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) §4.9 |
+| ~~No secret-scanning CI step~~ | **Added in Phase 6f** — `gitleaks` over full git history, advisory (see `CI_CD.md` §1.2) | [`SECURITY.md`](SECURITY.md) §4 |
+| `render.yaml`'s `type: redis` and cross-service `SECRET_KEY` sharing are unverified against Render's live platform (no deploy access) | Infrastructure-layer, not application code — see Phase 6f's split | [`INFRASTRUCTURE_SECURITY.md`](INFRASTRUCTURE_SECURITY.md) §3 |
+| No formal RPO/RTO, no tested DR drill | Infrastructure-layer, not application code | [`INFRASTRUCTURE_SECURITY.md`](INFRASTRUCTURE_SECURITY.md) §2 |
+| ~~5 known Django CVEs unpatched~~ | **Fixed in Phase 6f** — bumped `Django` to `6.0.6` (patch release) | [`SECURITY.md`](SECURITY.md) §5 |
+| ~~Three `FEATURE_*` flags declared in settings but read nowhere~~ | **Removed in Phase 6f** | [`GOVERNANCE.md`](GOVERNANCE.md) §6f |
+| No IP/network restriction on `/admin/` | Infrastructure-layer, not application code — a Django middleware was considered and rejected for this specifically | [`INFRASTRUCTURE_SECURITY.md`](INFRASTRUCTURE_SECURITY.md) §1 |
 | ~~No cryptographic audit hash-chain~~ | **Implemented in Phase 6a** — per-org SHA-256 chain, tamper-evident, with verification command/API/admin action | [`GOVERNANCE.md`](GOVERNANCE.md) §6a |
 | ~~No historical record versioning~~ | **Implemented in Phase 6b** — immutable `EmissionRecordVersion` snapshots on every meaningful edit, list/retrieve/compare APIs | [`GOVERNANCE.md`](GOVERNANCE.md) §6b |
 | ~~No formal approval workflow beyond single-step approve/lock~~ | **Implemented in Phase 6c** — fixed Draft → Submitted → Approved/Rejected state machine, enforced at the model layer | [`GOVERNANCE.md`](GOVERNANCE.md) §6c |
@@ -45,8 +46,8 @@ pass) are complete. What's next, as currently planned:
   cryptographic immutable audit hash-chain (see §1, done in 6a), immutable
   version history on records (done in 6b), a formal Draft → Submitted →
   Approved/Rejected approval workflow (done in 6c), CSV/JSON compliance
-  reports (done in 6e; PDF still deferred), security hardening (6f), soft
-  delete (6d), governance docs closeout (6g).
+  reports (done in 6e; PDF still deferred), security hardening (done in
+  6f), soft delete (6d), governance docs closeout (6g).
 - **Phase 7 — AI**: AI anomaly detection, AI recommendations, an AI ESG
   assistant, AI-assisted report generation, AI-assisted validation. The
   carbon calculation pipeline's `AIRecommendationStage` has been an inert,

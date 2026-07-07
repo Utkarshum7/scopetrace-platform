@@ -343,16 +343,17 @@ Booleans accept `True`/`False` (case-insensitive); lists are comma-separated.
 | `FLOWER_USER` / `FLOWER_PASSWORD` | `scopetrace` / `scopetrace123` | Flower's basic auth (`monitoring` profile only). |
 | `VITE_API_URL` | `http://localhost:8000` | Baked into the frontend build at build time (Vite produces a static bundle). |
 
-### 4.9 Declared but unused (technical debt — do not treat as real toggles)
+### 4.9 ~~Declared but unused~~ (removed in Phase 6f)
 
 `FEATURE_JWT_AUTH`, `FEATURE_ENFORCE_TENANT_SCOPE`, `FEATURE_EMISSION_FACTORS`
-are still declared in `config/settings.py` but read nowhere else in the
-codebase (confirmed by search) — Phases 2 and 3 implemented JWT auth, tenant
-isolation, and the emission factor engine unconditionally rather than
-behind a phased dark-launch flag. Setting these to anything has no effect.
-Flagged as a cleanup candidate in this milestone's Production Readiness
-Review, not removed here (a settings.py change is a code change, out of
-scope for a documentation milestone).
+were declared in `config/settings.py` but read nowhere else in the
+codebase — Phases 2 and 3 implemented JWT auth, tenant isolation, and the
+emission factor engine unconditionally rather than behind a phased
+dark-launch flag. Flagged as a cleanup candidate by the Phase 5k Production
+Readiness Review; removed in Phase 6f (see
+[`GOVERNANCE.md`](GOVERNANCE.md) §6f). If any deployment's environment
+still sets these three variables, they're simply ignored now — no code
+reads them, same as before removal.
 
 ---
 
