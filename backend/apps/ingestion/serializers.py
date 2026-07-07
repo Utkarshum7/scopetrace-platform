@@ -5,7 +5,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from apps.core.models import Organization, DataSource
-from apps.ingestion.models import UploadBatch, EmissionRecord
+from apps.ingestion.models import UploadBatch, EmissionRecord, EmissionRecordVersion
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
@@ -295,3 +295,30 @@ class UploadInputSerializer(serializers.Serializer):
                 f"File exceeds the maximum allowed size of {MAX_UPLOAD_SIZE_MB} MB."
             )
         return value
+
+
+class EmissionRecordVersionSerializer(serializers.ModelSerializer):
+    """Phase 6b. Mirrors EmissionRecordSerializer's field naming for the
+    business-state fields (same names as the live record) so a client can
+    diff the two payloads directly without a field-name mapping layer."""
+    co2e_kg = serializers.SerializerMethodField()
+    co2e_tonnes = serializers.SerializerMethodField()
+    resolution_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EmissionRecordVersion
+        fields = [
+            "id", "version_number", "status", "is_suspicious", "scope_category",
+            "normalized_value", "normalized_unit", "approved_by", "approved_at",
+            "validation_errors", "raw_data_payload", "co2e_kg", "co2e_tonnes",
+            "resolution_status", "created_at", "created_by", "reason",
+        ]
+
+    def get_co2e_kg(self, obj):
+        return str(obj.calculation.co2e_kg) if obj.calculation else None
+
+    def get_co2e_tonnes(self, obj):
+        return str(obj.calculation.co2e_tonnes) if obj.calculation else None
+
+    def get_resolution_status(self, obj):
+        return obj.calculation.resolution_status if obj.calculation else None

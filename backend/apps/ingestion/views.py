@@ -4,7 +4,7 @@ from rest_framework import status, viewsets
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, NotFound
 from django.db import transaction
 from django.utils import timezone
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -12,12 +12,14 @@ from rest_framework.decorators import action
 
 from apps.core.models import DataSource, Organization
 from apps.core.storage import get_storage_service
-from apps.ingestion.models import UploadBatch, EmissionRecord
+from apps.ingestion.models import UploadBatch, EmissionRecord, EmissionRecordVersion
 from apps.audit.services import append_entry
+from apps.ingestion.services.versioning import create_version_for_calculation_change
 from apps.ingestion.serializers import (
     UploadBatchSerializer,
     BatchProgressSerializer,
     EmissionRecordSerializer,
+    EmissionRecordVersionSerializer,
     ApprovalSerializer,
     UploadInputSerializer,
     OrganizationSerializer,
@@ -341,7 +343,14 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
                 record.status = EmissionRecord.RecordStatus.APPROVED
                 record.approved_by = approved_by
                 record.approved_at = timezone.now()
-                # save() triggers full_clean() which enforces the audit lock.
+                # Phase 6b: threaded through as transient instance attributes
+                # so EmissionRecord.save() (which creates the
+                # EmissionRecordVersion) can attribute it to the right user
+                # and reason — see that method's own comment.
+                record._version_changed_by = approved_by
+                record._version_reason = reason or "Analyst record approval"
+                # save() triggers full_clean() which enforces the audit lock,
+                # and (Phase 6b) creates a new EmissionRecordVersion snapshot.
                 record.save()
 
                 # Append-only, hash-chained AuditTrail entry (Phase 6a) — must
@@ -352,12 +361,20 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
                 # held for exactly as long as the record-level change it's
                 # accompanying — consistent with the row lock already taken
                 # above for the approval check.
+                changes = {"status": [old_status, EmissionRecord.RecordStatus.APPROVED]}
+                # Phase 6b: cross-reference the version this approval created
+                # in AuditTrail's already-freeform `changes` JSON — no schema
+                # change to the already-shipped 6a AuditTrail migrations, and
+                # keeps the two models' responsibilities separate (governance
+                # vs. record-state reconstruction) while still linking them.
+                if record._created_version is not None:
+                    changes["record_version"] = record._created_version.version_number
                 append_entry(
                     organization=record.organization,
                     record=record,
                     action="RECORD_APPROVAL",
                     changed_by=approved_by,
-                    changes={"status": [old_status, EmissionRecord.RecordStatus.APPROVED]},
+                    changes=changes,
                     reason=reason or "Analyst record approval",
                 )
 
@@ -409,19 +426,89 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
                 emission_record=record, is_current=True
             ).update(is_current=False)
             calc.save()
+            # Phase 6b: recalculation changes WHICH EmissionCalculation is
+            # current for this record without touching any of the record's
+            # OWN fields — EmissionRecord.save()'s field-diff version trigger
+            # would never fire for this, so it's created explicitly here
+            # instead (see create_version_for_calculation_change's own
+            # docstring for why this needs its own entry point).
+            version = create_version_for_calculation_change(
+                record=record, changed_by=changed_by, reason="Manual recalculation",
+            )
             # See the approve() action's comment above — same append_entry()
             # requirement, same reasoning.
+            changes = {"co2e_kg": str(calc.co2e_kg), "status": calc.resolution_status}
+            if version is not None:
+                changes["record_version"] = version.version_number
             append_entry(
                 organization=record.organization,
                 record=record,
                 action="RECORD_RECALCULATION",
                 changed_by=changed_by,
-                changes={"co2e_kg": str(calc.co2e_kg), "status": calc.resolution_status},
+                changes=changes,
                 reason="Manual recalculation",
             )
 
         bump_calc_version(record.organization_id)
         return Response(EmissionCalculationSerializer(calc).data, status=status.HTTP_200_OK)
+
+    # --- Phase 6b: version history -------------------------------------
+    # All three reuse self.get_object() — TenantScopedViewSetMixin's scoped
+    # queryset + IsOrgMember (this viewset's existing base permission) apply
+    # automatically, exactly like every other detail action here. No new
+    # tenant-isolation code: this is the same mechanism already proven for
+    # GET /api/records/{id}/ itself. RBAC is deliberately NOT narrower than
+    # that endpoint — it already exposes calculation_trace/factor_provenance
+    # to any org member, so restricting version history specifically would
+    # be an inconsistent asymmetry, not tighter security.
+
+    @action(detail=True, methods=["GET"], url_path="versions")
+    def versions(self, request, pk=None):
+        """GET /api/records/{id}/versions/ — full history, newest first."""
+        record = self.get_object()
+        qs = record.versions.all()  # already ordered -version_number (Meta)
+        return Response(EmissionRecordVersionSerializer(qs, many=True).data)
+
+    @action(detail=True, methods=["GET"], url_path=r"versions/(?P<version_number>\d+)")
+    def version_detail(self, request, pk=None, version_number=None):
+        """GET /api/records/{id}/versions/{n}/ — one historical snapshot."""
+        record = self.get_object()
+        version = self._get_version_or_404(record, version_number)
+        return Response(EmissionRecordVersionSerializer(version).data)
+
+    @action(detail=True, methods=["GET"], url_path=r"versions/(?P<version_number>\d+)/compare")
+    def version_compare(self, request, pk=None, version_number=None):
+        """GET /api/records/{id}/versions/{n}/compare/ — field-by-field diff
+        between historical version n and the record's CURRENT live state."""
+        record = self.get_object()
+        version = self._get_version_or_404(record, version_number)
+
+        current_data = EmissionRecordSerializer(record).data
+        version_data = EmissionRecordVersionSerializer(version).data
+        # Only compare fields both serializers actually share — id/timestamps
+        # are deliberately excluded (never meaningful to "diff").
+        comparable_fields = (
+            "status", "is_suspicious", "scope_category", "normalized_value",
+            "normalized_unit", "approved_by", "approved_at", "co2e_kg",
+            "co2e_tonnes",
+        )
+        diff = {
+            field: {"version": version_data.get(field), "current": current_data.get(field)}
+            for field in comparable_fields
+            if version_data.get(field) != current_data.get(field)
+        }
+        return Response({
+            "version_number": version.version_number,
+            "is_current_state": not diff,
+            "diff": diff,
+        })
+
+    @staticmethod
+    def _get_version_or_404(record, version_number):
+        try:
+            return record.versions.get(version_number=version_number)
+        except EmissionRecordVersion.DoesNotExist:
+            raise NotFound(f"No version {version_number} for this record.")
 
 
 class OrganizationViewSet(viewsets.ReadOnlyModelViewSet):
