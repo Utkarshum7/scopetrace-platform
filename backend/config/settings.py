@@ -368,6 +368,15 @@ CELERY_TASK_DEFAULT_QUEUE = config('CELERY_TASK_DEFAULT_QUEUE', default='celery'
 # "not time-critical for the core pipeline". Keeping them separate means a
 # burst of scheduled maintenance work can never delay outbound notification
 # emails, and vice versa.
+#
+# Phase 7a: 'ai' is a new, fifth queue -- AI work (foundation today; real
+# anomaly-detection/recommendation/assistant tasks from 7b onward) is
+# bursty and rate-limited by vendor APIs in a way none of the existing
+# queues are, so it gets its own routing seam from day one rather than
+# reusing 'calculation' (the queue the Phase 5d comment above already
+# anticipated AI enrichment might want to split out of). Same "one worker
+# pool consumes everything today" story as every queue before it — see
+# docker-compose.yml's worker `-Q` list.
 CELERY_TASK_ROUTES = {
     'apps.ingestion.tasks.ingest_task': {'queue': 'ingestion'},
     'apps.carbon.tasks.calculate_task': {'queue': 'calculation'},
@@ -376,6 +385,7 @@ CELERY_TASK_ROUTES = {
     'apps.tasks.tasks.cleanup_old_failed_task_logs_task': {'queue': 'maintenance'},
     'apps.core.tasks.heartbeat_task': {'queue': 'maintenance'},
     'apps.core.tasks.send_notification_task': {'queue': 'notifications'},
+    'apps.ai.tasks.ai_heartbeat_task': {'queue': 'ai'},
 }
 
 # acks_late + prefetch=1: a task is acknowledged only after it finishes, so a
@@ -436,6 +446,15 @@ CELERY_BEAT_SCHEDULE = {
     'celery-heartbeat': {
         'task': 'apps.core.tasks.heartbeat_task',
         'schedule': timedelta(minutes=1),
+    },
+    # Phase 7a: less frequent than the general heartbeat above -- this is
+    # low-priority foundation infrastructure with no real feature calling it
+    # yet, and it deliberately does no network I/O (see
+    # apps.ai.tasks.ai_heartbeat_task's docstring), so there's no
+    # reliability reason to run it every minute.
+    'ai-heartbeat': {
+        'task': 'apps.ai.tasks.ai_heartbeat_task',
+        'schedule': timedelta(minutes=5),
     },
 }
 
