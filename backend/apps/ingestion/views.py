@@ -20,6 +20,12 @@ from apps.ingestion.services.workflow import (
     available_actions,
     transition_record,
 )
+from apps.ingestion.services.soft_delete import (
+    AlreadyDeletedError,
+    NotDeletedError,
+    restore_record,
+    soft_delete_record,
+)
 from apps.ingestion.serializers import (
     UploadBatchSerializer,
     BatchProgressSerializer,
@@ -27,6 +33,7 @@ from apps.ingestion.serializers import (
     EmissionRecordVersionSerializer,
     WorkflowActionSerializer,
     RejectionSerializer,
+    DeletionSerializer,
     UploadInputSerializer,
     OrganizationSerializer,
     DataSourceSerializer,
@@ -36,7 +43,13 @@ from apps.carbon.tasks import calculate_task
 from django.db.models import Prefetch
 
 from apps.accounts.mixins import TenantScopedViewSetMixin
-from apps.accounts.permissions import CanApprove, CanManageOrgResources, CanUpload, IsOrgMember
+from apps.accounts.permissions import (
+    CanApprove,
+    CanManageOrgResources,
+    CanUpload,
+    IsOrgAdmin,
+    IsOrgMember,
+)
 from apps.accounts.tenancy import resolve_tenant_context
 from apps.carbon.models import EmissionCalculation
 from apps.carbon.serializers import EmissionCalculationSerializer
@@ -276,13 +289,50 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
             return [CanApprove()]
         if self.action == "recalculate":
             return [CanManageOrgResources()]
+        # Phase 6d: soft-delete/restore, and viewing the "trash" list, are
+        # administrative actions -- not something every analyst/approver
+        # routinely needs. IsOrgAdmin, not CanManageOrgResources: the
+        # latter deliberately allows reads to any member (it only
+        # restricts writes), which would incorrectly let anyone view
+        # ?deleted=true -- a GET, so CanManageOrgResources' SAFE_METHODS
+        # carve-out would grant it. Caught by
+        # apps.ingestion.tests_soft_delete's own RBAC tests.
+        if self.action in ("destroy", "restore"):
+            return [IsOrgAdmin()]
+        if self.action == "list" and self._wants_deleted():
+            return [IsOrgAdmin()]
         return [IsOrgMember()]
 
+    def _wants_deleted(self):
+        return self.request.query_params.get("deleted", "").lower() in ("true", "1")
+
+    def _annotate(self, queryset):
+        return queryset.select_related("organization", "batch", "approved_by").prefetch_related(
+            Prefetch(
+                "calculations",
+                queryset=EmissionCalculation.objects.filter(is_current=True),
+                to_attr="current_calcs",
+            )
+        )
+
     def get_queryset(self):
-        # Base queryset is already tenant-scoped by TenantScopedViewSetMixin.
-        # The previously-trusted `organization` query param has been REMOVED —
-        # cross-tenant scoping is enforced server-side, not by the client.
-        queryset = super().get_queryset()
+        if self._wants_deleted():
+            # Phase 6d: opt-in view of soft-deleted records ("what's in the
+            # trash") -- explicitly bypasses EmissionRecord.objects' default
+            # is_deleted=False filter (self.queryset is built from that
+            # filtered manager, so it can never itself yield a
+            # is_deleted=True row -- this has to start from all_objects).
+            queryset = self._annotate(EmissionRecord.all_objects.filter(is_deleted=True))
+            ctx = resolve_tenant_context(self.request)
+            if ctx.organization is not None:
+                queryset = queryset.filter(organization=ctx.organization)
+        else:
+            # Base queryset is already tenant-scoped by TenantScopedViewSetMixin,
+            # and (Phase 6d) already excludes soft-deleted records via
+            # EmissionRecord.objects' default manager. The previously-trusted
+            # `organization` query param has been REMOVED — cross-tenant
+            # scoping is enforced server-side, not by the client.
+            queryset = super().get_queryset()
 
         ds_id = self.request.query_params.get("data_source")
         if ds_id:
@@ -403,6 +453,68 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
             "status": record.status,
             "available_transitions": sorted(available_actions(record.status)),
         })
+
+    # --- Phase 6d: soft delete / restore --------------------------------
+    # Orthogonal to the status workflow above -- see
+    # docs/adr/0004-soft-delete-orthogonal-fields.md. Mirrors
+    # _apply_workflow_transition's exact lock-fetch -> object-permission-
+    # check structure, with one difference: the initial fetch uses
+    # all_objects, not objects, because restore's target is (by
+    # definition) invisible through the default filtered manager.
+
+    def destroy(self, request, pk=None, *args, **kwargs):
+        """DELETE /api/records/{id}/ — soft delete (reason required). A
+        standard REST DELETE verb, backed by a soft-delete implementation
+        underneath -- the record is never physically removed."""
+        serializer = DeletionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reason = serializer.validated_data["reason"]
+        return self._apply_lifecycle_action(request, pk, "delete", reason)
+
+    @action(detail=True, methods=["POST"])
+    def restore(self, request, pk=None):
+        """POST /api/records/{id}/restore/ — un-hides a soft-deleted
+        record at whatever status it already had; status itself is never
+        touched by delete/restore."""
+        serializer = WorkflowActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reason = serializer.validated_data.get("reason", "")
+        return self._apply_lifecycle_action(request, pk, "restore", reason)
+
+    def _apply_lifecycle_action(self, request, pk, kind, reason):
+        actor = request.user if request.user.is_authenticated else None
+        try:
+            with transaction.atomic():
+                try:
+                    # all_objects, not objects: a restore's target record is,
+                    # by definition, excluded from the default manager.
+                    record = EmissionRecord.all_objects.select_for_update().get(pk=pk)
+                except EmissionRecord.DoesNotExist:
+                    return Response(
+                        {"detail": "Record not found."}, status=status.HTTP_404_NOT_FOUND,
+                    )
+
+                self.check_object_permissions(request, record)
+
+                try:
+                    if kind == "delete":
+                        soft_delete_record(record=record, actor=actor, reason=reason)
+                    else:
+                        restore_record(record=record, actor=actor, reason=reason)
+                except (AlreadyDeletedError, NotDeletedError) as exc:
+                    return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response(EmissionRecordSerializer(record).data, status=status.HTTP_200_OK)
+
+        except APIException:
+            raise
+        except DjangoValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            logger.exception("Lifecycle action %s failed for record %s", kind, pk)
+            return Response(
+                {"detail": f"{kind.capitalize()} failed: {str(exc)}"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
     @action(detail=True, methods=["POST"])
     def recalculate(self, request, pk=None):

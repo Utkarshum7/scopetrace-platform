@@ -224,6 +224,10 @@ class EmissionRecordSerializer(serializers.ModelSerializer):
             "approved_at",
             "created_at",
             "updated_at",
+            # Phase 6d — soft-delete state. Read-only: mutated only via
+            # DELETE /api/records/{id}/ and .../restore/, never directly.
+            "is_deleted",
+            "deleted_at",
             # carbon engine (read-only, from current calculation)
             "co2e_kg",
             "co2e_tonnes",
@@ -231,6 +235,7 @@ class EmissionRecordSerializer(serializers.ModelSerializer):
             "factor_provenance",
             "calculation_trace",
         ]
+        read_only_fields = ["is_deleted", "deleted_at"]
 
     @staticmethod
     def _calc(obj):
@@ -296,6 +301,19 @@ class RejectionSerializer(serializers.Serializer):
         allow_blank=False,
         max_length=REASON_MAX_LENGTH,
         help_text="Reason the record is being rejected (required)",
+    )
+
+
+class DeletionSerializer(serializers.Serializer):
+    """Phase 6d. Deletion requires a reason -- same justification as
+    RejectionSerializer's (structurally identical, but kept separate for
+    clarity: rejecting and deleting are different actions with different
+    consequences, even though both need "why" recorded)."""
+    reason = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        max_length=REASON_MAX_LENGTH,
+        help_text="Reason the record is being deleted (required)",
     )
 
 

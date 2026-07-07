@@ -100,3 +100,22 @@ class CanManageOrgResources(IsOrgMember):
         return ctx.is_platform_admin or (
             ctx.membership is not None and ctx.membership.role in ROLES_CAN_MANAGE_ORG
         )
+
+
+class IsOrgAdmin(IsOrgMember):
+    """Organization Admin (or Platform Admin) only, for EVERY method --
+    unlike CanManageOrgResources, which deliberately allows reads to any
+    member and only restricts writes. Used where even VIEWING something
+    should be admin-only, not just mutating it (Phase 6d: the soft-deleted
+    records list -- GET /api/records/?deleted=true -- is itself an
+    administrative-oversight capability, not a routine read)."""
+
+    message = "Your role does not permit this action."
+
+    def has_permission(self, request, view):
+        if not super().has_permission(request, view):
+            return False
+        ctx = resolve_tenant_context(request)
+        return ctx.is_platform_admin or (
+            ctx.membership is not None and ctx.membership.role in ROLES_CAN_MANAGE_ORG
+        )
