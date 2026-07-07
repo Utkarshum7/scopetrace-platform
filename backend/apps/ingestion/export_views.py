@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 from apps.accounts.permissions import IsOrgMember
 from apps.accounts.tenancy import resolve_tenant_context
 from apps.carbon.models import EmissionCalculation
+from apps.core.csv_security import sanitize_csv_cell
 from apps.ingestion.models import EmissionRecord
 
 EXPORT_ROW_CAP = 100_000
@@ -77,7 +78,7 @@ class RecordExportView(APIView):
             for i, r in enumerate(qs.iterator(chunk_size=2000)):
                 if i >= EXPORT_ROW_CAP:
                     break
-                yield writer.writerow([
+                row = [
                     str(r.id), r.batch.file_name, r.row_index, r.status, r.scope_category or "",
                     r.normalized_value if r.normalized_value is not None else "",
                     r.normalized_unit or "",
@@ -86,7 +87,11 @@ class RecordExportView(APIView):
                     r.x_calc_status or "",
                     r.x_reporting_date.isoformat() if r.x_reporting_date else "",
                     r.created_at.isoformat(),
-                ])
+                ]
+                # Phase 6f: formula-injection mitigation -- file_name is
+                # user-controlled at upload time. sanitize_csv_cell() is a
+                # no-op for non-string/non-prefixed values (Decimals, ints).
+                yield writer.writerow([sanitize_csv_cell(v) for v in row])
 
         response = StreamingHttpResponse(stream(), content_type="text/csv")
         response["Content-Disposition"] = 'attachment; filename="scopetrace_records.csv"'

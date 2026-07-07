@@ -24,6 +24,7 @@ from django.db.models import Count, OuterRef, Subquery, Sum
 
 from apps.audit.services import verify_chain
 from apps.carbon.models import EmissionCalculation
+from apps.core.csv_security import sanitize_csv_cell
 from apps.ingestion.models import EmissionRecord, EmissionRecordVersion
 
 RS = EmissionCalculation.ResolutionStatus
@@ -152,9 +153,11 @@ CSV_HEADER = [
 
 def csv_row(calc):
     """Same field set/order as CSV_HEADER and serialize_line_item, as a
-    plain list (csv.writer, not a dict) for the streaming CSV path."""
+    plain list (csv.writer, not a dict) for the streaming CSV path.
+    Phase 6f: every cell passes through sanitize_csv_cell() -- formula-
+    injection mitigation, a no-op for non-string/non-prefixed values."""
     record = calc.emission_record
-    return [
+    row = [
         str(record.id), str(calc.id), calc.x_record_version,
         calc.reporting_date.isoformat() if calc.reporting_date else "",
         calc.scope,
@@ -168,3 +171,4 @@ def csv_row(calc):
         record.approved_by.username if record.approved_by else "",
         record.approved_at.isoformat() if record.approved_at else "",
     ]
+    return [sanitize_csv_cell(v) for v in row]
