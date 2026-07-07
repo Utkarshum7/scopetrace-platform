@@ -137,3 +137,176 @@ corruption) is asserted under real Postgres in CI (`backend-ci.yml`'s
 Postgres service container); under SQLite the same test tolerates
 file-lock contention (a SQLite limitation, not an `append_entry` bug) while
 still asserting every *successful* append produced a valid chain.
+
+---
+
+## 6b — Immutable Record Versioning
+
+### Objective
+
+Give every `EmissionRecord` a complete, immutable history of its own business
+state — not just *that* something changed (6a's job) but *what it actually
+looked like* at each point in time, so a historical snapshot can be listed,
+retrieved, and diffed against the record's current state.
+
+### Design decision: a dedicated model, not an AuditTrail extension
+
+Per the Phase 6 approval (Decision 2), this is **Option A**: a new, dedicated
+`EmissionRecordVersion` model — not a widening of `AuditTrail` to carry full
+record snapshots. The two models keep separate responsibilities:
+
+- `AuditTrail` (6a) — the governance ledger. Who did what, when, why,
+  hash-chained for tamper-evidence. Freeform `changes` JSON, not a full
+  business-state snapshot.
+- `EmissionRecordVersion` (6b) — the record-reconstruction mechanism. Typed
+  columns mirroring `EmissionRecord`'s own shape (not one opaque JSON blob),
+  specifically so they're indexable and trivially diffable against the live
+  record.
+
+The two are cross-linked, not merged: the two existing `AuditTrail`-writing
+call sites (approval, recalculation) now also write the `version_number`
+this created into `AuditTrail.changes["record_version"]` — using
+`AuditTrail`'s already-freeform field, not a schema change to the
+already-shipped 6a migrations.
+
+### Design: how a version gets created
+
+`EmissionRecord.save()` gained an override that:
+
+1. Locks the record's own row (`select_for_update()`) and reads its
+   pre-save state, if this is an update (not a fresh create).
+2. Runs `full_clean()` (unchanged pre-existing behavior — this is what
+   already enforced the "no modifications after APPROVED" lock) and persists.
+3. Diffs old vs. new across a fixed set of business fields (`status`,
+   `is_suspicious`, `scope_category`, `normalized_value`, `normalized_unit`,
+   `approved_by_id`, `approved_at`, `validation_errors`,
+   `raw_data_payload`) and creates a new `EmissionRecordVersion` **only if
+   at least one differs** — satisfying "prevent duplicate version creation
+   for unchanged records" without a separate dirty-tracking mechanism.
+
+Locking granularity is deliberately **narrower** than 6a's: `AuditTrail`
+needed a separate per-organization `AuditChainState` counter row because many
+different records in one org can be appended to concurrently. A version's
+sequence is scoped to a **single record** — locking that record's own row
+(already being saved) is sufficient, and nothing else needs to write to that
+same record concurrently for this to be safe.
+
+### Two gaps closed during implementation (found by reading the code, not assumed)
+
+1. **Django Admin bypasses view-level logic entirely.**
+   `EmissionRecordAdmin` has no `readonly_fields` restricting business
+   fields — an admin edit would silently skip version creation if the hook
+   lived only in the two known view call sites (`approve`, `recalculate`).
+   **Fix**: the hook lives in `EmissionRecord.save()` itself, so it fires
+   for every mutation path — views, admin, shell, future code — with no
+   call-site enumeration to keep in sync.
+
+2. **Recalculation changes calculation linkage, not record fields.**
+   Recalculating a record's CO2e changes *which* `EmissionCalculation` is
+   `is_current=True` for it — it never touches an `EmissionRecord` field
+   itself, so the diff-based trigger in `save()` would never fire for this
+   case, silently missing a change that's clearly "meaningful" for the
+   requirement (approval state visibility, calculation references). **Fix**:
+   a second, explicit entry point,
+   `create_version_for_calculation_change()`, called directly from the
+   `recalculate` view action — sharing the same `_build_version()` snapshot
+   logic as the diff-based path, just without the diff gate.
+
+### Bulk operations: a separate, explicit code path
+
+`bulk_create()` bypasses `Model.save()` entirely by Django design (it
+issues one multi-row `INSERT`, never instantiating `save()` per object) —
+this is exactly the fast path `apps/ingestion/services/ingestion_service.py`
+uses for the hot ingestion loop, so the version hook could not simply "also
+run" there. `create_initial_versions_bulk()` mirrors it: one
+`EmissionRecordVersion.objects.bulk_create()` call producing `version_number=1`
+for every newly-ingested record, called immediately after the records'
+own `bulk_create()`, avoiding an N+1 regression in the ingestion path.
+
+### Immutability enforcement
+
+Same two-layer pattern 6a established for `AuditTrail`:
+
+- **Instance level**: `clean()` blocks re-save if the row already has a
+  primary key in the database; `delete()` unconditionally raises.
+- **QuerySet level**: a custom `EmissionRecordVersionQuerySet` whose
+  `delete()`/`update()` raise `ValidationError` — closing the same
+  bulk-operation gap 6a found for `AuditTrail` (`QuerySet.delete()`/
+  `.update()` operate at the SQL level and bypass instance methods
+  entirely).
+
+`record` is `on_delete=SET_NULL` (not `PROTECT`) — deliberately different
+from `AuditTrail.organization`'s `PROTECT`. A version's own tenant scoping
+already comes from its denormalized `organization` FK (`PROTECT`, matching
+6a's reasoning exactly), so a version's *history* is never lost if the
+specific record it snapshots is ever removed; `record_uuid_backup` preserves
+which record it was, mirroring `AuditTrail.record_uuid_backup`.
+
+### APIs
+
+Three new read-only `@action`s on the existing `EmissionRecordViewSet`,
+reusing its established tenant scoping (`TenantScopedViewSetMixin` +
+`IsOrgMember`) via `self.get_object()` — no new authorization path to keep
+in sync with the record endpoint's own:
+
+- `GET /api/records/{id}/versions/` — full history, newest first.
+- `GET /api/records/{id}/versions/{n}/` — one historical snapshot.
+- `GET /api/records/{id}/versions/{n}/compare/` — field-by-field diff
+  between historical version `n` and the record's current live state.
+
+RBAC is deliberately **not narrower** than `GET /api/records/{id}/` itself —
+that endpoint already exposes `calculation_trace`/`factor_provenance` to any
+org member, so restricting version history specifically would be an
+inconsistent asymmetry, not tighter security.
+
+### Migration impact, storage impact, indexing
+
+- **Migration**: purely additive. `0006_emission_record_versioning` is a
+  single `CreateModel` — no existing table gains or loses a column, so
+  (unlike 6a) there was no need for a 3-phase nullable → backfill →
+  enforce-NOT-NULL sequence. `0007_backfill_initial_record_versions` is a
+  `RunPython` data migration creating a `version_number=1` snapshot for
+  every `EmissionRecord` that predates this feature — otherwise a
+  pre-existing record nobody edits again would have no history at all until
+  its next change. Duplicates the snapshot logic inline (not importing
+  `apps.ingestion.services.versioning`) for the same reason 6a's backfill
+  does: a migration must stay replayable indefinitely regardless of how the
+  real app code evolves later.
+- **Storage impact**: one new row per meaningful record edit, growing
+  roughly linearly with edit frequency (in practice: ingest → maybe a few
+  validation-driven touch-ups → one approval → occasional recalculation —
+  typically single-digit versions per record, not unbounded churn). No
+  retention/pruning policy is introduced here; that's explicitly deferred to
+  the data-retention policy work called out in the Phase 6 approval.
+- **Indexing**: `UniqueConstraint(record, version_number)` (enforces
+  gaplessness/no-duplication at the DB level, not just in application code)
+  and `Index(organization, created_at)` (the shape of the tenant-scoped,
+  time-ordered query the API surfaces above actually run).
+- **Performance trade-off**: every `EmissionRecord.save()` now does one
+  extra locked `SELECT` (the pre-save snapshot) plus, when something
+  changed, one `INSERT`. This lands inside the same transaction the save
+  already required for `full_clean()`'s lock-and-check pattern, so it adds
+  one query's worth of latency to already-mutating requests — not to reads,
+  and not a new transaction.
+
+### Verification
+
+25 new tests in `apps/ingestion/tests_versioning.py`, covering version
+creation (on save, on `bulk_create`, on recalculation), duplicate-prevention
+(unchanged re-save), immutability (instance + `QuerySet` level), tenant
+isolation (cross-org 404 on all three new endpoints, plus a direct
+model-level check), the API surface (list/retrieve/compare, including the
+"no diff when comparing the current version" case), approval integration
+(version + `AuditTrail.changes["record_version"]` cross-reference), the
+backfill migration's actual output, and real multi-threaded concurrency.
+
+**Verified against real PostgreSQL**, not SQLite alone (via
+`docker compose up -d db` + `DATABASE_URL` pointed at it): all 286 backend
+tests pass, `makemigrations --check --dry-run` reports no drift, and the
+concurrency test's strict "all ten succeed, gapless 1..11 sequence" branch
+was confirmed clean across 5 repeated runs. Under SQLite the same test
+tolerates every thread losing the race (SQLite's file-level, not row-level,
+locking under ten real threads holding a transaction open through
+`full_clean()` + versioning logic) — asserting only that whichever saves
+*did* succeed produced a correct, non-corrupted sequence, mirroring 6a's
+`ConcurrentAppendTests` reasoning exactly.

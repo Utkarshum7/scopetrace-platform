@@ -254,6 +254,9 @@ To test the ingestion and analyst flow locally or in production:
 | `GET` | `/api/records/` | Bearer | List emission records (status/anomaly filters; scoped to the active org) |
 | `POST` | `/api/records/{id}/approve/` | Bearer (Org Admin / Analyst / Auditor) | Approve a record and lock it in the Audit Trail |
 | `POST` | `/api/records/{id}/recalculate/` | Bearer (Org Admin) | Recompute CO₂e with active factors (APPROVED records are frozen) |
+| `GET` | `/api/records/{id}/versions/` | Bearer | List a record's immutable version history, newest first |
+| `GET` | `/api/records/{id}/versions/{n}/` | Bearer | Retrieve one historical version snapshot |
+| `GET` | `/api/records/{id}/versions/{n}/compare/` | Bearer | Field-by-field diff between a historical version and the current record |
 | `GET` | `/api/activity-types/` | Bearer | Activity-type vocabulary (global reference) |
 | `GET` | `/api/factor-datasets/` | Bearer | Emission-factor datasets with provenance (filter publisher/status) |
 | `GET` | `/api/emission-factors/` | Bearer | Emission factors (filter activity_type/region) |

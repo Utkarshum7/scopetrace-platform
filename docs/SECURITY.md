@@ -83,6 +83,17 @@ delete/update and `on_delete=PROTECT` on the organization FK — see
 three verification surfaces (`verify_audit_chain` command,
 `GET /api/audit/verify/`, admin action).
 
+**Phase 6b** added a dedicated, immutable `EmissionRecordVersion` model —
+a full historical snapshot of a record's business state on every
+meaningful edit, enforced immutable with the same two-layer pattern as
+`AuditTrail` (instance-level `clean()`/`delete()` blocks, plus
+`QuerySet`-level `delete()`/`update()` blocks closing the same bulk-bypass
+gap 6a found). The hook lives in `EmissionRecord.save()` itself (not just
+known view call sites), so it also covers Django Admin edits, which have
+no `readonly_fields` restricting business fields. See
+[`GOVERNANCE.md`](GOVERNANCE.md) §6b for the full design and the two gaps
+closed.
+
 ## 7. Admin panel exposure
 
 Django Admin (`/admin/`) is reachable at the same host as the API with no
