@@ -211,6 +211,17 @@ CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
 if render_host:
     CSRF_TRUSTED_ORIGINS.append(f'https://{render_host}')
 
+# Phase 6f: made EXPLICIT rather than left implicit. Both already default
+# to exactly these values in Django 6.0 (unconditionally, in every
+# environment) -- this changes zero runtime behavior. It exists so a
+# security reviewer never has to know Django's own undocumented-in-this-
+# codebase defaults to confirm the posture, matching this project's
+# established "explicit over implicit" pattern (cf. the REST_FRAMEWORK
+# block above, which makes DRF's own current defaults explicit for the
+# same reason).
+SECURE_REFERRER_POLICY = 'same-origin'
+SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin'
+
 # Production security hardening (active when DEBUG=False).
 # The TLS-terminating toggles are env-overridable so the stack can also run
 # behind plain HTTP locally (e.g. Docker Compose) without redirect loops,
@@ -275,6 +286,16 @@ REST_FRAMEWORK = {
 # ---------------------------------------------------------------------------
 # SimpleJWT — access/refresh tokens with rotation + blacklist on logout.
 # ---------------------------------------------------------------------------
+# Phase 6f: SIGNING_KEY is explicit rather than left to SimpleJWT's own
+# default (which is simply settings.SECRET_KEY). Sourced from a NEW,
+# optional JWT_SIGNING_KEY env var that falls back to SECRET_KEY when
+# unset -- zero behavior change for any existing deployment. The point is
+# giving operators the *option* to rotate the JWT signing key
+# independently of Django's own SECRET_KEY (which also signs sessions and
+# CSRF tokens) -- rotating one no longer forces rotating, or being
+# coupled to, the other.
+JWT_SIGNING_KEY = config('JWT_SIGNING_KEY', default=SECRET_KEY)
+
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=config('JWT_ACCESS_MINUTES', default=15, cast=int)),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=config('JWT_REFRESH_DAYS', default=7, cast=int)),
@@ -283,6 +304,7 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
+    'SIGNING_KEY': JWT_SIGNING_KEY,
 }
 
 
@@ -523,13 +545,6 @@ if STORAGE_BACKEND == 's3' and not DEBUG:
         raise ImproperlyConfigured(
             f"STORAGE_BACKEND=s3 requires {', '.join(_missing_s3_vars)} to be set."
         )
-
-
-# Phased-rollout feature flags (all default off). Future code gates on these so
-# incomplete features can merge dark and be enabled per-environment.
-FEATURE_JWT_AUTH = config('FEATURE_JWT_AUTH', default=False, cast=bool)
-FEATURE_ENFORCE_TENANT_SCOPE = config('FEATURE_ENFORCE_TENANT_SCOPE', default=False, cast=bool)
-FEATURE_EMISSION_FACTORS = config('FEATURE_EMISSION_FACTORS', default=False, cast=bool)
 
 
 # ---------------------------------------------------------------------------
