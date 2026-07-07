@@ -252,7 +252,10 @@ To test the ingestion and analyst flow locally or in production:
 | `POST` | `/api/upload/travel/` | Bearer (Org Admin / Analyst) | Upload and parse Corporate Travel JSON |
 | `GET` | `/api/batches/` | Bearer | List ingestion batches for the active organization |
 | `GET` | `/api/records/` | Bearer | List emission records (status/anomaly filters; scoped to the active org) |
-| `POST` | `/api/records/{id}/approve/` | Bearer (Org Admin / Analyst / Auditor) | Approve a record and lock it in the Audit Trail |
+| `POST` | `/api/records/{id}/submit/` | Bearer (Org Admin / Analyst) | Submit a record for approval (Draft/Suspicious → Submitted) |
+| `POST` | `/api/records/{id}/approve/` | Bearer (Org Admin / Analyst / Auditor) | Approve a Submitted record and lock it in the Audit Trail |
+| `POST` | `/api/records/{id}/reject/` | Bearer (Org Admin / Analyst / Auditor) | Reject a Submitted record (reason required) |
+| `GET` | `/api/records/{id}/workflow/` | Bearer | Current workflow status + legally available next actions |
 | `POST` | `/api/records/{id}/recalculate/` | Bearer (Org Admin) | Recompute CO₂e with active factors (APPROVED records are frozen) |
 | `GET` | `/api/records/{id}/versions/` | Bearer | List a record's immutable version history, newest first |
 | `GET` | `/api/records/{id}/versions/{n}/` | Bearer | Retrieve one historical version snapshot |

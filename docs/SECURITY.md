@@ -94,6 +94,19 @@ no `readonly_fields` restricting business fields. See
 [`GOVERNANCE.md`](GOVERNANCE.md) §6b for the full design and the two gaps
 closed.
 
+**Phase 6c** added a fixed Draft → Submitted → Approved/Rejected approval
+state machine over `EmissionRecord.status`. The legal-transition graph
+(`EmissionRecord.WORKFLOW_TRANSITIONS`) is enforced in `clean()` itself,
+not only in `apps.ingestion.services.workflow` — the same reasoning as
+6b's Admin-bypass fix: a service-only check would miss Admin edits, direct
+ORM use, and any future call site. Every transition creates both an
+`AuditTrail` entry (hash-chained, 6a) and an `EmissionRecordVersion`
+snapshot (6b) atomically. See
+[`GOVERNANCE.md`](GOVERNANCE.md) §6c and
+[`docs/adr/0001-fixed-approval-workflow-status-field.md`](adr/0001-fixed-approval-workflow-status-field.md)
+for the full design and the breaking change this introduced (approval now
+requires submission first).
+
 ## 7. Admin panel exposure
 
 Django Admin (`/admin/`) is reachable at the same host as the API with no

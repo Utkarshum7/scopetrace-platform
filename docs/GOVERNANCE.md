@@ -310,3 +310,145 @@ locking under ten real threads holding a transaction open through
 `full_clean()` + versioning logic) — asserting only that whichever saves
 *did* succeed produced a correct, non-corrupted sequence, mirroring 6a's
 `ConcurrentAppendTests` reasoning exactly.
+
+---
+
+## 6c — Enterprise Approval Workflow
+
+### Objective
+
+A formal, fixed (non-configurable — Phase 6 approval Decision 3) approval
+state machine over `EmissionRecord`:
+
+```
+DRAFT / SUSPICIOUS / VALIDATED ──> SUBMITTED ──> APPROVED  (terminal)
+                                        │
+                                        └──> REJECTED ──> SUBMITTED (resubmit)
+```
+
+`FAILED` never enters this graph — an ingestion-time data-quality terminal
+state, corrected by re-uploading, not by a workflow transition (matches the
+pre-6c `approve()` action's existing behavior). `APPROVED` is terminal:
+`EmissionRecord.clean()`'s pre-existing audit-lock (unchanged since before
+6a) already blocks any further modification once approved.
+
+### Design decision: reuse `RecordStatus`, don't add a second field
+
+Full reasoning in [`docs/adr/0001-fixed-approval-workflow-status-field.md`
+](adr/0001-fixed-approval-workflow-status-field.md). Summary: `SUBMITTED`
+and `REJECTED` were added as two more values on the existing `status`
+field rather than introducing a separate `workflow_status` — a second
+field would duplicate "is this approved" across two columns that must
+always agree (the audit lock, `metrics.py`'s pending count,
+`EmissionRecordVersion.status`, `recalculate()`'s freeze check all key off
+one field today), which is exactly the kind of driftable duplicated state
+this project has consistently avoided.
+
+### Where the transition graph is enforced
+
+**In `EmissionRecord.clean()` itself** (`EmissionRecord.WORKFLOW_
+TRANSITIONS`, a plain `{status: {legal target statuses}}` dict), not only
+in the service layer — the same reasoning Phase 6b used for hooking
+`save()` rather than relying on view call sites alone:
+`EmissionRecordAdmin` has no `readonly_fields` restricting `status`, so a
+service-only check would miss Admin edits, direct ORM use, and any future
+call site. `apps/ingestion/services/workflow.py`'s `transition_record()`
+also checks `available_actions()` up front (reading the *same* mapping) so
+a caller gets a clear, action-oriented 400 before ever touching the row —
+both layers can never disagree because they read one shared source of
+truth.
+
+### Services, not views
+
+`apps/ingestion/services/workflow.py` owns: the target-status →
+(audit-action-name, default-reason) mapping, setting `approved_by`/
+`approved_at` when transitioning to `APPROVED`, and the
+lock → mutate → save → audit sequencing. `EmissionRecordViewSet`'s
+`submit`/`approve`/`reject` actions are now thin: they share one private
+`_apply_workflow_transition()` helper that fetches-and-locks the record
+(`select_for_update()`, mirroring the pre-6c `approve()` action exactly),
+runs `check_object_permissions()` for tenant isolation, and delegates the
+actual transition to the service.
+
+### Integration with 6a and 6b
+
+- **`AuditTrail` (6a):** every transition calls `append_entry()` inside the
+  same `transaction.atomic()` as the save, with a dedicated action name
+  (`RECORD_SUBMISSION` / `RECORD_APPROVAL` / `RECORD_REJECTION`) and the
+  resulting version number cross-referenced into `changes["record_version"]`
+  — identical pattern to the pre-6c `approve()` action, just applied to
+  three actions instead of one.
+- **`EmissionRecordVersion` (6b):** no new versioning code was needed.
+  `status` was already one of the diffed fields in
+  `create_version_if_changed()`, so every transition (`status` changing)
+  automatically produces a new immutable snapshot the moment
+  `record.save()` runs inside `transition_record()`.
+- **RBAC:** unchanged permission classes. `submit` uses `CanUpload` (the
+  same roles that prepare data decide when it's ready for review);
+  `approve`/`reject` reuse `CanApprove`, exactly the roles that could
+  already approve pre-6c.
+- **Tenant isolation:** the three mutating actions preserve the exact
+  pre-6c pattern (manual lock-fetch by `pk`, then `check_object_
+  permissions()` → `403` on cross-org, not `404` — matching
+  `docs/AUTH_RBAC.md`'s existing, tested precedent). The new read-only
+  `GET /api/records/{id}/workflow/` instead reuses `self.get_object()`
+  (tenant-scoped queryset → `404` on cross-org), matching the `/versions/`
+  endpoints' precedent from 6b — the two different status codes for
+  cross-org access (403 vs. 404) are a pre-existing, deliberate asymmetry
+  between mutating and read-only actions, not something 6c introduced.
+- **Carbon pipeline:** `recalculate()` is unchanged — still gated solely on
+  `status == APPROVED` (the freeze), independent of the new intermediate
+  `SUBMITTED`/`REJECTED` states. One real integration gap found and fixed:
+  `apps/carbon/services/metrics.py`'s `_PENDING_STATUSES` (powering the
+  "pending approval" dashboard count) didn't include `SUBMITTED`/
+  `REJECTED` — without the fix, a record would have silently vanished from
+  that metric the moment it entered the workflow.
+
+### APIs added
+
+- `POST /api/records/{id}/submit/` — optional `reason`.
+- `POST /api/records/{id}/approve/` — optional `reason` (existing endpoint,
+  now requires `SUBMITTED` first).
+- `POST /api/records/{id}/reject/` — **required** `reason` (a rejection with
+  no stated justification is poor audit hygiene and leaves the submitter
+  with nothing actionable to correct).
+- `GET /api/records/{id}/workflow/` — `{status, available_transitions}`,
+  read-only.
+
+### A breaking change, explained (not silent)
+
+Pre-6c, `approve()` worked directly from `DRAFT`/`SUSPICIOUS`/`VALIDATED`.
+Requiring `SUBMITTED` first is exactly what the requested state diagram
+demands, so every pre-existing test that assumed direct-from-DRAFT approval
+was updated to submit first, and two error-message assertions were
+reworded from the old bespoke "Approved & Audit Locked" / "Failed
+validation" strings to the new generic "Invalid workflow transition: cannot
+move from X to Y" message every invalid transition now produces uniformly.
+
+### Migration impact
+
+Adding two `TextChoices` values only changes Django's field metadata — no
+DB schema change, no data migration. `0008_workflow_status_choices` is a
+single `AlterField` with unchanged `max_length`, confirmed to execute with
+no SQL side effects on both SQLite and Postgres.
+
+### Verification
+
+30 new tests in `apps/ingestion/tests_workflow.py`: the transition graph in
+isolation (every legal edge, every illegal edge, the model-level `clean()`
+guard firing independent of the service), the full API surface (RBAC per
+action, the full submit→approve and submit→reject→resubmit→approve
+sequences, the `workflow` endpoint), tenant isolation (403 on the three
+mutating actions, 404 on the read-only one), versioning + audit-chain
+integration (each transition producing exactly one new version and one
+audit entry, `verify_chain()` staying valid across a 4-transition
+sequence), and real multi-threaded concurrent approvals (exactly one
+winner, nine `InvalidTransitionError`s, never a double approval).
+
+**Verified against real PostgreSQL**: all 316 backend tests pass,
+`makemigrations --check --dry-run` reports no drift, and the concurrency
+test's strict "exactly one wins, nine cleanly rejected" branch was
+confirmed clean under Postgres's real row-level locking. Under SQLite the
+same test tolerates every thread losing the race outright (file-level
+locking), asserting only that the record's final state is consistent with
+however many threads actually won — 0 or 1, never more.
