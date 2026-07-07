@@ -96,6 +96,9 @@ class CarbonApiTests(TestCase):
         self.assertEqual(r.json()["co2e_kg"], "2682.050000")
 
     def test_recalculate_frozen_for_approved(self):
+        # Phase 6c: APPROVED is only reachable via SUBMITTED now.
+        self.record.status = EmissionRecord.RecordStatus.SUBMITTED
+        self.record.save()
         self.record.status = EmissionRecord.RecordStatus.APPROVED
         self.record.save()
         self.client.force_authenticate(self.admin)

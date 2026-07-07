@@ -164,7 +164,10 @@ class RoleRestrictionTests(TestCase):
         self.assertEqual(self._upload_status(Role.VIEWER), drf.HTTP_403_FORBIDDEN)
 
     def _approve_status(self, role):
-        record = make_record(self.org, self.ds)
+        # Phase 6c: approve() now requires SUBMITTED first -- create the
+        # record already SUBMITTED so this test isolates approve()'s own
+        # RBAC, independent of submit()'s (separate, narrower) RBAC.
+        record = make_record(self.org, self.ds, status=EmissionRecord.RecordStatus.SUBMITTED)
         self.client.force_authenticate(self.users[role])
         return self.client.post(
             f"/api/records/{record.id}/approve/", {"reason": "ok"}, format="json"

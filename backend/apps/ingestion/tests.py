@@ -61,7 +61,12 @@ class ESGDomainModelTestCase(TestCase):
         record.refresh_from_db()
         self.assertEqual(record.normalized_value, 5200.0)
 
-        # 3. Transition to APPROVED state
+        # 3. Transition to APPROVED state -- Phase 6c requires SUBMITTED
+        # first; DRAFT -> APPROVED directly is now an invalid transition
+        # (enforced in EmissionRecord.clean() itself, see
+        # apps.ingestion.tests_workflow for the dedicated transition tests).
+        record.status = EmissionRecord.RecordStatus.SUBMITTED
+        record.save()
         record.status = EmissionRecord.RecordStatus.APPROVED
         record.approved_by = self.user
         record.save()
@@ -694,6 +699,10 @@ class APILayerTestCase(TestCase):
         ).first()
         self.assertIsNotNone(record)
 
+        # Phase 6c: approval now requires SUBMITTED first.
+        submit_resp = self.client.post(f'/api/records/{record.id}/submit/', data={}, format='json')
+        self.assertEqual(submit_resp.status_code, drf_status.HTTP_200_OK)
+
         response = self.client.post(
             f'/api/records/{record.id}/approve/',
             data={'reason': 'Analyst confirmed'},
@@ -713,6 +722,7 @@ class APILayerTestCase(TestCase):
         resp = self._upload_sap()
         batch_id = resp.json()['batch_id']
         record = EmissionRecord.objects.filter(batch_id=batch_id).first()
+        self.client.post(f'/api/records/{record.id}/submit/', data={}, format='json')
         response = self.client.post(f'/api/records/{record.id}/approve/', data={}, format='json')
         self.assertEqual(response.status_code, drf_status.HTTP_200_OK)
 
@@ -721,11 +731,12 @@ class APILayerTestCase(TestCase):
         batch_id = resp.json()['batch_id']
         record = EmissionRecord.objects.filter(batch_id=batch_id).first()
 
+        self.client.post(f'/api/records/{record.id}/submit/', data={}, format='json')
         self.client.post(f'/api/records/{record.id}/approve/', data={'reason': 'first'}, format='json')
         response = self.client.post(f'/api/records/{record.id}/approve/', data={'reason': 'second'}, format='json')
 
         self.assertEqual(response.status_code, drf_status.HTTP_400_BAD_REQUEST)
-        self.assertIn('Approved & Audit Locked', response.json()['detail'])
+        self.assertIn('Cannot transition from APPROVED', response.json()['detail'])
 
     def test_approve_failed_record_returns_400(self):
         from io import BytesIO
@@ -750,15 +761,16 @@ class APILayerTestCase(TestCase):
 
         response = self.client.post(f'/api/records/{failed.id}/approve/', data={}, format='json')
         self.assertEqual(response.status_code, drf_status.HTTP_400_BAD_REQUEST)
-        self.assertIn('Failed validation', response.json()['detail'])
+        self.assertIn('Cannot transition from FAILED', response.json()['detail'])
 
     def test_audit_trail_immutable_after_approval(self):
         resp = self._upload_sap()
         batch_id = resp.json()['batch_id']
         record = EmissionRecord.objects.filter(batch_id=batch_id).first()
+        self.client.post(f'/api/records/{record.id}/submit/', data={}, format='json')
         self.client.post(f'/api/records/{record.id}/approve/', data={'reason': 'ok'}, format='json')
 
-        audit_log = AuditTrail.objects.get(record_uuid_backup=record.id)
+        audit_log = AuditTrail.objects.get(record_uuid_backup=record.id, action='RECORD_APPROVAL')
         audit_log.reason = 'Tampered'
         with self.assertRaises(ValidationError):
             audit_log.save()

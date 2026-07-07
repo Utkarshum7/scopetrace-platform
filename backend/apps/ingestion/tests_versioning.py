@@ -281,9 +281,10 @@ class ApprovalIntegrationTests(TestCase):
             user=self.user, organization=self.org, role=Role.ORG_ADMIN, active=True
         )
         self.client.force_authenticate(user=self.user)
+        # Phase 6c: approve() now requires SUBMITTED first.
         self.record = EmissionRecord.objects.create(
             organization=self.org, batch=self.batch, row_index=1,
-            raw_data_payload={"a": 1}, status=EmissionRecord.RecordStatus.VALIDATED,
+            raw_data_payload={"a": 1}, status=EmissionRecord.RecordStatus.SUBMITTED,
             normalized_value=100, normalized_unit="L",
         )
 
