@@ -74,6 +74,16 @@ through silently as a side effect of adding CI). This is also the standard
 industry default: scanning starts advisory, flips to blocking once there's
 an actual remediation plan for the current backlog.
 
+### 1.3 Addendum (Phase 6h): frontend `test` job, blocking
+
+The Phase 6 architecture review found a real frontend/backend contract
+drift (the approval modal called an endpoint the backend no longer accepted
+for a Draft record). Phase 6h's H2 milestone added a Vitest + React Testing
+Library foundation specifically to catch this class of bug, so
+`frontend-ci.yml`'s new `test` job runs `npm run test` with no
+`continue-on-error` — same rationale as §1.1's `lint` job: this check exists
+to fail the build, not to produce a report nobody reads.
+
 ---
 
 ## 2. Three modular workflows, not one
@@ -81,7 +91,7 @@ an actual remediation plan for the current backlog.
 | Workflow | Jobs (run in parallel) | Why separate from the others |
 |---|---|---|
 | `backend-ci.yml` | `test` (Postgres+Redis services), `lint` (ruff), `security` (pip-audit) | Only backend changes need Python tooling; keeping it its own file means its status/logs are never mixed with frontend or Docker output in the Actions UI |
-| `frontend-ci.yml` | `build`, `lint` (eslint), `security` (npm audit) | Independent toolchain (Node/npm) — no reason to share a workflow file with Python jobs |
+| `frontend-ci.yml` | `build`, `test` (vitest), `lint` (eslint), `security` (npm audit) | Independent toolchain (Node/npm) — no reason to share a workflow file with Python jobs |
 | `docker-build.yml` | `backend-image`, `frontend-image` | Verifies both `Dockerfile`s stay buildable; deliberately never pushes anywhere (no registry credentials exist in any of these workflows) |
 
 Each workflow's jobs (`test`/`lint`/`security`, or `backend-image`/
