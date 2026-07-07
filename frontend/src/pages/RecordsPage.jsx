@@ -72,8 +72,8 @@ export const RecordsPage = ({ initialFilters = {} }) => {
     fetchRecords();
   }, [filters, page]);
 
-  const handleRecordApproveSuccess = () => {
-    // Refresh records list to reflect approval status change
+  const handleWorkflowActionComplete = () => {
+    // Refresh records list to reflect the workflow status change
     fetchRecords();
     setSelectedRecord(null); // Clear selected drawer details
   };
@@ -151,6 +151,15 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                   const isSuspicious = r.is_suspicious;
                   const isFailed = r.status === 'FAILED';
                   const isApproved = r.status === 'APPROVED';
+                  const isSubmitted = r.status === 'SUBMITTED';
+                  const isRejected = r.status === 'REJECTED';
+                  const isActionable = !isApproved && !isFailed;
+
+                  let actionLabel = 'Submit';
+                  if (isApproved) actionLabel = 'Secured';
+                  else if (isFailed) actionLabel = 'Blocked';
+                  else if (isSubmitted) actionLabel = 'Review';
+                  else if (isRejected) actionLabel = 'Resubmit';
 
                   let rowBg = 'hover:bg-slate-800/20';
                   if (isSuspicious) rowBg = 'bg-amber-950/10 hover:bg-amber-950/20';
@@ -203,7 +212,7 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                       </td>
                       <td className="py-3.5 pl-2 text-right" onClick={(e) => e.stopPropagation()}>
                         <button
-                          disabled={isApproved || isFailed}
+                          disabled={!isActionable}
                           onClick={() => {
                             setRecordToApprove(r);
                             setIsApprovalOpen(true);
@@ -213,10 +222,12 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                               ? 'bg-emerald-950/20 border border-emerald-500/20 text-emerald-500/50 cursor-not-allowed'
                               : isFailed
                               ? 'bg-rose-950/20 border border-rose-500/20 text-rose-500/50 cursor-not-allowed'
+                              : isSubmitted
+                              ? 'bg-violet-600 hover:bg-violet-500 text-white shadow-md shadow-violet-600/10'
                               : 'bg-brand-600 hover:bg-brand-500 text-white shadow-md shadow-brand-600/10'
                           }`}
                         >
-                          {isApproved ? 'Secured' : isFailed ? 'Blocked' : 'Approve'}
+                          {actionLabel}
                         </button>
                       </td>
                     </tr>
@@ -321,6 +332,20 @@ export const RecordsPage = ({ initialFilters = {} }) => {
               </div>
             )}
 
+            {selectedRecord.status === 'SUBMITTED' && (
+              <div className="p-3 bg-violet-950/30 border border-violet-500/30 text-violet-300 text-xs rounded-lg flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-violet-400 rounded-full" />
+                <span className="font-medium">Awaiting approval or rejection.</span>
+              </div>
+            )}
+
+            {selectedRecord.status === 'REJECTED' && (
+              <div className="p-3 bg-orange-950/30 border border-orange-500/30 text-orange-300 text-xs rounded-lg flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-orange-400 rounded-full" />
+                <span className="font-medium">Rejected — needs correction, then resubmission.</span>
+              </div>
+            )}
+
             {/* Approval Metadata */}
             {selectedRecord.status === 'APPROVED' && (
               <div className="p-3 bg-emerald-950/30 border border-emerald-500/30 text-emerald-300 text-xs rounded-lg flex flex-col gap-1.5">
@@ -407,7 +432,7 @@ export const RecordsPage = ({ initialFilters = {} }) => {
           setIsApprovalOpen(false);
           setRecordToApprove(null);
         }}
-        onApproved={handleRecordApproveSuccess}
+        onActionComplete={handleWorkflowActionComplete}
       />
     </div>
   );

@@ -26,11 +26,32 @@ export const StatusBadge = ({ status }) => {
         label: 'Suspicious / Flagged',
       };
       break;
+    case 'VALIDATED':
+      styles = {
+        bg: 'bg-sky-950/40 border-sky-500/30 text-sky-300',
+        dot: 'bg-sky-400 shadow-[0_0_8px_#38bdf8]',
+        label: 'Validated / Ready',
+      };
+      break;
+    case 'SUBMITTED':
+      styles = {
+        bg: 'bg-violet-950/40 border-violet-500/30 text-violet-300',
+        dot: 'bg-violet-400 shadow-[0_0_8px_#a78bfa]',
+        label: 'Submitted for Approval',
+      };
+      break;
     case 'APPROVED':
       styles = {
         bg: 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300',
         dot: 'bg-emerald-400 shadow-[0_0_8px_#10b981]',
         label: 'Approved & Locked',
+      };
+      break;
+    case 'REJECTED':
+      styles = {
+        bg: 'bg-orange-950/40 border-orange-500/30 text-orange-300',
+        dot: 'bg-orange-400 shadow-[0_0_8px_#fb923c]',
+        label: 'Rejected / Needs Correction',
       };
       break;
     case 'FAILED':

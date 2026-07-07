@@ -1,35 +1,95 @@
 import { useState } from 'react';
 import { apiService } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+
+// Phase 6c governance workflow, mirrored from EmissionRecord.WORKFLOW_TRANSITIONS
+// (backend/apps/ingestion/models.py) -- kept as a small local constant rather
+// than fetched from /workflow/ so opening this modal is a single round trip.
+const SUBMITTABLE_STATUSES = ['DRAFT', 'SUSPICIOUS', 'VALIDATED', 'REJECTED'];
+const REVIEWABLE_STATUSES = ['SUBMITTED'];
 
 /**
  * ApprovalModal Component
- * Prompts the analyst for an optional justification/reason, executes the approve API,
- * and handles transitional and state errors cleanly with premium micro-interactions.
+ * Workflow-aware: the record's CURRENT status decides which action(s) are
+ * offered -- Submit (Draft/Suspicious/Validated/Rejected), or Approve/Reject
+ * (Submitted). Reason is optional for submit/approve, required for reject.
  */
-export const ApprovalModal = ({ isOpen, record, onClose, onApproved }) => {
+export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => {
+  const { canApprove } = useAuth();
   const [reason, setReason] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
 
   if (!isOpen || !record) return null;
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const isReviewable = REVIEWABLE_STATUSES.includes(record.status);
+  const isSubmittable = SUBMITTABLE_STATUSES.includes(record.status);
+  const isResubmit = record.status === 'REJECTED';
+
+  const finish = () => {
+    onActionComplete();
+    setReason('');
+    setErrorMsg(null);
+    onClose();
+  };
+
+  const runAction = async (fn, failureMessage) => {
     setIsLoading(true);
     setErrorMsg(null);
-
     try {
-      await apiService.approveRecord(record.id, reason.trim());
-      onApproved();
-      setReason('');
-      onClose();
+      await fn();
+      finish();
     } catch (error) {
-      const apiErr = error.response?.data?.detail || 'Approval submission failed.';
-      setErrorMsg(apiErr);
+      setErrorMsg(error.response?.data?.detail || failureMessage);
     } finally {
       setIsLoading(false);
     }
   };
+
+  const handleSubmit = () => runAction(
+    () => apiService.submitRecord(record.id, reason.trim()),
+    'Submission failed.'
+  );
+
+  const handleApprove = () => runAction(
+    () => apiService.approveRecord(record.id, reason.trim()),
+    'Approval failed.'
+  );
+
+  const handleReject = () => runAction(
+    () => apiService.rejectRecord(record.id, reason.trim()),
+    'Rejection failed.'
+  );
+
+  // Convenience action: submit then approve. Each step still goes through
+  // the backend's own transition validation -- if submit succeeds but the
+  // approve step fails (e.g. a race, or the actor loses approve rights
+  // mid-flow), the record is left correctly in SUBMITTED state and the
+  // list is still refreshed to reflect that partial progress.
+  const handleSubmitAndApprove = async () => {
+    setIsLoading(true);
+    setErrorMsg(null);
+    try {
+      await apiService.submitRecord(record.id, reason.trim());
+      try {
+        await apiService.approveRecord(record.id, reason.trim());
+      } catch (approveError) {
+        onActionComplete();
+        setErrorMsg(
+          approveError.response?.data?.detail ||
+          'Record was submitted, but automatic approval failed. It is now awaiting approval.'
+        );
+        return;
+      }
+      finish();
+    } catch (submitError) {
+      setErrorMsg(submitError.response?.data?.detail || 'Submission failed.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const reasonTrimmed = reason.trim().length > 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -41,15 +101,19 @@ export const ApprovalModal = ({ isOpen, record, onClose, onApproved }) => {
 
       {/* Modal Dialog Body */}
       <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl z-10 transition-all duration-300 transform scale-100 flex flex-col gap-4">
-        
+
         {/* Header */}
         <div className="flex justify-between items-start">
           <div className="flex flex-col gap-1">
             <h3 className="text-lg font-bold text-white font-sans tracking-tight">
-              Approve Emission Record
+              {isReviewable
+                ? 'Review Submitted Record'
+                : isResubmit
+                ? 'Resubmit Record for Approval'
+                : 'Submit Record for Approval'}
             </h3>
             <p className="text-xs text-slate-400">
-              Validating Row Index #{record.row_index} in batch
+              Row Index #{record.row_index} in batch
             </p>
           </div>
           <button
@@ -105,10 +169,11 @@ export const ApprovalModal = ({ isOpen, record, onClose, onApproved }) => {
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <form onSubmit={(e) => e.preventDefault()} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Approval Rationale / Reason
+              {isReviewable ? 'Review Rationale / Reason' : 'Submission Note (optional)'}
+              {isReviewable && <span className="text-rose-400 normal-case"> — required to reject</span>}
             </label>
             <textarea
               value={reason}
@@ -140,7 +205,7 @@ export const ApprovalModal = ({ isOpen, record, onClose, onApproved }) => {
             </div>
           )}
 
-          <div className="flex justify-end gap-3 pt-2">
+          <div className="flex justify-end gap-3 pt-2 flex-wrap">
             <button
               type="button"
               onClick={onClose}
@@ -149,10 +214,35 @@ export const ApprovalModal = ({ isOpen, record, onClose, onApproved }) => {
             >
               Cancel
             </button>
+
+            {isReviewable && (
+              <button
+                type="button"
+                onClick={handleReject}
+                disabled={isLoading || !reasonTrimmed}
+                title={!reasonTrimmed ? 'A reason is required to reject a record.' : undefined}
+                className="px-4 py-2 bg-rose-950/40 hover:bg-rose-900/50 disabled:bg-slate-800 disabled:text-slate-600 border border-rose-500/30 text-rose-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all focus:outline-none"
+              >
+                Reject
+              </button>
+            )}
+
+            {isSubmittable && canApprove && (
+              <button
+                type="button"
+                onClick={handleSubmitAndApprove}
+                disabled={isLoading}
+                className="px-4 py-2 bg-emerald-950/40 hover:bg-emerald-900/50 disabled:bg-slate-800 disabled:text-slate-600 border border-emerald-500/30 text-emerald-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all focus:outline-none"
+              >
+                Submit & Approve
+              </button>
+            )}
+
             <button
-              type="submit"
-              className="px-5 py-2 bg-brand-600 hover:bg-brand-500 disabled:bg-slate-800 disabled:text-slate-600 text-white text-xs font-bold uppercase tracking-wider rounded-lg transition-all shadow-md shadow-brand-600/10 flex items-center gap-1.5 focus:outline-none"
+              type="button"
+              onClick={isReviewable ? handleApprove : handleSubmit}
               disabled={isLoading}
+              className="px-5 py-2 bg-brand-600 hover:bg-brand-500 disabled:bg-slate-800 disabled:text-slate-600 text-white text-xs font-bold uppercase tracking-wider rounded-lg transition-all shadow-md shadow-brand-600/10 flex items-center gap-1.5 focus:outline-none"
             >
               {isLoading && (
                 <svg
@@ -176,7 +266,7 @@ export const ApprovalModal = ({ isOpen, record, onClose, onApproved }) => {
                   />
                 </svg>
               )}
-              Confirm & Lock
+              {isReviewable ? 'Confirm & Lock' : isResubmit ? 'Resubmit' : 'Submit for Approval'}
             </button>
           </div>
         </form>
