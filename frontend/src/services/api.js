@@ -192,8 +192,21 @@ export const apiService = {
     return response.data;
   },
 
+  // Phase 6c governance workflow: Draft/Suspicious/Validated -> Submitted
+  // -> Approved (terminal) or Submitted -> Rejected -> Submitted (resubmit).
+  async submitRecord(recordId, reason = '') {
+    const response = await api.post(`/api/records/${recordId}/submit/`, { reason });
+    return response.data;
+  },
+
   async approveRecord(recordId, reason = '') {
     const response = await api.post(`/api/records/${recordId}/approve/`, { reason });
+    return response.data;
+  },
+
+  // Backend requires a non-empty reason for rejection.
+  async rejectRecord(recordId, reason) {
+    const response = await api.post(`/api/records/${recordId}/reject/`, { reason });
     return response.data;
   },
 
