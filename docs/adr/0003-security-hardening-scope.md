@@ -10,7 +10,7 @@ By Phase 6f, the platform has a real governance stack to protect: a
 cryptographic audit hash-chain (6a), immutable record versioning (6b), a
 fixed approval workflow (6c), and compliance reporting over certified data
 (6e) — all sitting behind JWT auth, RBAC, and server-side tenant isolation
-(Phase 2). `docs/SECURITY.md` §9 and `docs/ROADMAP.md` §1 already catalog
+(Phase 2). `docs/SECURITY.md` §10 and `docs/ROADMAP.md` §1 already catalog
 a specific, honest list of known gaps from the Phase 5k Production
 Readiness Review: 3 dead `FEATURE_*` flags, 5 known Django CVEs (fix
 available), no secret-scanning CI, no IP/network restriction on `/admin/`,
@@ -26,9 +26,11 @@ Django unless there is a strong technical reason."
 
 ## Alternatives considered
 
-**A. Fix everything in `docs/SECURITY.md` §9, in Django, in this
-milestone.** Including IP-restricting `/admin/` via custom middleware,
-adding a WAF-style request-filtering layer, etc.
+**A. Fix everything in `docs/SECURITY.md` §10 (as numbered at the time
+this ADR was written — since renumbered by this same milestone's own §9
+addition), in Django, in this milestone.** Including IP-restricting
+`/admin/` via custom middleware, adding a WAF-style request-filtering
+layer, etc.
 
 **B. Draw a hard line: application-layer code changes only; genuinely
 infrastructure-layer items get written up as operator-facing

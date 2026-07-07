@@ -74,7 +74,7 @@ specific review.
 
 Every item above is a "someone with deploy/platform access needs to
 configure this" action item, not a code change a future PR can make. Each
-prior "known gaps" list (`SECURITY.md` §9, `ROADMAP.md` §1) mixed these in
+prior "known gaps" list (`SECURITY.md` §10, `ROADMAP.md` §1) mixed these in
 with genuine application-code TODOs, which made it easy to defer both
 categories together. This document exists so an operator can work through
 platform-level hardening independently of whatever's currently in a code

@@ -94,3 +94,21 @@ RBAC on "who can list past reports," and its own migration/storage growth.
   `/api/metrics/activity/`) rather than the broader `IsOrgMember` dashboard
   endpoints use — a compliance report is an audit artifact, not a working
   dashboard.
+
+## Addendum (Phase 6d, 6g review)
+
+Soft deletion (6d) introduced a case this ADR didn't originally consider:
+what happens to a compliance report's contents if the underlying record is
+later soft-deleted? Reviewed during 6g's cross-system consistency check —
+the answer follows directly from this ADR's own Decision #1 without
+requiring any change to it: `apps/carbon/services/reports.py` queries from
+`EmissionCalculation`, joining to `EmissionRecord` via `emission_record__
+status=APPROVED` — a `__`-traversal filter is a raw SQL `JOIN` and never
+applies a related model's manager filtering, so `EmissionRecord.objects`'
+`is_deleted=False` default (6d's own manager split) has no effect on this
+query. A soft-deleted record's calculations remain in compliance reports,
+automatically, with no special-casing added. 6d additionally surfaced
+`is_deleted`/`deleted_at` on every line item for transparency. Full
+reasoning: [`docs/adr/0004-soft-delete-orthogonal-fields.md`](0004-soft-delete-orthogonal-fields.md).
+This is treated as a confirmation of this ADR's original design, not a
+correction — no part of the original Decision needed to change.
