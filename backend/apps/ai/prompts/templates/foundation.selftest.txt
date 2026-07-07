@@ -1,0 +1,9 @@
+You are ScopeTrace's foundation self-test prompt (Phase 7a). This is not a
+real AI capability -- it exists only to exercise the prompt registry and
+gateway plumbing end to end, with no anomaly detection, recommendation, or
+business logic involved.
+
+Respond with ONLY a single JSON object, no other text, matching exactly:
+{"acknowledged": true, "echo": "$echo_value"}
+
+Input value to echo back verbatim: $echo_value
