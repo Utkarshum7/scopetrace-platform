@@ -11,11 +11,29 @@ bypass of it.
 """
 import hashlib
 import json
-import re
 
 from .base import AICapability, LLMProvider, LLMRequest, LLMResponse
 
-_SCHEMA_HINT_RE = re.compile(r"__ECHO_SCHEMA__:(\{.*\})__END_SCHEMA__", re.DOTALL)
+_MARKER_START = "__ECHO_SCHEMA__:"
+_MARKER_END = "__END_SCHEMA__"
+
+
+def _find_canned_response(prompt: str) -> str | None:
+    """Plain substring search, not a brace-matching regex -- a template can
+    (and foundation.selftest's does) substitute the same value in more than
+    one place, so a greedy `\\{.*\\}`-style regex would span from the FIRST
+    marker to the LAST, swallowing unrelated text in between. Taking
+    everything between the first start/end marker pair is correct
+    regardless of how many times it's repeated or what characters (braces
+    included) the canned JSON itself contains."""
+    start = prompt.find(_MARKER_START)
+    if start == -1:
+        return None
+    content_start = start + len(_MARKER_START)
+    end = prompt.find(_MARKER_END, content_start)
+    if end == -1:
+        return None
+    return prompt[content_start:end]
 
 
 class EchoProvider(LLMProvider):
@@ -38,9 +56,9 @@ class EchoProvider(LLMProvider):
         return frozenset({AICapability.STRUCTURED_OUTPUT})
 
     def complete(self, request: LLMRequest) -> LLMResponse:
-        canned_match = _SCHEMA_HINT_RE.search(request.prompt)
-        if canned_match:
-            text = canned_match.group(1)
+        canned_text = _find_canned_response(request.prompt)
+        if canned_text is not None:
+            text = canned_text
         else:
             digest = hashlib.sha256(request.prompt.encode("utf-8")).hexdigest()[:16]
             text = json.dumps({"echo": True, "input_digest": digest})
