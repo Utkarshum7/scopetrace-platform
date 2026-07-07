@@ -27,6 +27,7 @@ from apps.accounts.models import Membership, Role
 from apps.audit.models import AuditTrail
 from apps.audit.services import verify_chain
 from apps.carbon.models import EmissionCalculation
+from apps.carbon.services.metrics_cache import get_calc_version
 from apps.core.models import DataSource, Organization
 from apps.ingestion.models import EmissionRecord, EmissionRecordVersion, UploadBatch
 from apps.ingestion.services.soft_delete import (
@@ -490,6 +491,63 @@ class ComplianceReportsAfterDeletionTests(TestCase):
         response = self.client.get("/api/records/export/")
         body = b"".join(response.streaming_content).decode("utf-8")
         self.assertNotIn(str(self.record.id), body)
+
+
+class MetricsCacheInvalidationTests(TestCase):
+    """Phase 6h / H1: soft-delete and restore must bump the org's calc
+    cache version, else /api/metrics/summary/ can keep serving a stale
+    cached payload from before the delete/restore -- the compliance-report
+    test above doesn't catch this because it never primes the cache with a
+    pre-delete request first."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.org = Organization.objects.create(name="SD Cache Org")
+        self.ds = DataSource.objects.create(
+            organization=self.org, name="SAP", source_type=DataSource.SourceType.SAP_FUEL,
+        )
+        self.batch = _make_batch(self.org, self.ds)
+        self.org_admin = User.objects.create_user("sd_cache_admin", password="pw")
+        Membership.objects.create(user=self.org_admin, organization=self.org, role=Role.ORG_ADMIN, active=True)
+        self.client.force_authenticate(self.org_admin)
+
+        self.record = _make_record(self.org, self.batch, status=RS.APPROVED)
+        EmissionCalculation.objects.create(
+            organization=self.org, emission_record=self.record, is_current=True, scope="SCOPE_1",
+            reporting_date=date(2026, 1, 15), reporting_month=date(2026, 1, 1),
+            co2e_tonnes=Decimal("5"), co2e_kg=Decimal("5000"),
+            resolution_status=EmissionCalculation.ResolutionStatus.CALCULATED,
+        )
+
+    def test_soft_delete_bumps_calc_version(self):
+        before = get_calc_version(self.org.id)
+        soft_delete_record(record=self.record, actor=self.org_admin, reason="x")
+        self.assertEqual(get_calc_version(self.org.id), before + 1)
+
+    def test_restore_bumps_calc_version(self):
+        soft_delete_record(record=self.record, actor=self.org_admin, reason="x")
+        before = get_calc_version(self.org.id)
+        restore_record(record=self.record, actor=self.org_admin)
+        self.assertEqual(get_calc_version(self.org.id), before + 1)
+
+    def test_dashboard_reflects_delete_without_stale_cache(self):
+        first = self.client.get("/api/metrics/summary/")
+        self.assertEqual(Decimal(first.json()["total_co2e_tonnes"]), Decimal("5"))
+
+        soft_delete_record(record=self.record, actor=self.org_admin, reason="x")
+
+        second = self.client.get("/api/metrics/summary/")
+        self.assertEqual(Decimal(second.json()["total_co2e_tonnes"]), Decimal("0"))
+
+    def test_dashboard_reflects_restore_without_stale_cache(self):
+        soft_delete_record(record=self.record, actor=self.org_admin, reason="x")
+        first = self.client.get("/api/metrics/summary/")
+        self.assertEqual(Decimal(first.json()["total_co2e_tonnes"]), Decimal("0"))
+
+        restore_record(record=self.record, actor=self.org_admin)
+
+        second = self.client.get("/api/metrics/summary/")
+        self.assertEqual(Decimal(second.json()["total_co2e_tonnes"]), Decimal("5"))
 
 
 class ConcurrentSoftDeleteTests(TransactionTestCase):

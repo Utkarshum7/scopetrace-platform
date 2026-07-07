@@ -13,6 +13,7 @@ structure exactly.
 from django.utils import timezone
 
 from apps.audit.services import append_entry
+from apps.carbon.services.metrics_cache import bump_calc_version
 
 
 class AlreadyDeletedError(Exception):
@@ -58,6 +59,7 @@ def soft_delete_record(*, record, actor, reason):
         changes=changes,
         reason=reason,
     )
+    bump_calc_version(record.organization_id)
     return record
 
 
@@ -86,4 +88,5 @@ def restore_record(*, record, actor, reason=""):
         changes=changes,
         reason=reason or "Record restored",
     )
+    bump_calc_version(record.organization_id)
     return record
