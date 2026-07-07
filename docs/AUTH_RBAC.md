@@ -70,16 +70,20 @@ and approvals are role-gated.
 | Submit records for approval (`/records/{id}/submit`) | ✅ | ✅ | ✅ | ❌ | ❌ |
 | Approve / reject records (`/records/{id}/approve`, `/reject`) | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Manage org resources (write) | ✅ | ✅ | ❌ | ❌ | ❌ |
+| View compliance reports (`/reports/compliance`) | ✅ | ✅ | ❌ | ✅ | ❌ |
 | Cross-tenant access | ✅ | ❌ | ❌ | ❌ | ❌ |
 
 Permission classes: `IsOrgMember` (base), `CanUpload`, `CanApprove`,
-`CanManageOrgResources`. Each also implements `has_object_permission` to verify
-an object belongs to the request's active organization. `submit` reuses
-`CanUpload` (the same roles that prepare data decide when it's ready for
-review); `approve`/`reject` reuse `CanApprove`, unchanged from Phase 2/3 —
-Phase 6c added the formal Draft → Submitted → Approved/Rejected state
-machine (see [`GOVERNANCE.md`](GOVERNANCE.md) §6c) without changing who is
-allowed to approve.
+`CanManageOrgResources`, `CanViewActivity`. Each also implements
+`has_object_permission` to verify an object belongs to the request's active
+organization. `submit` reuses `CanUpload` (the same roles that prepare data
+decide when it's ready for review); `approve`/`reject` reuse `CanApprove`,
+unchanged from Phase 2/3 — Phase 6c added the formal Draft → Submitted →
+Approved/Rejected state machine (see [`GOVERNANCE.md`](GOVERNANCE.md) §6c)
+without changing who is allowed to approve. Compliance reports (Phase 6e)
+reuse `CanViewActivity` (Org Admin + Auditor) — the same roles that can view
+the audit-trail activity feed and verify the hash chain — not the broader
+`IsOrgMember` the dashboards/metrics endpoints use.
 
 ---
 

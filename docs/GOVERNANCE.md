@@ -452,3 +452,149 @@ confirmed clean under Postgres's real row-level locking. Under SQLite the
 same test tolerates every thread losing the race outright (file-level
 locking), asserting only that the record's final state is consistent with
 however many threads actually won — 0 or 1, never more.
+
+---
+
+## 6e — Compliance Reports
+
+### Objective
+
+CSV/JSON compliance reports (PDF deferred, per the Phase 6 approval's
+Decision 5) built entirely from the existing immutable data model — no new
+tables, no new migration.
+
+### Design decision: on-demand generation, not a persisted report model
+
+Full reasoning in [`docs/adr/0002-compliance-reports-on-demand-not-persisted.md`
+](adr/0002-compliance-reports-on-demand-not-persisted.md). Summary: because
+`APPROVED` records are already locked (6c), `EmissionCalculation` is
+already immutable/versioned via `is_current` (Phase 3/4), and
+`EmissionRecordVersion` never changes after creation (6b), a report is
+just a deterministic query over data that's *already* immutable where it
+matters — a persisted snapshot table would duplicate guarantees these
+three systems already provide, and raise its own retention-policy question
+(explicitly deferred, per the Phase 6 approval, to later governance work).
+
+### What makes a report "compliance," not a dashboard
+
+`apps/carbon/services/reports.py` filters to `EmissionCalculation` rows
+that are `is_current=True`, `resolution_status=CALCULATED`, **and whose
+`emission_record.status == APPROVED`** — the third condition is the whole
+point: `MetricsService` (Phase 4) intentionally aggregates over every
+status (including pending) for a live working dashboard; a compliance
+report reflects only certified, audit-locked data. This is a genuinely
+new, separately-scoped query, not a mode of `MetricsService`.
+
+### Integration with 6a/6b/6c
+
+- **Audit hash-chain (6a)**: every report embeds an `audit_chain` block —
+  `verify_chain(organization)`'s result (`valid`, `entries_checked`,
+  `broken_at_sequence`) — proof the governance ledger was intact at
+  generation time. This is a pure read; generating a report does **not**
+  write an `AuditTrail` entry (see the ADR's "considered and rejected"
+  section — consistent with every other read-only governance endpoint in
+  this codebase).
+- **EmissionRecordVersion (6b)**: every line item embeds `record_version`.
+  Since `APPROVED` is workflow-terminal (`clean()` blocks any further
+  save), a record's *latest* version is always its approved snapshot — so
+  this is a single `Subquery` annotation (`ORDER BY -version_number LIMIT
+  1`), not a loop or an extra round-trip per row.
+- **Approval workflow (6c)**: the `emission_record__status=APPROVED` filter
+  above *is* the integration point — a record only becomes reportable the
+  moment it's approved, and (because `APPROVED` is terminal) never stops
+  being reportable afterward.
+- **Metrics API**: reuses the same aggregation shape (`Sum`/`Count` over
+  `EmissionCalculation`, grouped by `scope`) but as an independent,
+  approval-filtered query in `compliance_summary()` — deliberately not a
+  parameter added to `MetricsService.summary()`, which exists to answer a
+  different question ("what does everything in the pipeline look like
+  right now") than a compliance report does ("what has been certified").
+- **Multi-tenant / RBAC**: same `resolve_tenant_context()` pattern as
+  `_BaseMetricsView` (org required; platform admins without an
+  `X-Organization-ID` are rejected, not defaulted). RBAC is `CanViewActivity`
+  (Org Admin + Auditor) — matching `/api/audit/verify/` and
+  `/api/metrics/activity/`, not the broader `IsOrgMember` the dashboards
+  use — a compliance report is an audit artifact.
+
+### Reproducibility
+
+A report is reproducible in the sense that matters for compliance: every
+line item carries `calculation_id` and `record_version`, both pointing at
+rows that are permanently retained and never mutated — re-fetching
+`EmissionCalculation.objects.get(pk=calculation_id)` or
+`/api/records/{id}/versions/{n}/` always returns exactly what the report
+showed. Re-running the *same* report query later can legitimately return
+*more* rows if additional records were approved into that period since —
+this is correct behavior for a compliance artifact (it reflects the latest
+certified state), not a reproducibility bug, and is exactly why
+`generated_at` and `audit_chain` are embedded in every report: a reader
+can always tell precisely when it was pulled and that the ledger was
+intact at that moment.
+
+### Performance
+
+- Query starts from `EmissionCalculation` (already the fact table with
+  CO2e/factor provenance), not `EmissionRecord` — `select_related()`
+  covers the record + approver in one join, `record_version` is one
+  `Subquery` annotation. No per-row queries regardless of result size —
+  verified with a 300-record dataset under `CaptureQueriesContext`
+  (bounded, well under 20 queries total, not ~300).
+- **CSV** is streamed via `.iterator(chunk_size=2000)` +
+  `StreamingHttpResponse`, the same pattern `RecordExportView` (Phase 5)
+  already established — near-constant memory regardless of dataset size,
+  the uncapped path for large exports.
+- **JSON** is capped at 5,000 line items (`truncated`/`line_item_count`
+  fields tell the caller when to use the CSV endpoint instead) — DRF's
+  `Response` isn't naturally streamable, and a JSON "report" payload is
+  reasonably summary-sized by nature; CSV is the intended path for bulk
+  data.
+- **No caching** — unlike `MetricsService`'s dashboard endpoints
+  (`metrics_cache`, per-org version invalidation), a compliance report
+  always reflects current certified state on every call. Caching an audit
+  artifact would add a staleness/invalidation-timing question this
+  milestone deliberately avoids.
+
+### Extensibility (GHG Protocol / CSRD / ESG)
+
+`apps/carbon/services/reports.py` is deliberately renderer-agnostic: one
+queryset-building function (`build_line_items_queryset`), one aggregation
+function (`compliance_summary`), and one typed, explicit line-item shape
+(`serialize_line_item`/`csv_row` — not one opaque JSON blob, mirroring
+`EmissionRecordVersion`'s own typed-columns reasoning from 6b). Scope
+1/2/3 (`by_scope`) is already the GHG Protocol's own taxonomy. A future
+CSRD-specific or GHG-Protocol-formatted renderer is an additive function
+consuming the same queryset/summary, not a rewrite of the aggregation
+logic.
+
+### APIs added
+
+- `GET /api/reports/compliance/` — JSON: metadata, `audit_chain`,
+  `summary` (totals + by-scope), up to 5,000 `line_items`,
+  `line_item_count`/`truncated`. `date_from`/`date_to` are **required**
+  (unlike the optional-range `MetricsFilterSerializer`) — a compliance
+  report always covers a defined reporting period.
+- `GET /api/reports/compliance/csv/` — streaming CSV of the same line
+  items, uncapped.
+
+### Migration impact
+
+None. No model changes — the whole feature is a read-only query layer over
+tables that already exist.
+
+### Verification
+
+24 new tests in `apps/carbon/tests/test_reports.py`: correctness (only
+`APPROVED` records included, superseded/non-current calculations excluded,
+`UNRESOLVED` calculations excluded, date-range and scope filtering,
+summary totals), historical version consistency (`record_version` matches
+the record's actual approved snapshot after a real
+`DRAFT→SUBMITTED→APPROVED` sequence; `calculation_id` round-trips to an
+unchanged row), tenant isolation (cross-org exclusion, platform-admin-
+without-org-header rejection), RBAC (Org Admin/Auditor allowed, Analyst/
+Viewer/unauthenticated denied, on both the JSON and CSV endpoints), and
+large-dataset behavior (300 records: bounded query count via
+`CaptureQueriesContext`, correct CSV row count).
+
+**Verified against real PostgreSQL**: full backend test suite passes,
+`makemigrations --check --dry-run` reports no drift (confirming no schema
+change was introduced).

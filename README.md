@@ -271,6 +271,8 @@ To test the ingestion and analyst flow locally or in production:
 | `GET` | `/api/metrics/activity/` | Bearer (Org Admin / Auditor) | Tenant audit-trail activity feed |
 | `GET` | `/api/metrics/platform/` | Bearer (Platform Admin) | Cross-tenant overview + active organizations |
 | `GET` | `/api/audit/verify/` | Bearer (Org Admin / Auditor) | Verify the organization's audit hash-chain integrity |
+| `GET` | `/api/reports/compliance/` | Bearer (Org Admin / Auditor) | JSON compliance report (APPROVED-only, requires date_from/date_to) |
+| `GET` | `/api/reports/compliance/csv/` | Bearer (Org Admin / Auditor) | Streaming CSV of the same compliance report |
 
 Emission records include read-only `co2e_kg`, `co2e_tonnes`, `calculation_status`, `factor_provenance`, and an explainable `calculation_trace`.
 

@@ -107,6 +107,15 @@ snapshot (6b) atomically. See
 for the full design and the breaking change this introduced (approval now
 requires submission first).
 
+**Phase 6e** added CSV/JSON compliance reports (`/api/reports/compliance/`,
+`.../csv/`), generated on demand — no new persisted table, no new attack
+surface beyond a read-only, tenant-scoped, RBAC-gated (`CanViewActivity`:
+Org Admin/Auditor) query over already-immutable data (`APPROVED` records
+only). Every report embeds a `verify_chain()` snapshot so a reader can
+confirm the audit ledger was intact at generation time. See
+[`GOVERNANCE.md`](GOVERNANCE.md) §6e and
+[`docs/adr/0002-compliance-reports-on-demand-not-persisted.md`](adr/0002-compliance-reports-on-demand-not-persisted.md).
+
 ## 7. Admin panel exposure
 
 Django Admin (`/admin/`) is reachable at the same host as the API with no

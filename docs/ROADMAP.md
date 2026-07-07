@@ -27,6 +27,7 @@ depth:
 | ~~No cryptographic audit hash-chain~~ | **Implemented in Phase 6a** — per-org SHA-256 chain, tamper-evident, with verification command/API/admin action | [`GOVERNANCE.md`](GOVERNANCE.md) §6a |
 | ~~No historical record versioning~~ | **Implemented in Phase 6b** — immutable `EmissionRecordVersion` snapshots on every meaningful edit, list/retrieve/compare APIs | [`GOVERNANCE.md`](GOVERNANCE.md) §6b |
 | ~~No formal approval workflow beyond single-step approve/lock~~ | **Implemented in Phase 6c** — fixed Draft → Submitted → Approved/Rejected state machine, enforced at the model layer | [`GOVERNANCE.md`](GOVERNANCE.md) §6c |
+| ~~No compliance reporting~~ | **Implemented in Phase 6e** — CSV/JSON compliance reports over APPROVED-only data, no new tables (PDF still deferred) | [`GOVERNANCE.md`](GOVERNANCE.md) §6e |
 | Seed emission factors are an illustrative DEFRA 2024 subset, not the full official dataset | Documented since Phase 3 | [`CARBON_ENGINE_DESIGN.md`](CARBON_ENGINE_DESIGN.md) |
 | No read-replica / DB routing support | Not needed at current scale | [`OPERATIONS_RUNBOOK.md`](OPERATIONS_RUNBOOK.md) §8 |
 | README screenshots are stock placeholder images | Explicitly marked as TODO in the file itself, awaiting a real deployment to screenshot | `README.md` |
@@ -43,8 +44,9 @@ pass) are complete. What's next, as currently planned:
 - **Phase 6 — Enterprise Governance**: full audit timeline UI, a real
   cryptographic immutable audit hash-chain (see §1, done in 6a), immutable
   version history on records (done in 6b), a formal Draft → Submitted →
-  Approved/Rejected approval workflow (done in 6c), soft delete, compliance
-  report generation.
+  Approved/Rejected approval workflow (done in 6c), CSV/JSON compliance
+  reports (done in 6e; PDF still deferred), security hardening (6f), soft
+  delete (6d), governance docs closeout (6g).
 - **Phase 7 — AI**: AI anomaly detection, AI recommendations, an AI ESG
   assistant, AI-assisted report generation, AI-assisted validation. The
   carbon calculation pipeline's `AIRecommendationStage` has been an inert,
