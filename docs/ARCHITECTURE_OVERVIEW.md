@@ -149,6 +149,7 @@ tasks, retry policy, and rationale: [`RETRY_DLQ.md`](RETRY_DLQ.md)
 | Ingestion source formats | [`SOURCES.md`](SOURCES.md) | SAP Fuel (CSV), Utility Electricity (CSV), Corporate Travel (JSON) — field-level realities and parsing limitations |
 | Carbon Intelligence Engine | [`CARBON_ENGINE_DESIGN.md`](CARBON_ENGINE_DESIGN.md) | Versioned/provenance-tracked emission factors, effective-dated + specificity-ranked resolution, Decimal-precise factor-pinned CO₂e, explainability trace |
 | Metrics / analytics / dashboards | [`METRICS_ANALYTICS.md`](METRICS_ANALYTICS.md) | Cached tenant-scoped aggregation API, pagination, streaming export, role-aware widget dashboard |
+| Governance, audit & compliance (Phase 6) | [`GOVERNANCE.md`](GOVERNANCE.md) | Hash-chained audit trail, immutable record versioning, fixed approval workflow, on-demand compliance reports, reversible soft delete — see its own Governance Architecture Overview for the lifecycle diagram and how the eight systems fit together |
 | Job lifecycle (ingest+calculate chain) | [`JOB_LIFECYCLE.md`](JOB_LIFECYCLE.md) | `UploadBatch` state machine, two independent status axes, progress polling API |
 | Retry / backoff / Dead Letter Queue | [`RETRY_DLQ.md`](RETRY_DLQ.md) | Independent per-task retry policies, `transient_exceptions` idempotency mechanism, DB-logged DLQ |
 | Scheduled maintenance (Celery Beat) | [`SCHEDULED_TASKS.md`](SCHEDULED_TASKS.md) | Static code-defined schedule, stale-batch backstop, DLQ retention, recalculation safety net, heartbeat |
@@ -158,15 +159,26 @@ tasks, retry policy, and rationale: [`RETRY_DLQ.md`](RETRY_DLQ.md)
 | CI/CD | [`CI_CD.md`](CI_CD.md) | GitHub Actions — backend/frontend/Docker verification, caching, advisory security scanning |
 | Design decisions & trade-offs | [`DECISIONS.md`](DECISIONS.md), [`TRADEOFFS.md`](TRADEOFFS.md) | Architectural patterns chosen and deliberately deferred scope |
 
-**Operational documentation** (this milestone, Phase 5k): local/production
+**Operational documentation** (Phase 5k): local/production
 deployment and environment variables
 ([`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md)); day-2 operations, health
 checks, and runbooks
 ([`OPERATIONS_RUNBOOK.md`](OPERATIONS_RUNBOOK.md)); backup, disaster
 recovery, incident response, and troubleshooting
-([`INCIDENT_RESPONSE.md`](INCIDENT_RESPONSE.md)); security posture
-([`SECURITY.md`](SECURITY.md)); known limitations and what's next
-([`ROADMAP.md`](ROADMAP.md)).
+([`INCIDENT_RESPONSE.md`](INCIDENT_RESPONSE.md)); application-level security
+posture ([`SECURITY.md`](SECURITY.md)); infrastructure/platform-level
+security recommendations, deliberately kept separate from application code
+([`INFRASTRUCTURE_SECURITY.md`](INFRASTRUCTURE_SECURITY.md), Phase 6f);
+known limitations and what's next ([`ROADMAP.md`](ROADMAP.md)).
+
+**Architecture decision records** (`docs/adr/`, Phase 6 onward): significant
+design decisions with real alternatives, each as its own numbered file
+(context / alternatives / decision / consequences) rather than folded into
+prose — e.g. why the approval workflow reuses one status field instead of
+adding a second one, why compliance reports are generated on demand rather
+than persisted, why soft-delete uses orthogonal fields rather than another
+workflow status. Referenced from [`GOVERNANCE.md`](GOVERNANCE.md) at the
+point each decision is relevant, not re-derived there.
 
 ---
 
