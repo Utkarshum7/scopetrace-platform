@@ -155,6 +155,17 @@ def verify_chain(organization) -> ChainVerificationResult:
         expected_prev = entry.entry_hash
 
     if errors:
+        # Phase 6f: CRITICAL, not just returned in the result -- a broken
+        # hash chain means tampering was detected. Logging it HERE (not at
+        # each call site) means every caller gets this for free: the API
+        # endpoint (apps.audit.views.AuditChainVerifyView) and the
+        # verify_audit_chain management command both already surface the
+        # result to their own caller, but neither previously emitted a
+        # log line an operator's alerting could actually catch.
+        logger.critical(
+            "Audit hash chain BROKEN for organization %s at sequence %s: %s",
+            organization.id, broken_at_sequence, errors[0],
+        )
         return ChainVerificationResult(
             organization_id=str(organization.id),
             valid=False,

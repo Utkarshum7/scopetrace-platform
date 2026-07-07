@@ -1,7 +1,7 @@
 import logging
 
 from rest_framework import status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -21,6 +21,22 @@ class LoginView(TokenObtainPairView):
     permission_classes = [AllowAny]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "login"
+
+    def post(self, request, *args, **kwargs):
+        # Phase 6f: a WARNING per failed attempt (username + remote
+        # address, never the password) -- baseline observability for
+        # credential-stuffing/brute-force detection. Response body/status
+        # code are completely unchanged; SimpleJWT's own error message is
+        # already non-enumerating ("No active account found with the
+        # given credentials" regardless of whether the username exists).
+        try:
+            return super().post(request, *args, **kwargs)
+        except AuthenticationFailed:
+            logger.warning(
+                "Failed login attempt for username=%r from %s",
+                request.data.get("username"), request.META.get("REMOTE_ADDR"),
+            )
+            raise
 
 
 class RefreshView(TokenRefreshView):
