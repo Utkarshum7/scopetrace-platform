@@ -105,6 +105,84 @@ def healthz_worker(request):
     )
 
 
+@require_GET
+def healthz_ai(request):
+    """
+    AI foundation health probe (Phase 7a).
+
+    Unlike /healthz and /healthz/worker (infrastructure this platform always
+    needs), AI is opt-in -- AI_ENABLED=False (the default) is expected,
+    healthy state, not a failure: returns 200 with ai_enabled=False rather
+    than 503, exactly like a deliberately-disabled feature shouldn't page
+    anyone.
+
+    When AI_ENABLED=True, the check is cheap and synchronous, same "no
+    network I/O, no cost" discipline healthz_worker's own inspect() call
+    has: can the configured provider adapter even be constructed
+    (config/credentials present)? Constructing an LLMProvider does no
+    network call for any adapter -- see each provider's __init__ docstring.
+    A real end-to-end provider round trip is never made here --
+    apps.ai.tasks.ai_heartbeat_task's docstring explains why that's a
+    deliberate, deferred trade-off. That task's last result is reported
+    below as additive `ai_heartbeat` context (same "additive, never changes
+    pass/fail status" pattern as healthz_worker's beat_heartbeat), not the
+    authoritative pass/fail signal.
+    """
+    if not settings.AI_ENABLED:
+        return JsonResponse(
+            {"status": "ok", "ai_enabled": False, "detail": "AI is disabled (AI_ENABLED=False)."},
+            status=200,
+        )
+
+    from apps.ai.providers.factory import get_llm_provider
+
+    try:
+        get_llm_provider()
+    except Exception as exc:  # noqa: BLE001 - report any configuration failure
+        return JsonResponse(
+            {
+                "status": "unhealthy",
+                "ai_enabled": True,
+                "provider": settings.AI_PROVIDER,
+                "model": settings.AI_DEFAULT_MODEL,
+                "detail": f"provider misconfigured: {exc}",
+                **_ai_heartbeat(),
+            },
+            status=503,
+        )
+
+    return JsonResponse(
+        {
+            "status": "ok",
+            "ai_enabled": True,
+            "provider": settings.AI_PROVIDER,
+            "model": settings.AI_DEFAULT_MODEL,
+            **_ai_heartbeat(),
+        },
+        status=200,
+    )
+
+
+def _ai_heartbeat() -> dict:
+    """Reads apps.ai.tasks.ai_heartbeat_task's last cache write. Mirrors
+    _beat_heartbeat()'s exact shape/semantics -- see that function."""
+    from apps.ai.tasks import AI_HEARTBEAT_CACHE_KEY
+
+    payload = cache.get(AI_HEARTBEAT_CACHE_KEY)
+    if not payload:
+        return {"ai_heartbeat": {"status": "stale"}}
+
+    last_seen = parse_datetime(payload["timestamp"])
+    age_seconds = (timezone.now() - last_seen).total_seconds()
+    return {
+        "ai_heartbeat": {
+            "status": payload.get("status", "unknown"),
+            "worker_id": payload.get("worker_id"),
+            "age_seconds": round(age_seconds, 1),
+        }
+    }
+
+
 def _beat_heartbeat() -> dict:
     """Reads apps.core.tasks.heartbeat_task's last cache write.
 
