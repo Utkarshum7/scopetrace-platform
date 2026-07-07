@@ -20,10 +20,17 @@ class Role(models.TextChoices):
 #   upload data           : ORG_ADMIN, ANALYST
 #   approve records       : ORG_ADMIN, ANALYST, AUDITOR
 #   manage org resources  : ORG_ADMIN
+#   use AI features        : ORG_ADMIN, ANALYST, AUDITOR (Phase 7a)
 ROLES_CAN_UPLOAD = frozenset({Role.ORG_ADMIN, Role.ANALYST})
 ROLES_CAN_APPROVE = frozenset({Role.ORG_ADMIN, Role.ANALYST, Role.AUDITOR})
 ROLES_CAN_MANAGE_ORG = frozenset({Role.ORG_ADMIN})
 ROLES_CAN_VIEW_ACTIVITY = frozenset({Role.ORG_ADMIN, Role.AUDITOR})
+# Phase 7a: mirrors ROLES_CAN_APPROVE's set -- the same "engaged reviewer"
+# tier (excludes only Viewer). Whether a *specific* organization has AI
+# turned on at all is a separate, business-state concern resolved by
+# apps.ai.services.policy.resolve_policy() inside the gateway, not by this
+# role-only RBAC gate -- see apps.accounts.permissions.CanUseAI's docstring.
+ROLES_CAN_USE_AI = frozenset({Role.ORG_ADMIN, Role.ANALYST, Role.AUDITOR})
 
 
 class Membership(models.Model):
