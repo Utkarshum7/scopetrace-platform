@@ -8,6 +8,7 @@ from apps.carbon.metrics_views import (
     MetricsTimeseriesView,
     PlatformMetricsView,
 )
+from apps.carbon.report_views import ComplianceReportCSVView, ComplianceReportView
 from apps.carbon.views import (
     ActivityTypeViewSet,
     EmissionCalculationViewSet,
@@ -27,5 +28,7 @@ urlpatterns = [
     path("metrics/breakdown/", MetricsBreakdownView.as_view(), name="metrics-breakdown"),
     path("metrics/activity/", ActivityFeedView.as_view(), name="metrics-activity"),
     path("metrics/platform/", PlatformMetricsView.as_view(), name="metrics-platform"),
+    path("reports/compliance/", ComplianceReportView.as_view(), name="reports-compliance"),
+    path("reports/compliance/csv/", ComplianceReportCSVView.as_view(), name="reports-compliance-csv"),
     *router.urls,
 ]
