@@ -59,4 +59,12 @@ export default [
     files: ['src/components/charts/**/*.{js,jsx}'],
     rules: { 'no-restricted-imports': 'off' },
   },
+  {
+    // Vitest + React Testing Library globals (describe/it/expect/vi/...) —
+    // enabled via `test.globals: true` in vite.config.js at runtime.
+    files: ['**/*.test.{js,jsx}', 'src/test/**/*.{js,jsx}'],
+    languageOptions: {
+      globals: globals.vitest,
+    },
+  },
 ]
