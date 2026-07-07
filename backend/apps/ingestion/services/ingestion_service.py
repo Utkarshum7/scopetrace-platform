@@ -216,6 +216,13 @@ class IngestionService:
                 # 5. Bulk create records
                 if records_to_create:
                     EmissionRecord.objects.bulk_create(records_to_create)
+                    # Phase 6b: bulk_create() bypasses EmissionRecord.save()
+                    # entirely (Django design, not an oversight — see that
+                    # method's own comment), so freshly-ingested records need
+                    # their own explicit "version 1" here, via the same
+                    # bulk-friendly path for the same performance reason.
+                    from apps.ingestion.services.versioning import create_initial_versions_bulk
+                    create_initial_versions_bulk(records_to_create)
 
                 # 6. Update batch status to COMPLETED
                 total_rows = len(parsed_rows) + len(parse_errors)

@@ -371,8 +371,165 @@ class EmissionRecord(models.Model):
                 pass
 
     def save(self, *args, **kwargs):
+        # Phase 6b: snapshot the pre-save state (if this is an update, not a
+        # fresh create) under a row lock, BEFORE validating/persisting the
+        # new state — apps.ingestion.services.versioning compares the two
+        # afterward and creates a new EmissionRecordVersion only if a
+        # business field actually changed. Locking this record's own row is
+        # sufficient here (unlike Phase 6a's AuditTrail, which needed a
+        # separate per-organization counter row because many different
+        # records in one org can be approved concurrently) — a version's
+        # sequence is scoped to a single record, and nothing else needs to
+        # write to that same record concurrently for this save() call to
+        # be safe.
+        from django.db import transaction
+
+        from apps.ingestion.services.versioning import create_version_if_changed
+
+        with transaction.atomic():
+            old = None
+            if self.pk:
+                old = (
+                    EmissionRecord.objects.select_for_update()
+                    .filter(pk=self.pk)
+                    .first()
+                )
+
+            self.full_clean()
+            super().save(*args, **kwargs)
+
+            # Stashed on the instance (None if nothing business-meaningful
+            # changed) so callers that want to cross-reference the resulting
+            # version — e.g. apps.ingestion.views' approve/recalculate
+            # actions, into AuditTrail's already-freeform `changes` JSON —
+            # can read it right after calling save(), without an extra query.
+            self._created_version = create_version_if_changed(
+                old_record=old,
+                new_record=self,
+                changed_by=getattr(self, "_version_changed_by", None),
+                reason=getattr(self, "_version_reason", None),
+            )
+
+    def __str__(self):
+        return f"Record {self.row_index} in batch {self.batch.file_name} ({self.status})"
+
+
+class EmissionRecordVersionQuerySet(models.QuerySet):
+    """Blocks bulk delete/update — the same QuerySet-level gap Phase 6a
+    found and fixed for AuditTrail (instance-level delete()/clean()
+    overrides don't cover QuerySet.delete()/.update(), which operate at the
+    SQL level and bypass model methods entirely)."""
+
+    def delete(self):
+        raise ValidationError("Record versions are immutable and cannot be bulk-deleted.")
+
+    def update(self, **kwargs):
+        raise ValidationError("Record versions are immutable and cannot be bulk-updated.")
+
+
+class EmissionRecordVersion(models.Model):
+    """
+    Phase 6b — an immutable snapshot of an EmissionRecord's full business
+    state at one point in its history. Created automatically by
+    EmissionRecord.save() (via apps.ingestion.services.versioning) whenever
+    a business field actually changes — never edited or deleted afterward.
+
+    Deliberately a SEPARATE model from apps.audit.models.AuditTrail, not a
+    replacement for it: AuditTrail is the governance ledger (who did what,
+    when, why — hash-chained for tamper-evidence, Phase 6a); this is the
+    "what did the record actually look like" reconstruction mechanism. The
+    two existing AuditTrail-writing call sites (approve, recalculate)
+    reference the version_number this created in their own `changes` JSON —
+    a cross-link using AuditTrail's already-freeform field, not a schema
+    change to the already-shipped 6a migrations.
+
+    Typed columns mirror EmissionRecord's own shape (not one opaque JSON
+    blob) specifically so they're indexable and trivially diffable against
+    the live record for the /compare/ endpoint.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    record = models.ForeignKey(
+        EmissionRecord,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="versions",
+        help_text="The record this is a historical snapshot of.",
+    )
+    record_uuid_backup = models.UUIDField(
+        help_text="Immutable copy of the record ID — survives even if the record itself is ever removed, mirroring AuditTrail's own record_uuid_backup pattern.",
+    )
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.PROTECT,
+        related_name="emission_record_versions",
+        help_text="Denormalized from record — tenant-scoped queries without a join.",
+    )
+    version_number = models.PositiveIntegerField(
+        help_text="This record's monotonic 1-indexed version position.",
+    )
+
+    # --- snapshotted business state (mirrors EmissionRecord's own fields) --
+    status = models.CharField(max_length=50)
+    is_suspicious = models.BooleanField()
+    scope_category = models.CharField(max_length=20, null=True, blank=True)
+    normalized_value = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
+    normalized_unit = models.CharField(max_length=50, null=True, blank=True)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    validation_errors = models.JSONField(default=dict, blank=True)
+    raw_data_payload = models.JSONField(
+        help_text="Copy of the record's raw source payload at this point (unchanged in practice today, preserved for completeness/future-proofing).",
+    )
+
+    # --- calculation reference (not a copy — EmissionCalculation is already
+    # immutable/versioned itself; duplicating its fields here would violate
+    # the "don't duplicate" principle already established this project) ----
+    calculation = models.ForeignKey(
+        "carbon.EmissionCalculation",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="record_version_references",
+        help_text="The EmissionCalculation that was current when this version was snapshotted, if any.",
+    )
+
+    # --- provenance of the change itself ------------------------------
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+",
+        help_text="Best-effort — set only when the caller threads the acting user through via record._version_changed_by.",
+    )
+    reason = models.TextField(null=True, blank=True)
+
+    objects = EmissionRecordVersionQuerySet.as_manager()
+
+    class Meta:
+        verbose_name = "Emission Record Version"
+        verbose_name_plural = "Emission Record Versions"
+        ordering = ["-version_number"]
+        constraints = [
+            models.UniqueConstraint(fields=["record", "version_number"], name="unique_record_version"),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "created_at"]),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.pk and EmissionRecordVersion.objects.filter(pk=self.pk).exists():
+            raise ValidationError("Record versions are immutable and cannot be altered.")
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Record versions are immutable and cannot be deleted.")
+
+    def save(self, *args, **kwargs):
         self.full_clean()
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"Record {self.row_index} in batch {self.batch.file_name} ({self.status})"
+        return f"Version {self.version_number} of record {self.record_uuid_backup}"
