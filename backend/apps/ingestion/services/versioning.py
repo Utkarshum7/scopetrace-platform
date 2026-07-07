@@ -19,6 +19,11 @@ _COMPARED_FIELDS = (
     "status", "is_suspicious", "scope_category", "normalized_value",
     "normalized_unit", "approved_by_id", "approved_at", "validation_errors",
     "raw_data_payload",
+    # Phase 6d: soft-delete/restore automatically produce a new version
+    # snapshot through this SAME diff-based trigger, exactly like 6c's
+    # workflow transitions got versioning "for free" once `status` was a
+    # compared field -- no new versioning code beyond this line.
+    "is_deleted", "deleted_at",
 )
 
 
@@ -66,6 +71,8 @@ def _build_version(*, record, calculation, changed_by, reason) -> EmissionRecord
         approved_at=record.approved_at,
         validation_errors=record.validation_errors,
         raw_data_payload=record.raw_data_payload,
+        is_deleted=record.is_deleted,
+        deleted_at=record.deleted_at,
         calculation=calculation,
         created_by=changed_by,
         reason=reason,

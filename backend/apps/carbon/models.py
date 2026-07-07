@@ -294,7 +294,14 @@ class EmissionCalculation(models.Model):
         Organization, on_delete=models.CASCADE, related_name="emission_calculations"
     )
     emission_record = models.ForeignKey(
-        "ingestion.EmissionRecord", on_delete=models.CASCADE, related_name="calculations"
+        # Phase 6d: was CASCADE -- deleting a record would have silently
+        # destroyed its calculation history. PROTECT matches AuditTrail/
+        # EmissionRecordVersion's existing PROTECT on organization; in
+        # practice this is now unreachable through the ORM anyway, since
+        # EmissionRecord.delete() itself raises (see that model), but this
+        # is the same "belt and suspenders" defense-in-depth this project
+        # already applies elsewhere.
+        "ingestion.EmissionRecord", on_delete=models.PROTECT, related_name="calculations"
     )
     is_current = models.BooleanField(default=True)
 

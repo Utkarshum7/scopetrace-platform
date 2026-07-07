@@ -262,6 +262,56 @@ class UploadBatch(models.Model):
         return f"{self.file_name} ({self.status}) - {self.created_at.strftime('%Y-%m-%d %H:%M')}"
 
 
+class EmissionRecordQuerySet(models.QuerySet):
+    """Phase 6d — blocks bulk delete/update, the same QuerySet-level gap
+    Phase 6a/6b already found and fixed for AuditTrail/EmissionRecordVersion
+    (instance-level delete()/clean() overrides don't cover
+    QuerySet.delete()/.update(), which operate at the SQL level and bypass
+    model methods entirely). Blocking bulk update() closes a real,
+    pre-existing gap: it bypasses clean()/save() entirely, so it could set
+    is_deleted -- or even status, dating back to 6c -- with no AuditTrail
+    entry and no EmissionRecordVersion snapshot at all. Confirmed via grep
+    that nothing in this codebase relies on bulk update/delete on
+    EmissionRecord today."""
+
+    def delete(self):
+        raise ValidationError(
+            "Emission records cannot be bulk-deleted. Use the soft-delete "
+            "service (apps.ingestion.services.soft_delete) on each record."
+        )
+
+    def update(self, **kwargs):
+        raise ValidationError(
+            "Emission records cannot be bulk-updated -- this would bypass "
+            "audit-trail and version-history creation. Save each record "
+            "individually through the appropriate service."
+        )
+
+
+class _ActiveEmissionRecordManager(models.Manager):
+    """The DEFAULT manager (EmissionRecord.objects) -- excludes
+    soft-deleted records. Every existing call site (EmissionRecordViewSet,
+    RecordExportView, recalculate(), submit/approve/reject's lookups)
+    already queries EmissionRecord.objects, so this manager swap gives
+    them correct, deleted-excluding behavior with zero code changes -- and
+    means any FUTURE code that queries EmissionRecord.objects.filter(...)
+    is safe by default too. See docs/adr/0004-soft-delete-orthogonal-fields.md."""
+
+    def get_queryset(self):
+        return EmissionRecordQuerySet(self.model, using=self._db).filter(is_deleted=False)
+
+
+class _AllEmissionRecordManager(models.Manager):
+    """EmissionRecord.all_objects -- unfiltered, includes soft-deleted
+    records. Used deliberately by: EmissionRecord.clean()/save()'s own
+    internal "fetch the true prior state" lookups (which must never lose
+    sight of a soft-deleted row while validating its own transitions), the
+    restore action, and Django Admin."""
+
+    def get_queryset(self):
+        return EmissionRecordQuerySet(self.model, using=self._db)
+
+
 class EmissionRecord(models.Model):
     """
     The normalized row transaction. Contains the source data, validation errors,
@@ -305,16 +355,41 @@ class EmissionRecord(models.Model):
         SCOPE_2 = "SCOPE_2", "Scope 2 (Indirect Electricity)"
         SCOPE_3 = "SCOPE_3", "Scope 3 (Other Indirect / Travel)"
 
+    # Phase 6d — soft-delete-tracking fields, deliberately orthogonal to
+    # `status` above (see docs/adr/0004-soft-delete-orthogonal-fields.md):
+    # deletion doesn't transition through the approval workflow, it freezes
+    # whatever status a record was at and hides it; restoring un-hides it
+    # at that exact same status. No dedicated deleted_by/deletion_reason
+    # fields -- mirroring 6c's own precedent for rejection, that provenance
+    # is already fully captured by the AuditTrail entry and the
+    # EmissionRecordVersion snapshot the deletion creates.
+    is_deleted = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Soft-delete flag. Never physically deleted -- see EmissionRecord.delete().",
+    )
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(
         Organization,
-        on_delete=models.CASCADE,
+        # Phase 6d: was CASCADE -- deleting an Organization would have
+        # silently destroyed every record underneath it. PROTECT matches
+        # AuditTrail.organization/EmissionRecordVersion.organization's
+        # existing PROTECT (6a/6b): an org with any records can no longer
+        # be deleted; an empty one still can.
+        on_delete=models.PROTECT,
         related_name="emission_records",
         help_text="Tenant that owns this record"
     )
     batch = models.ForeignKey(
         UploadBatch,
-        on_delete=models.CASCADE,
+        # Phase 6d: was CASCADE -- deleting a batch would have silently
+        # destroyed every record in it, bypassing soft-delete entirely.
+        # PROTECT: a batch with any records can no longer be hard-deleted;
+        # an empty one (e.g. one that failed before creating any rows)
+        # still can.
+        on_delete=models.PROTECT,
         related_name="records",
         help_text="Source ingestion batch file context"
     )
@@ -375,23 +450,56 @@ class EmissionRecord(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # Phase 6d: objects (default) filters is_deleted=False -- see
+    # _ActiveEmissionRecordManager's own docstring. all_objects is the
+    # unfiltered escape hatch.
+    objects = _ActiveEmissionRecordManager()
+    all_objects = _AllEmissionRecordManager()
+
+    # Fields exempted from the APPROVED audit-lock below -- soft-delete/
+    # restore must remain possible even on a locked record (that's the
+    # whole point: hide it without destroying its certified history)
+    # without opening the door to smuggling in an actual business-data
+    # edit under cover of the same save() call.
+    _SOFT_DELETE_ATTNAMES = frozenset({"is_deleted", "deleted_at"})
+
     class Meta:
         verbose_name = "Emission Record"
         verbose_name_plural = "Emission Records"
         unique_together = (("batch", "row_index"),)
         ordering = ["batch", "row_index"]
+        # Phase 6d: pins Django's OWN internal machinery (related-object
+        # traversal, e.g. a future batch.records.all()) to the unfiltered
+        # manager -- Django uses _base_manager for related lookups
+        # specifically so a filtered default manager can't silently drop
+        # rows reachable via a relation. See the ADR for why this matters
+        # even though nothing in this codebase uses that accessor today.
+        base_manager_name = "all_objects"
+        indexes = [
+            models.Index(fields=["organization", "is_deleted"]),
+        ]
 
     def clean(self):
         super().clean()
         if self.pk:
             try:
-                # Fetch the original database record prior to modifications
-                original = EmissionRecord.objects.get(pk=self.pk)
+                # Phase 6d: all_objects, not objects -- clean() must see the
+                # TRUE prior state regardless of deletion status, or a
+                # restore (self.pk exists, row IS currently soft-deleted)
+                # would silently skip every check below (objects.get()
+                # would raise DoesNotExist for its own not-yet-restored row).
+                original = EmissionRecord.all_objects.get(pk=self.pk)
                 if original.status == self.RecordStatus.APPROVED:
-                    raise ValidationError(
-                        "This record has been Approved & Audit Locked. "
-                        "No modifications are permitted on locked transaction logs."
-                    )
+                    changed_attnames = {
+                        f.attname for f in self._meta.concrete_fields
+                        if f.attname != "updated_at"
+                        and getattr(original, f.attname) != getattr(self, f.attname)
+                    }
+                    if changed_attnames - self._SOFT_DELETE_ATTNAMES:
+                        raise ValidationError(
+                            "This record has been Approved & Audit Locked. "
+                            "No modifications are permitted on locked transaction logs."
+                        )
                 # Phase 6c — enforce the fixed approval workflow's legal
                 # transitions for ANY status change, regardless of call
                 # site (service, Admin, shell). Non-status edits (the
@@ -429,8 +537,13 @@ class EmissionRecord(models.Model):
         with transaction.atomic():
             old = None
             if self.pk:
+                # Phase 6d: all_objects, not objects -- a restore's old-fetch
+                # must find its own not-yet-restored (soft-deleted) row, or
+                # this silently returns None: the lock is lost (nothing is
+                # actually locked) and the version diff would incorrectly
+                # treat a restore as a fresh create.
                 old = (
-                    EmissionRecord.objects.select_for_update()
+                    EmissionRecord.all_objects.select_for_update()
                     .filter(pk=self.pk)
                     .first()
                 )
@@ -449,6 +562,15 @@ class EmissionRecord(models.Model):
                 changed_by=getattr(self, "_version_changed_by", None),
                 reason=getattr(self, "_version_reason", None),
             )
+
+    def delete(self, *args, **kwargs):
+        # Phase 6d: hard deletion is never permitted, matching AuditTrail/
+        # EmissionRecordVersion's established pattern -- use
+        # apps.ingestion.services.soft_delete.soft_delete_record() instead.
+        raise ValidationError(
+            "Emission records cannot be physically deleted. Use the "
+            "soft-delete service (apps.ingestion.services.soft_delete) instead."
+        )
 
     def __str__(self):
         return f"Record {self.row_index} in batch {self.batch.file_name} ({self.status})"
@@ -524,6 +646,13 @@ class EmissionRecordVersion(models.Model):
     raw_data_payload = models.JSONField(
         help_text="Copy of the record's raw source payload at this point (unchanged in practice today, preserved for completeness/future-proofing).",
     )
+    # Phase 6d: mirrors EmissionRecord.is_deleted/deleted_at at this exact
+    # snapshot -- NOT derivable from this version's own created_at, since a
+    # LATER version created for an unrelated reason on an ALREADY-deleted
+    # record would still need to show is_deleted=True/the ORIGINAL
+    # deleted_at, not this version's own timestamp.
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     # --- calculation reference (not a copy — EmissionCalculation is already
     # immutable/versioned itself; duplicating its fields here would violate
