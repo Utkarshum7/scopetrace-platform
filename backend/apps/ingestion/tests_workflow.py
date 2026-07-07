@@ -187,6 +187,35 @@ class WorkflowAPITests(TestCase):
         response = self.client.post(f"/api/records/{record.id}/reject/", data={}, format="json")
         self.assertEqual(response.status_code, drf_status.HTTP_400_BAD_REQUEST)
 
+    def test_reject_reason_over_max_length_is_rejected(self):
+        # Phase 6f: bounds free-text accepted straight into the hash-
+        # chained audit ledger.
+        record = _make_record(self.org, self.batch, status=RS.SUBMITTED)
+        self.client.force_authenticate(self.org_admin)
+        response = self.client.post(
+            f"/api/records/{record.id}/reject/",
+            data={"reason": "x" * 1001}, format="json",
+        )
+        self.assertEqual(response.status_code, drf_status.HTTP_400_BAD_REQUEST)
+
+    def test_submit_reason_over_max_length_is_rejected(self):
+        record = _make_record(self.org, self.batch, status=RS.DRAFT)
+        self.client.force_authenticate(self.analyst)
+        response = self.client.post(
+            f"/api/records/{record.id}/submit/",
+            data={"reason": "x" * 1001}, format="json",
+        )
+        self.assertEqual(response.status_code, drf_status.HTTP_400_BAD_REQUEST)
+
+    def test_reject_reason_at_max_length_is_accepted(self):
+        record = _make_record(self.org, self.batch, status=RS.SUBMITTED)
+        self.client.force_authenticate(self.org_admin)
+        response = self.client.post(
+            f"/api/records/{record.id}/reject/",
+            data={"reason": "x" * 1000}, format="json",
+        )
+        self.assertEqual(response.status_code, drf_status.HTTP_200_OK)
+
     def test_reject_denied_for_viewer(self):
         record = _make_record(self.org, self.batch, status=RS.SUBMITTED)
         self.client.force_authenticate(self.viewer)

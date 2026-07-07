@@ -65,6 +65,30 @@ class AuthFlowTests(TestCase):
         )
         self.assertEqual(r.status_code, drf.HTTP_401_UNAUTHORIZED)
 
+    def test_login_failure_logs_warning_with_username_not_password(self):
+        # Phase 6f: baseline observability for credential-stuffing/brute-
+        # force detection -- response behavior is unchanged (still a plain
+        # 401), only a log line is added.
+        with self.assertLogs("apps.accounts.views", level="WARNING") as ctx:
+            r = self.client.post(
+                "/api/auth/login/", {"username": "alice", "password": "wrong-secret"}, format="json"
+            )
+        self.assertEqual(r.status_code, drf.HTTP_401_UNAUTHORIZED)
+        self.assertIn("alice", ctx.output[0])
+        self.assertNotIn("wrong-secret", ctx.output[0])
+
+    def test_successful_login_does_not_log_warning(self):
+        with self.assertRaises(AssertionError):
+            # assertLogs raises AssertionError itself if NO log of that
+            # level was emitted -- exactly what we want on a successful
+            # login (no failure warning).
+            with self.assertLogs("apps.accounts.views", level="WARNING"):
+                self.client.post(
+                    "/api/auth/login/",
+                    {"username": "alice", "password": "pw12345678"},
+                    format="json",
+                )
+
     def test_me_requires_authentication(self):
         self.assertEqual(self.client.get("/api/me/").status_code, drf.HTTP_401_UNAUTHORIZED)
 

@@ -105,6 +105,22 @@ class VerifyChainTests(TestCase):
         self.assertEqual(result.broken_at_sequence, target.sequence)
         self.assertIn("entry_hash mismatch", result.detail)
 
+    def test_broken_chain_logs_critical(self):
+        # Phase 6f: a broken chain is a tampering event -- must be
+        # observable via logs (CRITICAL), not just returned in the result,
+        # so an operator's log-based alerting can actually catch it.
+        append_entry(organization=self.org, action="A1")
+        target = append_entry(organization=self.org, action="A2")
+        with connection.cursor() as cur:
+            cur.execute(
+                "UPDATE audit_audittrail SET reason = %s WHERE id = %s",
+                ["tampered", target.id.hex if hasattr(target.id, "hex") else str(target.id)],
+            )
+        with self.assertLogs("apps.audit.services", level="CRITICAL") as ctx:
+            verify_chain(self.org)
+        self.assertIn("BROKEN", ctx.output[0])
+        self.assertIn(str(self.org.id), ctx.output[0])
+
     def test_broken_prev_hash_link_is_detected(self):
         append_entry(organization=self.org, action="A1")
         second = append_entry(organization=self.org, action="A2")

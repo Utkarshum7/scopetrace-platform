@@ -181,6 +181,18 @@ class ComplianceReportCorrectnessTests(ComplianceReportTestBase):
         response = self.client.get("/api/reports/compliance/")
         self.assertEqual(response.status_code, drf.HTTP_400_BAD_REQUEST)
 
+    def test_generation_is_logged(self):
+        # Phase 6f: INFO-level observability (who generated what, for
+        # which org/period) -- deliberately NOT an AuditTrail entry, see
+        # docs/adr/0002-compliance-reports-on-demand-not-persisted.md.
+        self.client.force_authenticate(self.org_admin)
+        with self.assertLogs("apps.carbon.report_views", level="INFO") as ctx:
+            self.client.get(
+                "/api/reports/compliance/?date_from=2026-01-01&date_to=2026-01-31"
+            )
+        self.assertIn("org_admin", ctx.output[0])
+        self.assertIn(str(self.org.id), ctx.output[0])
+
     def test_date_from_after_date_to_is_rejected(self):
         self.client.force_authenticate(self.org_admin)
         response = self.client.get(
