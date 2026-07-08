@@ -45,7 +45,8 @@ apps/ai/evaluation/                  (its own nested Django app -- own models/mi
       validation_assistance/v2/cases.json    (Phase 7d -- the real capability)
       esg_assistant/v1/cases.json    (superseded, kept unreferenced)
       esg_assistant/v2/cases.json    (Phase 7e -- the real capability)
-      report_narration/v1/cases.json
+      report_narration/v1/cases.json    (superseded, kept unreferenced)
+      report_narration/v2/cases.json    (Phase 7f -- the real capability)
       foundation_selftest/v1/cases.json
   tests_*.py             (9 test modules, ~86 tests)
 
@@ -91,28 +92,32 @@ milestone's scope asked for. `tests_fixtures.py`'s
 `GoldenFixtureHashSelfConsistencyTests` proves every fixture's recorded
 hash still matches a fresh render, for every real fixture, every test run.
 
-14 cases are actively loaded across 6 capabilities today (22 ship on
+16 cases are actively loaded across 6 capabilities today (26 ship on
 disk, counting superseded-but-kept `v1` files no capability config
 references anymore): 3 each in `anomaly_detection/v2` (Phase 7b's real
 capability, replacing a 2-case `v1` placeholder), `factor_recommendation/
 v2` (Phase 7c's real capability, replacing its own 2-case `v1`
 placeholder), `validation_assistance/v2` (Phase 7d's real capability,
-replacing its own 2-case `v1` placeholder), and `esg_assistant/v2` (Phase
-7e's real capability, replacing its own 2-case `v1` placeholder), 1 for
-`report_narration`, 1 for the existing `foundation.selftest`.
+replacing its own 2-case `v1` placeholder), `esg_assistant/v2` (Phase
+7e's real capability, replacing its own 2-case `v1` placeholder), and
+`report_narration/v2` (Phase 7f's real capability, replacing its own
+2-case `v1` placeholder), 1 for the existing `foundation.selftest`.
 `anomaly_detection`'s, `factor_recommendation`'s, `validation_
-assistance`'s, and `esg_assistant`'s v1 → v2 jumps are this versioning
-discipline's real exercise, not just documentation: see ADR 0009 for why
-`anomaly_detection` v2 dropped its `is_anomalous` field entirely (AI must
-never classify, only explain), ADR 0010 for why `factor_recommendation`
-v2 asks the AI to pick a candidate LABEL rather than reproduce a raw
-`EmissionFactor` identifier, ADR 0011 for why `validation_assistance` v2
-explains a whole record's `validation_errors` dict at once (matching
-`anomaly_detection`'s own record-level shape) instead of a single
-raw_value/field_name pair, and ADR 0012 for why `esg_assistant` v2 is the
-one exception to this pattern -- its v1 placeholder schema
+assistance`'s, and `report_narration`'s v1 → v2 jumps are this
+versioning discipline's real exercise, not just documentation: see ADR
+0009 for why `anomaly_detection` v2 dropped its `is_anomalous` field
+entirely (AI must never classify, only explain), ADR 0010 for why
+`factor_recommendation` v2 asks the AI to pick a candidate LABEL rather
+than reproduce a raw `EmissionFactor` identifier, ADR 0011 for why
+`validation_assistance` v2 explains a whole record's `validation_errors`
+dict at once (matching `anomaly_detection`'s own record-level shape)
+instead of a single raw_value/field_name pair, and ADR 0013 for why
+`report_narration` v2 splits its v1 single narrative blob into four
+distinct sections (each independently labeled "AI Advisory" in its own
+UI section). ADR 0012 documents `esg_assistant` v2 as the one exception
+to this pattern -- its v1 placeholder schema
 (`answer`/`citations`/`confidence`/`unsupported_claim`) was already the
-right shape for a RAG-style assistant, so the version bump exists only
+right shape for a RAG-style assistant, so its version bump exists only
 for cross-capability versioning-scheme consistency, not to fix a flawed
 contract.
 
@@ -290,3 +295,4 @@ CLI command — Django's test runner already is the harness's entry point).
 - [`docs/adr/0010-factor-recommendation-candidate-labels-and-dedicated-model.md`](adr/0010-factor-recommendation-candidate-labels-and-dedicated-model.md)
 - [`docs/adr/0011-validation-assistance-reuses-aiannotation.md`](adr/0011-validation-assistance-reuses-aiannotation.md)
 - [`docs/adr/0012-esg-assistant-synchronous-structured-retrieval.md`](adr/0012-esg-assistant-synchronous-structured-retrieval.md)
+- [`docs/adr/0013-report-narration-approved-only-context-and-async-api-dispatch.md`](adr/0013-report-narration-approved-only-context-and-async-api-dispatch.md)

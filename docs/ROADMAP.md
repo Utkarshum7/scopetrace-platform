@@ -118,8 +118,23 @@ enterprise governance) are complete. What's next, as currently planned:
   under a plain `AIConversation` container. apps.ai gained its own first
   API views (`/api/esg-assistant/conversations/...`, gated by `CanUseAI`)
   and a new dedicated ESG Assistant page. See AI_ARCHITECTURE.md §16 and
-  ADR 0012. 7f–7g (report narration, observability/cost governance)
-  remain.
+  ADR 0012. **7f (AI Report Narration) is done**: the fifth and final
+  planned real Phase 7 capability. Compliance reports themselves stay
+  on-demand query results (unchanged, per ADR 0002); AI only narrates
+  them, via a new `report_narration` capability (schema v2 -- executive
+  summary/key highlights/trend explanations/recommendations, each its
+  own labeled section) built ONLY from approved data
+  (`compliance_summary()` reused directly, never the broader
+  `MetricsService`). Dispatched async from a NEW API action
+  (`POST /api/report-narration/regenerate/`, since compliance reports
+  have no pipeline event to hook a dispatch into), persisted as
+  immutable `AIReportNarration` history, surfaced read-only via
+  `GET /api/report-narration/` and a new AI Narrative sub-section in the
+  existing Reports dashboard widget. RBAC matches the compliance report
+  itself (`CanViewActivity`, not the broader `CanUseAI` every other
+  capability uses) since narration is commentary on that same gated
+  artifact. See AI_ARCHITECTURE.md §18 and ADR 0013. 7g (observability/
+  cost governance) remains -- the last planned Phase 7 sub-milestone.
 - **Phase 8 — UX**: accessibility audit, responsive design pass, theming,
   saved/custom dashboards, an in-app notification center (distinct from
   Phase 5g's email notifications — a UI-visible feed, not a new delivery

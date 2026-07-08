@@ -229,9 +229,9 @@ and become real end-to-end API-level RBAC once 7b+ adds the first endpoint.
 
 ## 10. What's explicitly NOT in Phase 7a (updated as later milestones land)
 
-No report narrative generation — it remains a later milestone (7f) that
-calls `invoke_ai()`, never reimplements any part of this foundation. Also
-still not implemented (per the finalized Phase 7 design):
+All five planned Phase 7 capabilities are now implemented (7b-7f); what
+remains for Phase 7 is observability/cost governance (7g). Still not
+implemented (per the finalized Phase 7 design):
 - A concrete self-hosted/BYO provider adapter (the seam exists; no adapter).
 - ~~The AI evaluation/golden-set harness~~ — done in **Phase 7a.5**, see
   [`AI_EVALUATION.md`](AI_EVALUATION.md).
@@ -260,6 +260,15 @@ still not implemented (per the finalized Phase 7 design):
   (only messages immutable), apps.ai's own first API views
   (`/api/esg-assistant/conversations/...`), and a new dedicated ESG
   Assistant page. See §16 and ADR 0012.
+- ~~Report narrative generation, any `AIReportNarration` model~~ — done in
+  **Phase 7f**: `apps.ai.services.report_narration` (capability
+  `report_narration`) plus `apps.ai.services.report_context_builder`
+  (APPROVED-only retrieval, reusing `compliance_summary()` directly),
+  `AIReportNarration` (immutable, PROTECT-only FKs), async dispatch via a
+  new API action (`POST /api/report-narration/regenerate/`, no pipeline
+  event to hook into since compliance reports are on-demand per ADR
+  0002), and an AI Narrative sub-section in the existing Reports
+  dashboard widget. See §18 and ADR 0013.
 
 ---
 
@@ -445,7 +454,65 @@ and `InvariantI3EsgAssistantConcreteProofTests` in
 
 ---
 
-## 17. Related documents
+## 18. Phase 7f — AI Report Narration
+
+The fifth and final planned real Phase 7 capability. `apps.ai.services.
+report_narration.generate_report_narration(organization, date_from,
+date_to, scope=None)` runs entirely on APPROVED, deterministic data. See
+ADR 0013 for the three structural decisions this section summarizes.
+
+**Context is built ONLY from approved data — never `MetricsService`.**
+`apps.ai.services.report_context_builder.build_report_context()` reuses
+`apps.carbon.services.reports.compliance_summary()` directly for the
+headline total/by-scope figures, and adds two new APPROVED-only queries
+(activity breakdown, monthly trend) using the identical
+`is_current=True`/`resolution_status=CALCULATED`/
+`emission_record__status=APPROVED` filter shape. Unlike 7e's context
+builder, `MetricsService` (which intentionally includes non-approved
+records for its dashboard use case) is deliberately never used here —
+narration and the compliance report it narrates are structurally
+guaranteed to see identical data.
+
+**`generate_report_narration()` is async, dispatched from a NEW API
+action, not a pipeline hook.** Unlike 7b/7c/7d, there's no existing
+`ingest_task`/`calculate_task` success path to attach to — compliance
+reports are on-demand query results (ADR 0002), never a persisted row a
+background job would naturally attach to. `POST /api/report-narration/
+regenerate/` dispatches `apps.ai.tasks.generate_report_narration_task`
+(the `ai` queue) and returns 202 immediately; `GET /api/report-narration/`
+reads back whatever's been persisted. Regeneration is NOT idempotent-by-
+skip the way the other three capabilities' tasks are — every
+regeneration creates a new, independent `AIReportNarration` row, and
+history is kept, matching "maintain immutable history" literally.
+
+**Persistence**: `AIReportNarration` (immutable, `AuditTrail`-style,
+all-`PROTECT` FKs), keyed by a `(date_from, date_to, scope)` report
+period rather than a single record, with four distinct sections
+(`executive_summary`, `key_highlights`, `trend_explanations`,
+`recommendations`) — `REPORT_NARRATION_V1`'s single blob couldn't support
+independently labeling each section "AI Advisory."
+
+**Read path**: `GET /api/report-narration/` (list, optional date/scope
+filters) and `POST /api/report-narration/regenerate/` (dispatch), both
+gated by `CanViewActivity` — NOT the broader `CanUseAI` gate every other
+Phase 7 capability uses. Narration is advisory content about a specific,
+already-gated audit artifact (the compliance report), so it inherits
+that artifact's own RBAC boundary (Org Admin/Auditor), matching `apps.
+carbon.report_views._BaseComplianceReportView` exactly. The frontend
+extends the existing Reports dashboard widget (no new page, no redesign)
+with an AI Narrative sub-section, shown only once a date range is
+selected, labeled "AI Advisory."
+
+The milestone's explicit callouts — "no governed data mutation,"
+"narration matches deterministic metrics," "no cross-tenant information
+leakage" — have formal, merge-gate-visible proofs:
+`InvariantI2ReportNarrationConcreteProofTests` and
+`InvariantI3ReportNarrationConcreteProofTests` in `apps/ai/evaluation/
+tests_invariants.py`.
+
+---
+
+## 19. Related documents
 
 - [`ROADMAP.md`](ROADMAP.md) — Phase 7 milestone breakdown (7a–7g).
 - [`AI_EVALUATION.md`](AI_EVALUATION.md) — Phase 7a.5's evaluation/
@@ -454,7 +521,7 @@ and `InvariantI3EsgAssistantConcreteProofTests` in
   must keep green.
 - [`CARBON_ENGINE_DESIGN.md`](CARBON_ENGINE_DESIGN.md) — the pipeline's
   reserved `AIRecommendationStage`/`OptimizationStage` seams, still inert
-  after Phase 7e (see ADR 0009 for why anomaly explanation didn't use them).
+  after Phase 7f (see ADR 0009 for why anomaly explanation didn't use them).
 - [`docs/adr/0005-ai-provider-abstraction-and-schema-enforcement.md`](adr/0005-ai-provider-abstraction-and-schema-enforcement.md)
 - [`docs/adr/0006-ai-advisory-only-no-direct-mutation.md`](adr/0006-ai-advisory-only-no-direct-mutation.md)
 - [`docs/adr/0007-ai-tenant-egress-and-cost-policy.md`](adr/0007-ai-tenant-egress-and-cost-policy.md)
@@ -463,5 +530,4 @@ and `InvariantI3EsgAssistantConcreteProofTests` in
 - [`docs/adr/0010-factor-recommendation-candidate-labels-and-dedicated-model.md`](adr/0010-factor-recommendation-candidate-labels-and-dedicated-model.md)
 - [`docs/adr/0011-validation-assistance-reuses-aiannotation.md`](adr/0011-validation-assistance-reuses-aiannotation.md)
 - [`docs/adr/0012-esg-assistant-synchronous-structured-retrieval.md`](adr/0012-esg-assistant-synchronous-structured-retrieval.md)
-- [`docs/adr/0010-factor-recommendation-candidate-labels-and-dedicated-model.md`](adr/0010-factor-recommendation-candidate-labels-and-dedicated-model.md)
-- [`docs/adr/0011-validation-assistance-reuses-aiannotation.md`](adr/0011-validation-assistance-reuses-aiannotation.md)
+- [`docs/adr/0013-report-narration-approved-only-context-and-async-api-dispatch.md`](adr/0013-report-narration-approved-only-context-and-async-api-dispatch.md)
