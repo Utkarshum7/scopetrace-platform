@@ -289,6 +289,105 @@ class InvariantI2ValidationAssistanceConcreteProofTests(TestCase):
         self.assertEqual(after["validation_errors"], before["validation_errors"])
 
 
+@override_settings(AI_ENABLED=True, AI_PROVIDER="echo", AI_DEFAULT_MODEL="echo-1")
+class InvariantI2EsgAssistantConcreteProofTests(TestCase):
+    """I2, Phase 7e edition: esg_assistant is a genuinely different shape
+    from every prior capability -- it has no single governed `record` to
+    read, only a retrieval layer (apps.ai.services.esg_context_builder)
+    querying several governed models at once. The proof shifts
+    accordingly: every governed model this capability's context builder
+    reads from (EmissionRecord, EmissionCalculation, EmissionFactor,
+    UploadBatch) has an identical row count and identical aggregate
+    figures before and after a successful ask_esg_assistant() call --
+    proving the capability's OWN write path (AIConversationMessage only)
+    never touches any of them, not just that one record's fields didn't
+    change. Duplicates none of tests_esg_assistant_service.py's own
+    coverage -- this is the formal version of the same claim."""
+
+    def setUp(self):
+        from apps.carbon.tests.factories import activity_type, dataset, factor
+        from apps.core.models import DataSource
+
+        self.org = Organization.objects.create(name="Invariant I2 ESG Assistant Org")
+        TenantAIPolicy.objects.create(organization=self.org, ai_enabled=True, provider_override="echo")
+        self.ds = DataSource.objects.create(
+            organization=self.org, name="SAP", source_type=DataSource.SourceType.SAP_FUEL,
+        )
+        self.activity_type = activity_type()
+        self.dataset = dataset()
+        self.factor = factor(self.dataset, self.activity_type)
+
+    def test_ask_esg_assistant_never_mutates_any_governed_model(self):
+        from unittest.mock import patch
+
+        from apps.ai.models import AIConversation
+        from apps.ai.services.esg_assistant import ask_esg_assistant
+        from apps.ai.services.gateway import AIGatewayResult
+        from apps.carbon.models import EmissionCalculation, EmissionFactor
+        from apps.ingestion.models import EmissionRecord, UploadBatch
+
+        batch = UploadBatch.objects.create(organization=self.org, data_source=self.ds, file_name="i2_esg.csv")
+        record = EmissionRecord.objects.create(
+            organization=self.org, batch=batch, row_index=1, raw_data_payload={"a": 1},
+            status=EmissionRecord.RecordStatus.APPROVED, normalized_value=500,
+            normalized_unit="L", scope_category="SCOPE_1",
+        )
+        calc = EmissionCalculation.objects.create(
+            organization=self.org, emission_record=record, is_current=True,
+            resolution_status=EmissionCalculation.ResolutionStatus.CALCULATED,
+            activity_type=self.activity_type, emission_factor=self.factor,
+            scope="SCOPE_1", co2e_tonnes="1.500000000", reporting_date="2026-01-15",
+        )
+        # Refresh before snapshotting -- co2e_tonnes was assigned as a str
+        # literal above; a fresh-from-DB read normalizes it to Decimal, the
+        # same type refresh_from_db() below will produce for the "after"
+        # snapshot. Without this, the two snapshots would differ only by
+        # Python type (str vs Decimal) on an unchanged value -- a test bug,
+        # not a real mutation.
+        record.refresh_from_db()
+        calc.refresh_from_db()
+
+        record_before = {f.name: getattr(record, f.name) for f in EmissionRecord._meta.fields}
+        calc_before = {f.name: getattr(calc, f.name) for f in EmissionCalculation._meta.fields}
+        factor_before = {f.name: getattr(self.factor, f.name) for f in self.factor._meta.fields}
+        counts_before = (
+            EmissionRecord.objects.count(), EmissionCalculation.objects.count(),
+            EmissionFactor.objects.count(), UploadBatch.objects.count(),
+        )
+
+        conversation = AIConversation.objects.create(organization=self.org)
+        interaction = AIInteraction.objects.create(
+            organization=self.org, capability="esg_assistant", provider="echo", model_id="echo-1",
+            outcome=AIInteraction.Outcome.OK, egress_tier_applied=TenantAIPolicy.EgressTier.REDACTED,
+        )
+        parsed = {
+            "answer": "Total CO2e was 1.5 tonnes.", "citations": ["org_summary"],
+            "confidence": "HIGH", "unsupported_claim": False,
+        }
+        with patch(
+            "apps.ai.services.esg_assistant.invoke_ai",
+            return_value=AIGatewayResult(outcome=AIInteraction.Outcome.OK, interaction_id=str(interaction.id), parsed=parsed),
+        ):
+            message = ask_esg_assistant(conversation, "What was our total CO2e?")
+        self.assertIsNotNone(message)  # the call actually succeeded -- a meaningful proof, not a vacuous one
+
+        record.refresh_from_db()
+        calc.refresh_from_db()
+        self.factor.refresh_from_db()
+        record_after = {f.name: getattr(record, f.name) for f in EmissionRecord._meta.fields}
+        calc_after = {f.name: getattr(calc, f.name) for f in EmissionCalculation._meta.fields}
+        factor_after = {f.name: getattr(self.factor, f.name) for f in self.factor._meta.fields}
+        counts_after = (
+            EmissionRecord.objects.count(), EmissionCalculation.objects.count(),
+            EmissionFactor.objects.count(), UploadBatch.objects.count(),
+        )
+
+        self.assertEqual(record_before, record_after)
+        self.assertEqual(calc_before, calc_after)
+        self.assertEqual(factor_before, factor_after)
+        self.assertEqual(counts_before, counts_after)
+
+
 class InvariantI3TenantIsolationTests(TestCase):
     """I3: no cross-tenant context ever enters a prompt or a budget total.
     Gateway-level proof already lives in
@@ -311,6 +410,69 @@ class InvariantI3TenantIsolationTests(TestCase):
         run_tier1_evaluation(trigger="test")
 
         self.assertEqual(AIInteraction.objects.count(), before)
+
+
+@override_settings(AI_ENABLED=True, AI_PROVIDER="echo", AI_DEFAULT_MODEL="echo-1")
+class InvariantI3EsgAssistantConcreteProofTests(TestCase):
+    """I3, Phase 7e edition: esg_assistant is the first capability whose
+    OWN inputs are built by querying across several governed tables at
+    once (apps.ai.services.esg_context_builder), rather than reading one
+    already-scoped record -- so tenant isolation needs its own concrete
+    proof here, not just a structural absence-of-cross-org-FK argument.
+    Also the first capability with a real, dedicated API endpoint, so
+    RBAC enforcement (CanUseAI's role gate) gets a merge-gate-visible
+    proof of its own too, alongside the general coverage already in
+    tests_esg_assistant_api.py.
+    """
+
+    def test_ask_esg_assistant_context_never_contains_another_org_s_data(self):
+        from unittest.mock import patch
+
+        from apps.ai.models import AIConversation
+        from apps.ai.services.esg_assistant import ask_esg_assistant
+        from apps.ai.services.gateway import AIGatewayResult
+        from apps.core.models import DataSource
+        from apps.ingestion.models import UploadBatch
+
+        org_a = Organization.objects.create(name="Invariant I3 ESG Org A")
+        org_b = Organization.objects.create(name="Invariant I3 ESG Org B")
+        TenantAIPolicy.objects.create(organization=org_a, ai_enabled=True, provider_override="echo")
+        ds_b = DataSource.objects.create(
+            organization=org_b, name="SAP B", source_type=DataSource.SourceType.SAP_FUEL,
+        )
+        UploadBatch.objects.create(organization=org_b, data_source=ds_b, file_name="org_b_secret_upload.csv")
+
+        conversation = AIConversation.objects.create(organization=org_a)
+        interaction = AIInteraction.objects.create(
+            organization=org_a, capability="esg_assistant", provider="echo", model_id="echo-1",
+            outcome=AIInteraction.Outcome.OK, egress_tier_applied=TenantAIPolicy.EgressTier.REDACTED,
+        )
+        parsed = {"answer": "x", "citations": [], "confidence": "LOW", "unsupported_claim": False}
+        with patch(
+            "apps.ai.services.esg_assistant.invoke_ai",
+            return_value=AIGatewayResult(outcome=AIInteraction.Outcome.OK, interaction_id=str(interaction.id), parsed=parsed),
+        ):
+            message = ask_esg_assistant(conversation, "What datasets have been uploaded?")
+
+        self.assertIsNotNone(message)  # the call actually succeeded -- a meaningful proof, not a vacuous one
+        self.assertNotIn("org_b_secret_upload.csv", message.retrieved_context)
+        self.assertNotIn("Org B", message.retrieved_context)
+
+    def test_viewer_role_cannot_reach_the_esg_assistant_api(self):
+        from django.contrib.auth import get_user_model
+        from rest_framework.test import APIClient
+
+        from apps.accounts.models import Membership, Role
+
+        User = get_user_model()
+        org = Organization.objects.create(name="Invariant I3 RBAC Org")
+        viewer = User.objects.create_user("invariant_i3_viewer", password="pw")
+        Membership.objects.create(user=viewer, organization=org, role=Role.VIEWER, active=True)
+
+        client = APIClient()
+        client.force_authenticate(viewer)
+        response = client.get("/api/esg-assistant/conversations/")
+        self.assertEqual(response.status_code, 403)
 
 
 class InvariantI4ProviderAgnosticTests(SimpleTestCase):
