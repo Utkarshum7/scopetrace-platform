@@ -1,6 +1,11 @@
 """
 Phase 7a — AI Foundation & Governance Seam. Phase 7b adds AIAnnotation.
-Phase 7c adds AIFactorRecommendation.
+Phase 7c adds AIFactorRecommendation. Phase 7d adds a second AIAnnotation
+capability (VALIDATION_ASSISTANCE) rather than a third model -- see ADR
+0011: every output validation_assistance needs (explanation, affected
+fields, confidence, suggested correction) already maps onto AIAnnotation's
+existing four columns with no type mismatch, unlike factor_recommendation
+which needed a structurally new field (an FK to EmissionFactor).
 
 None of these models ever hold or mutate governed business data (I1/I2 from
 docs/AI_ARCHITECTURE.md's invariants): AIPromptVersion is a registry of what
@@ -278,6 +283,13 @@ class AIAnnotation(models.Model):
 
     class Capability(models.TextChoices):
         ANOMALY_DETECTION = "ANOMALY_DETECTION", "Anomaly Detection"
+        # Phase 7d: contributing_factors holds affected FIELD NAMES (not
+        # qualitative reasons) and suggested_investigation holds the
+        # suggested CORRECTION (not an investigation prompt) for this
+        # capability's rows -- same columns, capability-specific meaning,
+        # exactly like explanation's "why" framing already generalizes.
+        # See ADR 0011.
+        VALIDATION_ASSISTANCE = "VALIDATION_ASSISTANCE", "Validation Assistance"
 
     class Confidence(models.TextChoices):
         LOW = "LOW", "Low"

@@ -64,6 +64,35 @@ class AIAnnotationCreationTests(TestCase):
         )
         self.assertIn(annotation, self.record.ai_annotations.all())
 
+    def test_create_validation_assistance_annotation(self):
+        # Phase 7d -- same model, second capability (see ADR 0011).
+        annotation = AIAnnotation.objects.create(
+            organization=self.org, record=self.record, interaction=self.interaction,
+            capability=AIAnnotation.Capability.VALIDATION_ASSISTANCE,
+            explanation="Quantity field is missing; likely a blank export cell.",
+            contributing_factors=["quantity"],
+            confidence=AIAnnotation.Confidence.MEDIUM,
+            suggested_investigation="Re-enter the quantity from the source invoice.",
+        )
+        self.assertEqual(annotation.capability, AIAnnotation.Capability.VALIDATION_ASSISTANCE)
+        self.assertIn(annotation, self.record.ai_annotations.all())
+
+    def test_both_capabilities_coexist_on_the_same_record(self):
+        anomaly = AIAnnotation.objects.create(
+            organization=self.org, record=self.record, interaction=self.interaction,
+            capability=AIAnnotation.Capability.ANOMALY_DETECTION, explanation="x",
+            confidence=AIAnnotation.Confidence.LOW, suggested_investigation="x",
+        )
+        validation = AIAnnotation.objects.create(
+            organization=self.org, record=self.record, interaction=self.interaction,
+            capability=AIAnnotation.Capability.VALIDATION_ASSISTANCE, explanation="y",
+            confidence=AIAnnotation.Confidence.LOW, suggested_investigation="y",
+        )
+        capabilities = set(self.record.ai_annotations.values_list("capability", flat=True))
+        self.assertEqual(capabilities, {"ANOMALY_DETECTION", "VALIDATION_ASSISTANCE"})
+        self.assertIn(anomaly, self.record.ai_annotations.all())
+        self.assertIn(validation, self.record.ai_annotations.all())
+
     def test_multiple_annotations_can_accumulate_per_record(self):
         AIAnnotation.objects.create(
             organization=self.org, record=self.record, interaction=self.interaction,
