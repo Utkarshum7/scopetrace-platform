@@ -16,7 +16,7 @@ this entire suite runs offline, in CI, for free.
 import ast
 from pathlib import Path
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from apps.ai.evaluation.models import EvaluationResult, EvaluationRun
 from apps.ai.evaluation.service import run_tier1_evaluation
@@ -66,19 +66,31 @@ class InvariantI2NoGovernedDataMutationTests(SimpleTestCase):
     proof already lives in tests_gateway.InvokeAINoGovernedDataMutationTests
     (scans gateway.py only). This extends the same AST-import scan to every
     file in apps.ai.evaluation -- the new package introduced this milestone
-    must uphold the same absence-of-import guarantee."""
+    must uphold the same absence-of-import guarantee.
+
+    The guard's actual promise is about APPLICATION code paths, not test
+    fixtures -- same principle apps.ai.tests_import_guard already
+    establishes for vendor SDK imports (its own _ALLOWED_TEST_FILES).
+    tests_invariants.py itself legitimately imports apps.ingestion.models
+    to construct a real EmissionRecord for
+    InvariantI2AnomalyDetectionConcreteProofTests' behavioral (not
+    structural) proof below -- exempted here for that reason, not because
+    the invariant doesn't apply to it.
+    """
 
     _BANNED_MODULES = {"apps.ingestion.models", "apps.carbon.models"}
+    _ALLOWED_TEST_FILES = {"tests_invariants.py"}
 
     def test_no_evaluation_module_imports_governed_models(self):
         evaluation_root = Path(__file__).resolve().parent
         violations = []
         for path in evaluation_root.rglob("*.py"):
-            if "/migrations/" in f"/{path.relative_to(evaluation_root).as_posix()}":
+            rel = path.relative_to(evaluation_root).as_posix()
+            if "/migrations/" in f"/{rel}" or rel in self._ALLOWED_TEST_FILES:
                 continue
             hit = self._BANNED_MODULES.intersection(_module_imports(path))
             if hit:
-                violations.append(f"{path.relative_to(evaluation_root)}: imports {sorted(hit)}")
+                violations.append(f"{rel}: imports {sorted(hit)}")
         self.assertEqual(violations, [], "\n".join(violations))
 
     def test_evaluation_models_have_no_write_relation_to_governed_models(self):
@@ -93,6 +105,53 @@ class InvariantI2NoGovernedDataMutationTests(SimpleTestCase):
                         related_model.__name__, {"EmissionRecord", "EmissionCalculation"},
                         f"{model.__name__}.{f.name} must never reference {related_model.__name__}",
                     )
+
+
+@override_settings(AI_ENABLED=True, AI_PROVIDER="echo", AI_DEFAULT_MODEL="echo-1")
+class InvariantI2AnomalyDetectionConcreteProofTests(TestCase):
+    """I2, Phase 7b edition: apps.ai's structural "no import of governed
+    models" proof (above) no longer applies on its own once a real
+    capability legitimately NEEDS to import EmissionRecord to read it (see
+    apps.ai.services.anomaly_detection) -- the invariant shifts from "no
+    import" to "read-only usage", which needs a behavioral proof instead:
+    every field on the record is byte-identical before and after a
+    successful generate_anomaly_explanation() / task run. Duplicates none
+    of tests_anomaly_detection.py's/tests_anomaly_task.py's own coverage --
+    this is the formal, merge-gate-visible version of the same claim."""
+
+    def setUp(self):
+        from apps.core.models import DataSource
+
+        self.org = Organization.objects.create(name="Invariant I2 Anomaly Org")
+        TenantAIPolicy.objects.create(organization=self.org, ai_enabled=True, provider_override="echo")
+        self.ds = DataSource.objects.create(
+            organization=self.org, name="SAP", source_type=DataSource.SourceType.SAP_FUEL,
+        )
+
+    def test_generate_anomaly_explanation_never_mutates_any_record_field(self):
+        from apps.ai.providers.echo import canned
+        from apps.ai.services.anomaly_detection import generate_anomaly_explanation
+        from apps.ingestion.models import EmissionRecord, UploadBatch
+
+        batch = UploadBatch.objects.create(organization=self.org, data_source=self.ds, file_name="i2.csv")
+        canned_response = {
+            "explanation": "x", "contributing_factors": [], "confidence": "LOW",
+            "suggested_investigation": "x",
+        }
+        record = EmissionRecord.objects.create(
+            organization=self.org, batch=batch, row_index=1, raw_data_payload={"a": 1},
+            status=EmissionRecord.RecordStatus.SUSPICIOUS, is_suspicious=True,
+            normalized_value=500, normalized_unit="L", scope_category="SCOPE_1",
+            validation_errors={"quantity": [canned(canned_response)]},
+        )
+        before = {f.name: getattr(record, f.name) for f in EmissionRecord._meta.fields}
+
+        annotation = generate_anomaly_explanation(record)
+        self.assertIsNotNone(annotation)  # the call actually succeeded -- a meaningful proof, not a vacuous one
+
+        record.refresh_from_db()
+        after = {f.name: getattr(record, f.name) for f in EmissionRecord._meta.fields}
+        self.assertEqual(before, after)
 
 
 class InvariantI3TenantIsolationTests(TestCase):
