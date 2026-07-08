@@ -39,7 +39,8 @@ apps/ai/evaluation/                  (its own nested Django app -- own models/mi
     golden/
       anomaly_detection/v1/cases.json    (superseded, kept unreferenced)
       anomaly_detection/v2/cases.json    (Phase 7b -- the real capability)
-      factor_recommendation/v1/cases.json
+      factor_recommendation/v1/cases.json    (superseded, kept unreferenced)
+      factor_recommendation/v2/cases.json    (Phase 7c -- the real capability)
       validation_assistance/v1/cases.json
       esg_assistant/v1/cases.json
       report_narration/v1/cases.json
@@ -88,13 +89,19 @@ milestone's scope asked for. `tests_fixtures.py`'s
 `GoldenFixtureHashSelfConsistencyTests` proves every fixture's recorded
 hash still matches a fresh render, for every real fixture, every test run.
 
-14 cases ship across 6 capabilities today: 3 in `anomaly_detection/v2`
-(Phase 7b's real capability, replacing the 2-case `v1` placeholder, kept
-unreferenced), 2 each for the remaining 4 planned capabilities, 1 for the
-existing `foundation.selftest`. `anomaly_detection`'s v1 → v2 jump is this
-versioning discipline's first real exercise, not just documentation: see
-ADR 0009 for why v2 dropped its `is_anomalous` field entirely (AI must
-never classify, only explain).
+12 cases are actively loaded across 6 capabilities today (16 ship on disk,
+counting superseded-but-kept `v1` files no capability config references
+anymore): 3 in `anomaly_detection/v2` (Phase 7b's real capability,
+replacing the 2-case `v1` placeholder) and 3 in `factor_recommendation/v2`
+(Phase 7c's real capability, replacing its own 2-case `v1` placeholder), 2
+each for `esg_assistant`/`validation_assistance`, 1 for `report_narration`,
+1 for the existing `foundation.selftest`. `anomaly_detection`'s and
+`factor_recommendation`'s v1 → v2 jumps are this versioning discipline's
+real exercise, not just documentation: see ADR 0009 for why
+`anomaly_detection` v2 dropped its `is_anomalous` field entirely (AI must
+never classify, only explain), and ADR 0010 for why
+`factor_recommendation` v2 asks the AI to pick a candidate LABEL rather
+than reproduce a raw `EmissionFactor` identifier.
 
 ---
 

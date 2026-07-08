@@ -78,8 +78,21 @@ enterprise governance) are complete. What's next, as currently planned:
   `AIAnnotation` rows, surfaced read-only via
   `GET /api/records/{id}/ai-annotations/` and a new "AI Insights" panel in
   the existing records detail drawer. See AI_ARCHITECTURE.md §12 and ADR
-  0009. 7c–7g (factor recommendation, validation assist, ESG assistant,
-  report narration, observability/cost governance) remain.
+  0009. **7c (AI Emission Factor Recommendation) is done**: the second real
+  Phase 7 capability. The deterministic engine
+  (`apps.carbon.services.resolution.FactorIndex`) still decides which
+  factor a calculation actually uses (unchanged); AI only recommends a
+  candidate for records left `UNRESOLVED_NO_FACTOR`, via a new
+  `factor_recommendation` capability (schema v2 -- the AI picks a
+  service-provided candidate LABEL, never a raw factor identifier),
+  dispatched fire-and-forget from `calculate_task`'s success path (never
+  inline in the calculation pipeline), persisted as immutable
+  `AIFactorRecommendation` rows (a new dedicated model, nullable
+  `recommended_factor`), surfaced read-only via
+  `GET /api/records/{id}/factor-recommendations/` and a second sub-section
+  in the same "AI Insights" panel. See AI_ARCHITECTURE.md §13 and ADR
+  0010. 7d–7g (validation assist, ESG assistant, report narration,
+  observability/cost governance) remain.
 - **Phase 8 — UX**: accessibility audit, responsive design pass, theming,
   saved/custom dashboards, an in-app notification center (distinct from
   Phase 5g's email notifications — a UI-visible feed, not a new delivery

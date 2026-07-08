@@ -91,8 +91,8 @@ provider — it is not a data cache. A replayed call returns the prior
 outcome and `interaction_id` but no parsed body, since `AIInteraction`
 deliberately never persists raw response text (see §4). A feature that
 needs to recover a prior result's *data* on redelivery looks it up in its
-own table (e.g. an `AISuggestion` row keyed by the same idempotency key,
-once that model exists in 7c+), not from the gateway.
+own table (e.g. `AIAnnotation`/`AIFactorRecommendation`, both keyed back
+to the `AIInteraction` that produced them), not from the gateway.
 
 ---
 
@@ -229,10 +229,10 @@ and become real end-to-end API-level RBAC once 7b+ adds the first endpoint.
 
 ## 10. What's explicitly NOT in Phase 7a (updated as later milestones land)
 
-No factor/activity recommendation, no validation assist, no ESG assistant,
-no report narrative generation — each remains a later milestone (7c–7f)
-that calls `invoke_ai()`, never reimplements any part of this foundation.
-Also still not implemented (per the finalized Phase 7 design):
+No validation assist, no ESG assistant, no report narrative generation —
+each remains a later milestone (7d–7f) that calls `invoke_ai()`, never
+reimplements any part of this foundation. Also still not implemented (per
+the finalized Phase 7 design):
 - A concrete self-hosted/BYO provider adapter (the seam exists; no adapter).
 - ~~The AI evaluation/golden-set harness~~ — done in **Phase 7a.5**, see
   [`AI_EVALUATION.md`](AI_EVALUATION.md).
@@ -241,6 +241,13 @@ Also still not implemented (per the finalized Phase 7 design):
   `AIAnnotation` (immutable, PROTECT-only FKs), a read-only
   `GET /api/records/{id}/ai-annotations/` endpoint, and a frontend "AI
   Insights" panel. See §12 and ADR 0009.
+- ~~Factor/activity recommendation, any `AIFactorRecommendation` model~~ —
+  done in **Phase 7c**: `apps.ai.services.factor_recommendation`
+  (capability `factor_recommendation`), `AIFactorRecommendation`
+  (immutable, PROTECT-only FKs, nullable `recommended_factor`), a
+  read-only `GET /api/records/{id}/factor-recommendations/` endpoint, and
+  a second sub-section in the same "AI Insights" panel. See §13 and ADR
+  0010.
 
 ---
 
@@ -274,7 +281,60 @@ redesign) renders whatever this endpoint returns, clearly labeled
 
 ---
 
-## 13. Related documents
+## 13. Phase 7c — AI Emission Factor Recommendation
+
+The second real Phase 7 capability. `apps.ai.services.factor_recommendation.
+recommend_emission_factor(record)` runs only against records whose current
+`EmissionCalculation.resolution_status` is exactly `UNRESOLVED_NO_FACTOR`
+— the deterministic engine (`apps.carbon.services.resolution.
+ActivityTypeResolver`) already resolved an activity type, but
+`FactorIndex.resolve()` found no single factor confidently matching its
+region/date/publisher constraints. `UNRESOLVED_NO_ACTIVITY_TYPE` is
+explicitly out of scope — a different problem (activity-type mapping), not
+factor selection. See ADR 0010, Decision 1.
+
+The service independently queries candidate `EmissionFactor` rows for the
+resolved activity type (read-only; it neither imports nor modifies
+`FactorIndex`, which only ever returns a single winner or `None`) and
+shows them to the AI as labels — `candidate_1`, `candidate_2`, ..., or
+`"none"` — never as raw UUIDs. The AI's response picks a label; the
+service resolves it back to the real object it already holds in memory,
+defensively resolving to no factor if the label is unrecognized. See ADR
+0010, Decision 2, for why raw identifiers are never shown to the AI.
+
+`FACTOR_RECOMMENDATION_V2`'s schema — `recommended_candidate_label`,
+`confidence`, `explanation`, `reasoning`, `alternative_candidates` —
+persists as exactly one immutable `AIFactorRecommendation` on success, a
+new dedicated model (not a reuse of `AIAnnotation` — see ADR 0010,
+Decision 3) with the same `AuditTrail`-style immutability and all-`PROTECT`
+FK discipline ADR 0009 established. `recommended_factor` is nullable: the
+AI recommending none of the candidates it was shown is a valid, honest
+outcome, not a failure.
+
+**Dispatch is fire-and-forget, off the deterministic pipeline entirely** —
+`apps.ai.tasks.generate_factor_recommendations_task` (the `ai` queue) is
+dispatched from `calculate_task`'s success path with the same one-line
+`.delay()` pattern already used for `send_notification_task`, mirroring
+7b's `ingest_task` → `generate_anomaly_explanations_task` dispatch exactly.
+
+**Read path**: `GET /api/records/{id}/factor-recommendations/`, mirroring
+`/ai-annotations/`'s exact `self.get_object()` precedent — no mutation
+verb exists on this path. `AIFactorRecommendationSerializer` computes a
+human-readable `recommended_factor_label` rather than exposing the raw FK.
+The frontend's `AIInsightsPanel` gained a second sub-section rendering
+whatever this endpoint returns, alongside the existing anomaly-annotation
+sub-section, both clearly labeled "AI Advisory."
+
+The milestone's explicit callout — "verify AI never changes the
+deterministic factor" — has a formal, merge-gate-visible proof:
+`InvariantI2FactorRecommendationConcreteProofTests` in
+`apps/ai/evaluation/tests_invariants.py`, which confirms every field on
+both the `EmissionCalculation` and the candidate `EmissionFactor` it
+recommended is byte-identical before and after a successful call.
+
+---
+
+## 14. Related documents
 
 - [`ROADMAP.md`](ROADMAP.md) — Phase 7 milestone breakdown (7a–7g).
 - [`AI_EVALUATION.md`](AI_EVALUATION.md) — Phase 7a.5's evaluation/
@@ -283,9 +343,10 @@ redesign) renders whatever this endpoint returns, clearly labeled
   must keep green.
 - [`CARBON_ENGINE_DESIGN.md`](CARBON_ENGINE_DESIGN.md) — the pipeline's
   reserved `AIRecommendationStage`/`OptimizationStage` seams, still inert
-  after Phase 7b (see ADR 0009 for why anomaly explanation didn't use them).
+  after Phase 7c (see ADR 0009 for why anomaly explanation didn't use them).
 - [`docs/adr/0005-ai-provider-abstraction-and-schema-enforcement.md`](adr/0005-ai-provider-abstraction-and-schema-enforcement.md)
 - [`docs/adr/0006-ai-advisory-only-no-direct-mutation.md`](adr/0006-ai-advisory-only-no-direct-mutation.md)
 - [`docs/adr/0007-ai-tenant-egress-and-cost-policy.md`](adr/0007-ai-tenant-egress-and-cost-policy.md)
 - [`docs/adr/0008-ai-evaluation-tiering.md`](adr/0008-ai-evaluation-tiering.md)
 - [`docs/adr/0009-anomaly-explanation-async-dispatch-and-immutable-annotations.md`](adr/0009-anomaly-explanation-async-dispatch-and-immutable-annotations.md)
+- [`docs/adr/0010-factor-recommendation-candidate-labels-and-dedicated-model.md`](adr/0010-factor-recommendation-candidate-labels-and-dedicated-model.md)
