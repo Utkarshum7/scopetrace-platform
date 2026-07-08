@@ -11,7 +11,13 @@ apps.ai imports apps.ingestion's serializers).
 """
 from rest_framework import serializers
 
-from apps.ai.models import AIAnnotation, AIConversation, AIConversationMessage, AIFactorRecommendation
+from apps.ai.models import (
+    AIAnnotation,
+    AIConversation,
+    AIConversationMessage,
+    AIFactorRecommendation,
+    AIReportNarration,
+)
 
 
 class AIAnnotationSerializer(serializers.ModelSerializer):
@@ -72,3 +78,29 @@ class AIConversationSerializer(serializers.ModelSerializer):
 
 class AskQuestionSerializer(serializers.Serializer):
     question = serializers.CharField(min_length=1, max_length=2000, trim_whitespace=True)
+
+
+class AIReportNarrationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AIReportNarration
+        fields = [
+            "id", "date_from", "date_to", "scope", "executive_summary",
+            "key_highlights", "trend_explanations", "recommendations",
+            "confidence", "created_at",
+        ]
+        read_only_fields = fields
+
+
+class RegenerateNarrationSerializer(serializers.Serializer):
+    """Mirrors apps.carbon.report_views.ComplianceReportFilterSerializer's
+    exact validation -- narration is always regenerated for the SAME kind
+    of defined reporting period a compliance report covers, never
+    open-ended."""
+    date_from = serializers.DateField(required=True)
+    date_to = serializers.DateField(required=True)
+    scope = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate(self, data):
+        if data["date_from"] > data["date_to"]:
+            raise serializers.ValidationError("date_from must not be after date_to.")
+        return data
