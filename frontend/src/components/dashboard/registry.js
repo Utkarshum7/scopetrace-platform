@@ -47,16 +47,22 @@ const BY_ROLE = {
     { id: 'recent-ingestion', component: RecentIngestionWidget, span: 'third' },
     { id: 'validation-summary', component: ValidationSummaryWidget, span: 'third' },
   ],
+  // Phase 7f: 'reports' also added here -- Auditor is one of the two
+  // roles (with Org Admin) that can actually see AI report narration
+  // (CanViewActivity, matching the compliance report's own RBAC), so the
+  // widget that surfaces it needs to reach them, not just Viewer.
   AUDITOR: [
     { id: 'pending-approvals', component: PendingApprovalsWidget, span: 'third' },
     { id: 'audit-queue', component: AuditQueueWidget, span: 'third' },
     { id: 'locked-records', component: LockedRecordsWidget, span: 'third' },
+    { id: 'reports', component: ReportsWidget, span: 'third' },
   ],
   ORG_ADMIN: [
     { id: 'org-kpis', component: OrgKpisWidget, span: 'half' },
     { id: 'coverage', component: CoverageWidget, span: 'half' },
     { id: 'user-activity', component: UserActivityWidget, span: 'half' },
     { id: 'factor-dataset', component: FactorDatasetWidget, span: 'half' },
+    { id: 'reports', component: ReportsWidget, span: 'third' },
   ],
   PLATFORM_ADMIN: [
     { id: 'cross-tenant', component: CrossTenantWidget, span: 'half' },

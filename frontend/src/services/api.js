@@ -246,6 +246,17 @@ export const apiService = {
     return response.data;
   },
 
+  // Phase 7f: AI report narration -- read-only list; regenerate only
+  // queues background work (apps.ai.tasks.generate_report_narration_task),
+  // never mutates a governed ESG record or report.
+  async listReportNarrations(params = {}) {
+    return (await api.get('/api/report-narration/', { params })).data;
+  },
+  async regenerateReportNarration({ date_from, date_to, scope }) {
+    const response = await api.post('/api/report-narration/regenerate/', { date_from, date_to, scope });
+    return response.data;
+  },
+
   // ----- Metrics / analytics -----
   async getMetricsSummary(params = {}) {
     return (await api.get('/api/metrics/summary/', { params })).data;
