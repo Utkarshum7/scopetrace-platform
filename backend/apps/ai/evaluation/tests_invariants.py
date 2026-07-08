@@ -235,6 +235,60 @@ class InvariantI2FactorRecommendationConcreteProofTests(TestCase):
         self.assertIsNone(calc_after["emission_factor"])
 
 
+@override_settings(AI_ENABLED=True, AI_PROVIDER="echo", AI_DEFAULT_MODEL="echo-1")
+class InvariantI2ValidationAssistanceConcreteProofTests(TestCase):
+    """I2, Phase 7d edition: the formal, merge-gate-visible proof of this
+    milestone's own explicit callout -- "no record mutation, no
+    validation status changes, deterministic validator remains
+    authoritative." Every field on the record (most importantly `status`
+    and `validation_errors`, the deterministic validator's own decision)
+    is byte-identical before and after a successful
+    generate_validation_assistance() call, and the record is confirmed
+    still exactly RecordStatus.FAILED afterward -- the AI's assistance is
+    advisory output attached alongside the record, never a re-validation.
+    Duplicates none of tests_validation_assistance.py's/
+    tests_validation_assistance_task.py's own coverage -- this is the
+    formal version of the same claim, run as part of the same merge-gate
+    suite every other invariant in this file belongs to."""
+
+    def setUp(self):
+        from apps.core.models import DataSource
+
+        self.org = Organization.objects.create(name="Invariant I2 Validation Assist Org")
+        TenantAIPolicy.objects.create(organization=self.org, ai_enabled=True, provider_override="echo")
+        self.ds = DataSource.objects.create(
+            organization=self.org, name="SAP", source_type=DataSource.SourceType.SAP_FUEL,
+        )
+
+    def test_generate_validation_assistance_never_mutates_any_record_field(self):
+        from apps.ai.providers.echo import canned
+        from apps.ai.services.validation_assistance import generate_validation_assistance
+        from apps.ingestion.models import EmissionRecord, UploadBatch
+
+        batch = UploadBatch.objects.create(organization=self.org, data_source=self.ds, file_name="i2_validation.csv")
+        canned_response = {
+            "explanation": "x", "affected_fields": ["quantity"], "confidence": "LOW",
+            "suggested_correction": "x",
+        }
+        record = EmissionRecord.objects.create(
+            organization=self.org, batch=batch, row_index=1, raw_data_payload={"a": 1},
+            status=EmissionRecord.RecordStatus.FAILED,
+            validation_errors={"quantity": [canned(canned_response)]},
+        )
+        before = {f.name: getattr(record, f.name) for f in EmissionRecord._meta.fields}
+
+        annotation = generate_validation_assistance(record)
+        self.assertIsNotNone(annotation)  # the call actually succeeded -- a meaningful proof, not a vacuous one
+
+        record.refresh_from_db()
+        after = {f.name: getattr(record, f.name) for f in EmissionRecord._meta.fields}
+        self.assertEqual(before, after)
+        # The deterministic validator's own decision is explicitly still
+        # authoritative -- the record remains FAILED, unresolved by AI.
+        self.assertEqual(after["status"], EmissionRecord.RecordStatus.FAILED)
+        self.assertEqual(after["validation_errors"], before["validation_errors"])
+
+
 class InvariantI3TenantIsolationTests(TestCase):
     """I3: no cross-tenant context ever enters a prompt or a budget total.
     Gateway-level proof already lives in
