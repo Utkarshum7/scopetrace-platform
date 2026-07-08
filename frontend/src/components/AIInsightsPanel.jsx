@@ -3,14 +3,21 @@ import { apiService } from '../services/api';
 
 /**
  * AIInsightsPanel — Phase 7b (anomaly explanations), extended in Phase 7c
- * with factor recommendations. Read-only, advisory-only: renders whatever
- * apps.ai already generated (GET /api/records/{id}/ai-annotations/ and
+ * with factor recommendations and Phase 7d with validation assistance.
+ * Read-only, advisory-only: renders whatever apps.ai already generated
+ * (GET /api/records/{id}/ai-annotations/ and
  * GET /api/records/{id}/factor-recommendations/), never triggers
  * generation itself and never offers any action that could be mistaken
- * for a governance decision. Renders nothing while loading or if NEITHER
- * annotations nor factor recommendations exist yet — this is
- * deliberately a passive, expandable addition to the existing detail
- * drawer, not a new page or a required step in the review flow.
+ * for a governance decision. Renders nothing while loading or if NONE of
+ * anomaly annotations, factor recommendations, or validation assistance
+ * exist yet — this is deliberately a passive, expandable addition to the
+ * existing detail drawer, not a new page or a required step in the review
+ * flow.
+ *
+ * Anomaly explanations and validation assistance both come back from the
+ * SAME /ai-annotations/ endpoint (apps.ai.models.AIAnnotation is shared
+ * across both capabilities -- see ADR 0011), split here client-side by
+ * `capability` into two visually distinct sections.
  */
 const CONFIDENCE_STYLES = {
   LOW: 'bg-slate-800/60 border-slate-700 text-slate-400',
@@ -44,7 +51,15 @@ export const AIInsightsPanel = ({ recordId }) => {
     };
   }, [recordId]);
 
-  if (isLoading || (annotations.length === 0 && factorRecommendations.length === 0)) return null;
+  const anomalyAnnotations = annotations.filter((a) => a.capability === 'ANOMALY_DETECTION');
+  const validationAnnotations = annotations.filter((a) => a.capability === 'VALIDATION_ASSISTANCE');
+
+  if (
+    isLoading ||
+    (anomalyAnnotations.length === 0 && factorRecommendations.length === 0 && validationAnnotations.length === 0)
+  ) {
+    return null;
+  }
 
   return (
     <div className="rounded-lg border border-indigo-500/30 bg-indigo-950/20 overflow-hidden">
@@ -67,7 +82,7 @@ export const AIInsightsPanel = ({ recordId }) => {
 
       {isExpanded && (
         <div className="px-3 pb-3 flex flex-col gap-3">
-          {annotations.map((a, idx) => (
+          {anomalyAnnotations.map((a, idx) => (
             <div
               key={a.id}
               className={`flex flex-col gap-2 pt-2 ${idx > 0 ? 'border-t border-indigo-500/10' : ''}`}
@@ -121,7 +136,7 @@ export const AIInsightsPanel = ({ recordId }) => {
             <div
               key={r.id}
               className={`flex flex-col gap-2 pt-2 ${
-                idx > 0 || annotations.length > 0 ? 'border-t border-indigo-500/10' : ''
+                idx > 0 || anomalyAnnotations.length > 0 ? 'border-t border-indigo-500/10' : ''
               }`}
             >
               <div className="flex items-center justify-between">
@@ -176,8 +191,63 @@ export const AIInsightsPanel = ({ recordId }) => {
             </div>
           ))}
 
+          {validationAnnotations.map((v, idx) => (
+            <div
+              key={v.id}
+              className={`flex flex-col gap-2 pt-2 ${
+                idx > 0 || anomalyAnnotations.length > 0 || factorRecommendations.length > 0
+                  ? 'border-t border-indigo-500/10'
+                  : ''
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold text-indigo-300 uppercase tracking-wider">
+                  validation assistance
+                </span>
+                <span
+                  className={`px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wide ${
+                    CONFIDENCE_STYLES[v.confidence] || CONFIDENCE_STYLES.LOW
+                  }`}
+                >
+                  {v.confidence} confidence
+                </span>
+              </div>
+
+              {v.contributing_factors?.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                    Issue
+                  </span>
+                  <ul className="list-disc list-inside space-y-0.5 text-[10px] text-slate-400 pl-1">
+                    {v.contributing_factors.map((field, i) => (
+                      <li key={i}>{field}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <p className="text-[11px] text-slate-300 leading-relaxed">{v.explanation}</p>
+
+              {v.suggested_investigation && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                    Suggested fix
+                  </span>
+                  <p className="text-[11px] text-indigo-200/90 leading-relaxed">
+                    {v.suggested_investigation}
+                  </p>
+                </div>
+              )}
+
+              <span className="text-[9px] text-slate-600 font-mono">
+                {new Date(v.created_at).toLocaleString()}
+              </span>
+            </div>
+          ))}
+
           <p className="text-[9px] text-indigo-400/60 italic pt-1">
-            AI-generated. Advisory only — does not alter this record&apos;s status, data, or emission factor.
+            AI-generated. Advisory only — does not alter this record&apos;s status, data, validation
+            outcome, or emission factor.
           </p>
         </div>
       )}

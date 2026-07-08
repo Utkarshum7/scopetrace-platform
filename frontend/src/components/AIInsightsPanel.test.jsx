@@ -37,6 +37,16 @@ const factorRecommendation = {
   created_at: '2026-07-08T12:00:00Z',
 };
 
+const validationAnnotation = {
+  id: 'validation-1',
+  capability: 'VALIDATION_ASSISTANCE',
+  explanation: 'The quantity is negative, likely a sign error.',
+  contributing_factors: ['quantity'],
+  confidence: 'MEDIUM',
+  suggested_investigation: 'Re-enter the row with the correct sign.',
+  created_at: '2026-07-08T12:00:00Z',
+};
+
 describe('AIInsightsPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -133,5 +143,35 @@ describe('AIInsightsPanel', () => {
 
     expect(await screen.findByText(annotation.explanation)).toBeInTheDocument();
     expect(screen.getByText(factorRecommendation.explanation)).toBeInTheDocument();
+  });
+
+  it('shows the issue, explanation, suggested fix, and confidence for validation assistance, clearly labeled AI Advisory', async () => {
+    apiService.getRecordAIAnnotations.mockResolvedValue([validationAnnotation]);
+    render(<AIInsightsPanel recordId="rec-1" />);
+
+    expect(await screen.findByText('AI Advisory')).toBeInTheDocument();
+    expect(screen.getByText('quantity')).toBeInTheDocument();
+    expect(screen.getByText(validationAnnotation.explanation)).toBeInTheDocument();
+    expect(screen.getByText(/MEDIUM confidence/i)).toBeInTheDocument();
+    expect(screen.getByText(validationAnnotation.suggested_investigation)).toBeInTheDocument();
+  });
+
+  it('splits anomaly detection and validation assistance into separate sections from the same endpoint', async () => {
+    apiService.getRecordAIAnnotations.mockResolvedValue([annotation, validationAnnotation]);
+    render(<AIInsightsPanel recordId="rec-1" />);
+
+    expect(await screen.findByText(annotation.explanation)).toBeInTheDocument();
+    expect(screen.getByText(validationAnnotation.explanation)).toBeInTheDocument();
+    expect(screen.getByText('bulk purchase')).toBeInTheDocument();
+    expect(screen.getByText('quantity')).toBeInTheDocument();
+    expect(screen.getByText(annotation.suggested_investigation)).toBeInTheDocument();
+    expect(screen.getByText(validationAnnotation.suggested_investigation)).toBeInTheDocument();
+  });
+
+  it('renders the panel when only validation assistance exists and everything else is empty', async () => {
+    apiService.getRecordAIAnnotations.mockResolvedValue([validationAnnotation]);
+    render(<AIInsightsPanel recordId="rec-1" />);
+
+    expect(await screen.findByText('AI Advisory')).toBeInTheDocument();
   });
 });
