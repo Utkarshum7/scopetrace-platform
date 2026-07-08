@@ -91,6 +91,7 @@ INSTALLED_APPS = [
     'apps.carbon',
     'apps.tasks',
     'apps.ai',
+    'apps.ai.evaluation',
 ]
 
 MIDDLEWARE = [

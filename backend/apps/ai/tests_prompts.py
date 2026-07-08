@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from apps.ai.models import AIPromptVersion
 from apps.ai.prompts.registry import render_prompt
-from apps.ai.schemas import get_schema
+from apps.ai.schemas import get_schema, validate_response
 
 
 class RenderPromptTests(TestCase):
@@ -88,3 +88,36 @@ class SchemaRegistryTests(TestCase):
         schema = get_schema("foundation.selftest", 1)
         with self.assertRaises(jsonschema.ValidationError):
             jsonschema.validate({"acknowledged": True}, schema)
+
+    def test_all_five_planned_capability_schemas_are_registered(self):
+        # Phase 7a.5 -- eval-harness fixtures only, no real feature behind
+        # any of these (see this module's own docstring).
+        for schema_id in (
+            "anomaly_detection", "factor_recommendation", "validation_assistance",
+            "esg_assistant", "report_narration",
+        ):
+            self.assertIsNotNone(get_schema(schema_id, 1))
+
+
+class ValidateResponseTests(TestCase):
+    """The shared helper apps.ai.services.gateway.invoke_ai() and
+    apps.ai.evaluation.runner.EvaluationRunner both use -- one
+    implementation, proved correct once."""
+
+    def test_valid_json_matching_schema_returns_parsed_and_true(self):
+        schema = get_schema("foundation.selftest", 1)
+        parsed, valid = validate_response('{"acknowledged": true, "echo": "hi"}', schema)
+        self.assertTrue(valid)
+        self.assertEqual(parsed, {"acknowledged": True, "echo": "hi"})
+
+    def test_malformed_json_returns_none_and_false(self):
+        schema = get_schema("foundation.selftest", 1)
+        parsed, valid = validate_response("not json at all", schema)
+        self.assertFalse(valid)
+        self.assertIsNone(parsed)
+
+    def test_valid_json_not_matching_schema_returns_none_and_false(self):
+        schema = get_schema("foundation.selftest", 1)
+        parsed, valid = validate_response('{"acknowledged": "not-a-bool"}', schema)
+        self.assertFalse(valid)
+        self.assertIsNone(parsed)

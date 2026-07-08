@@ -30,17 +30,14 @@ its own table (e.g. an AISuggestion row keyed by the same idempotency_key),
 not rely on this gateway to hand it back.
 """
 import hashlib
-import json
 import time
 from dataclasses import dataclass
-
-import jsonschema
 
 from apps.ai.models import AIInteraction
 from apps.ai.prompts.registry import render_prompt
 from apps.ai.providers.base import LLMProviderError, LLMRequest
 from apps.ai.providers.factory import get_llm_provider
-from apps.ai.schemas import get_schema
+from apps.ai.schemas import get_schema, validate_response
 from apps.ai.services.cost import check_budget, estimate_cost_usd
 from apps.ai.services.egress import AIEgressBlocked, enforce_provider_allowed, redact_template_vars
 from apps.ai.services.policy import resolve_policy
@@ -186,16 +183,7 @@ def invoke_ai(
 
     # 8. Schema-validate the response -- I1/I6: no un-validated response is
     # ever usable for anything.
-    parsed = None
-    schema_valid = False
-    try:
-        candidate = json.loads(response.text)
-        jsonschema.validate(candidate, schema)
-        parsed = candidate
-        schema_valid = True
-    except (json.JSONDecodeError, jsonschema.ValidationError):
-        schema_valid = False
-
+    parsed, schema_valid = validate_response(response.text, schema)
     outcome = AIInteraction.Outcome.OK if schema_valid else AIInteraction.Outcome.SCHEMA_INVALID
     cost_usd = estimate_cost_usd(policy.provider, response.model_id, response.input_tokens, response.output_tokens)
 
