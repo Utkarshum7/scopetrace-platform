@@ -20,9 +20,15 @@ apps.ai.services.anomaly_detection), and its schema bumped v1 -> v2 --
 v1 had the AI output `is_anomalous: bool`, which would let the AI
 CLASSIFY a record; v2 drops that field entirely (the deterministic engine
 already decided is_suspicious before AI is ever called -- AI only
-explains). v1 is kept, unreferenced, as a historical record of the
-original placeholder contract -- never edited in place, matching every
-other versioned artifact in this codebase (AIPromptVersion, golden
+explains). Phase 7c implements factor_recommendation next: v1 had the AI
+output `recommended_activity_type` as free text; v2 instead asks the AI to
+pick a LABEL (candidate_1, candidate_2, ..., or "none") from a small,
+service-provided candidate set of real EmissionFactor rows -- never a raw
+identifier, since LLMs are unreliable at reproducing UUIDs verbatim (see
+apps.ai.services.factor_recommendation). Both v1 schemas are kept,
+unreferenced, as a historical record of the original placeholder contract
+-- never edited in place, matching every other versioned artifact in this
+codebase (AIPromptVersion, golden
 datasets).
 """
 
@@ -79,6 +85,27 @@ FACTOR_RECOMMENDATION_V1 = {
         "recommended_activity_type": {"type": "string"},
         "confidence": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]},
         "rationale": {"type": "string"},
+    },
+    "additionalProperties": False,
+}
+
+# Phase 7c: the real factor-RECOMMENDATION contract. Deliberately never
+# asks the AI to reproduce an EmissionFactor's UUID -- LLMs are unreliable
+# at reproducing identifiers verbatim, so the service instead shows the AI
+# a small, labeled candidate set (candidate_1, candidate_2, ...) and asks
+# it to pick a LABEL (or "none"), which the service then resolves back to
+# a real object it already holds in memory. AI never chooses the factor
+# used for calculation -- that stays apps.carbon.services.resolution's
+# deterministic FactorIndex.resolve(), unchanged; this is advisory only.
+FACTOR_RECOMMENDATION_V2 = {
+    "type": "object",
+    "required": ["recommended_candidate_label", "confidence", "explanation", "reasoning", "alternative_candidates"],
+    "properties": {
+        "recommended_candidate_label": {"type": "string"},
+        "confidence": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]},
+        "explanation": {"type": "string"},
+        "reasoning": {"type": "string"},
+        "alternative_candidates": {"type": "array", "items": {"type": "string"}},
     },
     "additionalProperties": False,
 }
@@ -146,6 +173,7 @@ _SCHEMAS = {
     ("anomaly_detection", 1): ANOMALY_DETECTION_V1,
     ("anomaly_detection", 2): ANOMALY_DETECTION_V2,
     ("factor_recommendation", 1): FACTOR_RECOMMENDATION_V1,
+    ("factor_recommendation", 2): FACTOR_RECOMMENDATION_V2,
     ("validation_assistance", 1): VALIDATION_ASSISTANCE_V1,
     ("esg_assistant", 1): ESG_ASSISTANT_V1,
     ("judge_scoring", 1): JUDGE_SCORING_V1,
