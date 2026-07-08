@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import AIInteraction, AIPromptVersion, TenantAIPolicy
+from .models import AIAnnotation, AIInteraction, AIPromptVersion, TenantAIPolicy
 
 
 @admin.register(AIPromptVersion)
@@ -39,6 +39,22 @@ class AIInteractionAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         # Rows are created only via apps.ai.services.gateway.invoke_ai().
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(AIAnnotation)
+class AIAnnotationAdmin(admin.ModelAdmin):
+    list_display = ("capability", "record", "confidence", "organization", "created_at")
+    list_filter = ("capability", "confidence")
+    search_fields = ("record__id", "organization__name")
+    readonly_fields = [f.name for f in AIAnnotation._meta.fields]
+
+    def has_add_permission(self, request):
+        # Rows are created only via the capability's own service (e.g.
+        # apps.ai.services.anomaly_detection) -- immutable once created.
         return False
 
     def has_change_permission(self, request, obj=None):

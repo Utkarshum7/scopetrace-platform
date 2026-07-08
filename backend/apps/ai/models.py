@@ -1,17 +1,24 @@
 """
-Phase 7a — AI Foundation & Governance Seam.
+Phase 7a — AI Foundation & Governance Seam. Phase 7b adds AIAnnotation.
 
-Three models, none of which ever hold governed business data (I1/I2 from
+None of these models ever hold or mutate governed business data (I1/I2 from
 docs/AI_ARCHITECTURE.md's invariants): AIPromptVersion is a registry of what
 was asked, AIInteraction is an audit/reproducibility record of what happened
-on each call, TenantAIPolicy is per-organization AI configuration. No model
-here has a foreign key *from* EmissionRecord/EmissionCalculation, and none of
-apps.ai's own logic ever writes to those models -- see
-apps/ai/services/gateway.py's docstring for where that boundary is enforced.
+on each call, TenantAIPolicy is per-organization AI configuration,
+AIAnnotation is immutable advisory output attached to a record. The
+DIRECTION of reference matters: no governed model (EmissionRecord,
+EmissionCalculation) has a foreign key TO anything here, and none of
+apps.ai's own logic ever writes to a governed model -- see
+apps/ai/services/gateway.py's docstring for where that boundary is
+enforced. AIAnnotation.record is the one FK that points the OTHER way (an
+apps.ai model referencing a governed model, read-only) -- exactly the
+"AI reads context, AI never writes back" shape ADR 0006 requires; nothing
+in apps.ingestion ever imports or writes AIAnnotation.
 """
 import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 
 from apps.core.models import Organization
@@ -224,3 +231,95 @@ class AIInteraction(models.Model):
 
     def __str__(self):
         return f"{self.capability} [{self.outcome}] {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class _AIAnnotationQuerySet(models.QuerySet):
+    """Append-only, mirroring AuditTrailQuerySet's exact pattern (see
+    apps.audit.models) -- blocks bulk delete()/update() at the QuerySet
+    level, the gap instance-level delete()/clean() overrides don't cover.
+
+    Deliberately has NO carve-out for a SET_NULL cascade shape (unlike a
+    fix elsewhere in this codebase for a queryset that needed one) --
+    AIAnnotation has no nullable FK to anything, by design (record/
+    organization/interaction below are all on_delete=PROTECT), so Django's
+    deletion Collector can never issue the kind of bulk .update() call
+    that class of bug depends on. Blocking update() unconditionally is
+    therefore safe here, not just convenient.
+    """
+
+    def delete(self):
+        raise ValidationError("AI annotations are immutable and cannot be bulk-deleted.")
+
+    def update(self, **kwargs):
+        raise ValidationError("AI annotations are immutable and cannot be bulk-updated.")
+
+
+class AIAnnotation(models.Model):
+    """Immutable, advisory-only AI output attached to a governed record --
+    Phase 7b's first real capability (anomaly_detection) writes these.
+    Never a target of any write from human review actions: submit/approve/
+    reject (Phase 6c) remain entirely on EmissionRecord's own workflow,
+    untouched by anything here. Multiple annotations can accumulate per
+    (record, capability) over time -- each one immutable once created; the
+    "current" one is simply the latest by created_at. Re-running
+    explanation generation (e.g. after a redelivered Celery task) is made
+    idempotent at the SERVICE layer (skip if one already exists), not by a
+    uniqueness constraint here, so a genuine re-explanation later (a future
+    milestone re-running analysis after new context appears) isn't
+    foreclosed by a DB constraint that would need migrating away.
+
+    record/organization/interaction are all on_delete=PROTECT -- no
+    SET_NULL anywhere on this model, deliberately (see
+    _AIAnnotationQuerySet's own docstring for why that matters).
+    """
+
+    class Capability(models.TextChoices):
+        ANOMALY_DETECTION = "ANOMALY_DETECTION", "Anomaly Detection"
+
+    class Confidence(models.TextChoices):
+        LOW = "LOW", "Low"
+        MEDIUM = "MEDIUM", "Medium"
+        HIGH = "HIGH", "High"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        Organization, on_delete=models.PROTECT, related_name="ai_annotations",
+    )
+    record = models.ForeignKey(
+        "ingestion.EmissionRecord", on_delete=models.PROTECT, related_name="ai_annotations",
+    )
+    interaction = models.ForeignKey(
+        AIInteraction, on_delete=models.PROTECT, related_name="annotations",
+        help_text="The exact gateway call that produced this annotation -- full reproducibility metadata lives there.",
+    )
+    capability = models.CharField(max_length=50, choices=Capability.choices)
+    explanation = models.TextField(help_text="Why the record is unusual.")
+    contributing_factors = models.JSONField(
+        default=list, blank=True, help_text="List of likely contributing factors.",
+    )
+    confidence = models.CharField(max_length=10, choices=Confidence.choices)
+    suggested_investigation = models.TextField(help_text="What an analyst should look into next.")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    objects = _AIAnnotationQuerySet.as_manager()
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["record", "capability", "-created_at"]),
+            models.Index(fields=["organization", "-created_at"]),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.pk and AIAnnotation.objects.filter(pk=self.pk).exists():
+            raise ValidationError("AI annotations are immutable and cannot be modified after creation.")
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("AI annotations are immutable and cannot be deleted.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.capability} annotation for record {self.record_id}"
