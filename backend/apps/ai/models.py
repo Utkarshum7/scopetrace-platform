@@ -1,19 +1,22 @@
 """
 Phase 7a — AI Foundation & Governance Seam. Phase 7b adds AIAnnotation.
+Phase 7c adds AIFactorRecommendation.
 
 None of these models ever hold or mutate governed business data (I1/I2 from
 docs/AI_ARCHITECTURE.md's invariants): AIPromptVersion is a registry of what
 was asked, AIInteraction is an audit/reproducibility record of what happened
 on each call, TenantAIPolicy is per-organization AI configuration,
-AIAnnotation is immutable advisory output attached to a record. The
-DIRECTION of reference matters: no governed model (EmissionRecord,
-EmissionCalculation) has a foreign key TO anything here, and none of
-apps.ai's own logic ever writes to a governed model -- see
-apps/ai/services/gateway.py's docstring for where that boundary is
-enforced. AIAnnotation.record is the one FK that points the OTHER way (an
-apps.ai model referencing a governed model, read-only) -- exactly the
-"AI reads context, AI never writes back" shape ADR 0006 requires; nothing
-in apps.ingestion ever imports or writes AIAnnotation.
+AIAnnotation/AIFactorRecommendation are immutable advisory output attached
+to a record. The DIRECTION of reference matters: no governed model
+(EmissionRecord, EmissionCalculation, EmissionFactor) has a foreign key TO
+anything here, and none of apps.ai's own logic ever writes to a governed
+model -- see apps/ai/services/gateway.py's docstring for where that
+boundary is enforced. AIAnnotation.record and
+AIFactorRecommendation.record/.recommended_factor are the FKs that point
+the OTHER way (an apps.ai model referencing governed models, read-only) --
+exactly the "AI reads context, AI never writes back" shape ADR 0006
+requires; nothing in apps.ingestion or apps.carbon ever imports or writes
+either model.
 """
 import uuid
 
@@ -323,3 +326,94 @@ class AIAnnotation(models.Model):
 
     def __str__(self):
         return f"{self.capability} annotation for record {self.record_id}"
+
+
+class _AIFactorRecommendationQuerySet(models.QuerySet):
+    """Append-only, identical reasoning to _AIAnnotationQuerySet -- no
+    nullable FK on this model either (recommended_factor is nullable at
+    the DB level, but its on_delete is PROTECT, never SET_NULL, so no
+    cascade shape can ever require a carve-out here)."""
+
+    def delete(self):
+        raise ValidationError("AI factor recommendations are immutable and cannot be bulk-deleted.")
+
+    def update(self, **kwargs):
+        raise ValidationError("AI factor recommendations are immutable and cannot be bulk-updated.")
+
+
+class AIFactorRecommendation(models.Model):
+    """Immutable, advisory-only AI output recommending an emission factor
+    for a record whose deterministic resolution could not confidently
+    choose one (EmissionCalculation.resolution_status ==
+    UNRESOLVED_NO_FACTOR -- see apps.ai.services.factor_recommendation).
+
+    Never mutates EmissionCalculation or EmissionFactor -- accepting a
+    recommendation is, and remains, a human action through the EXISTING
+    Org-Admin activity-mapping-and-recalculate flow, untouched by anything
+    here.
+
+    recommended_factor is nullable: the AI is explicitly allowed to
+    recommend NONE of the candidate factors it was shown (a valid, honest
+    outcome distinct from a low-confidence pick) -- and even when it does
+    pick one, that FK is populated by the SERVICE resolving the AI's
+    chosen candidate LABEL back to a real object already in memory, never
+    by trusting an AI-produced identifier directly (LLMs are unreliable at
+    reproducing UUIDs verbatim; asking for a label among a small,
+    service-provided candidate set avoids that failure mode entirely).
+
+    record/organization/interaction/recommended_factor are all
+    on_delete=PROTECT -- no SET_NULL anywhere, same reasoning as
+    AIAnnotation.
+    """
+
+    class Confidence(models.TextChoices):
+        LOW = "LOW", "Low"
+        MEDIUM = "MEDIUM", "Medium"
+        HIGH = "HIGH", "High"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        Organization, on_delete=models.PROTECT, related_name="ai_factor_recommendations",
+    )
+    record = models.ForeignKey(
+        "ingestion.EmissionRecord", on_delete=models.PROTECT, related_name="ai_factor_recommendations",
+    )
+    interaction = models.ForeignKey(
+        AIInteraction, on_delete=models.PROTECT, related_name="factor_recommendations",
+        help_text="The exact gateway call that produced this recommendation.",
+    )
+    recommended_factor = models.ForeignKey(
+        "carbon.EmissionFactor", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="ai_recommendations",
+        help_text="Null if the AI recommended none of the candidates it was shown.",
+    )
+    confidence = models.CharField(max_length=10, choices=Confidence.choices)
+    explanation = models.TextField(help_text="Why this candidate (or none) fits.")
+    reasoning = models.TextField(help_text="Deterministic factors the AI weighed (region, date, publisher, ...).")
+    alternative_candidates = models.JSONField(
+        default=list, blank=True, help_text="Other candidate labels the AI considered but ranked lower.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    objects = _AIFactorRecommendationQuerySet.as_manager()
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["record", "-created_at"]),
+            models.Index(fields=["organization", "-created_at"]),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.pk and AIFactorRecommendation.objects.filter(pk=self.pk).exists():
+            raise ValidationError("AI factor recommendations are immutable and cannot be modified after creation.")
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("AI factor recommendations are immutable and cannot be deleted.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Factor recommendation for record {self.record_id}"

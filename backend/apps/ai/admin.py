@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import AIAnnotation, AIInteraction, AIPromptVersion, TenantAIPolicy
+from .models import AIAnnotation, AIFactorRecommendation, AIInteraction, AIPromptVersion, TenantAIPolicy
 
 
 @admin.register(AIPromptVersion)
@@ -55,6 +55,22 @@ class AIAnnotationAdmin(admin.ModelAdmin):
     def has_add_permission(self, request):
         # Rows are created only via the capability's own service (e.g.
         # apps.ai.services.anomaly_detection) -- immutable once created.
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(AIFactorRecommendation)
+class AIFactorRecommendationAdmin(admin.ModelAdmin):
+    list_display = ("record", "recommended_factor", "confidence", "organization", "created_at")
+    list_filter = ("confidence",)
+    search_fields = ("record__id", "organization__name")
+    readonly_fields = [f.name for f in AIFactorRecommendation._meta.fields]
+
+    def has_add_permission(self, request):
+        # Rows are created only via apps.ai.services.factor_recommendation
+        # -- immutable once created.
         return False
 
     def has_change_permission(self, request, obj=None):
