@@ -315,7 +315,19 @@ Booleans accept `True`/`False` (case-insensitive); lists are comma-separated.
 | `AWS_S3_ADDRESSING_STYLE` | `virtual` | `path` for MinIO. |
 | `AWS_S3_URL_EXPIRE_SECONDS` | `3600` | Presigned download URL TTL. |
 
-### 4.6 Email notifications
+### 4.6 AI Foundation (`apps.ai`, Phase 7a)
+
+| Variable | Default | Notes |
+|---|---|---|
+| `AI_ENABLED` | `False` | Global kill switch. `apps.ai` is entirely inert until this is `True` — no provider is ever constructed, no cost, no egress. |
+| `AI_PROVIDER` | `echo` if `DEBUG`/tests, else *(empty)* | `echo` \| `anthropic` \| `openai`. Not fail-closed on `DEBUG=False` the way `STORAGE_BACKEND` is — `AI_ENABLED=False` is the actual production-safe default; an unset `AI_PROVIDER` only matters once a tenant is opted in. |
+| `AI_DEFAULT_MODEL` | `claude-sonnet-5` | Platform default; a `TenantAIPolicy.model_override` wins per-org. |
+| `AI_DEFAULT_EGRESS_TIER` | `REDACTED` | `REDACTED` \| `RAW` \| `NO_EGRESS` — see [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md). |
+| `AI_DEFAULT_MONTHLY_BUDGET_USD` | `50.00` | Platform default; a `TenantAIPolicy.monthly_budget_usd` wins per-org. |
+| `ANTHROPIC_API_KEY` | *(empty)* | Required when `AI_PROVIDER=anthropic` and a tenant has AI enabled. |
+| `OPENAI_API_KEY` | *(empty)* | Required when `AI_PROVIDER=openai` and a tenant has AI enabled. |
+
+### 4.7 Email notifications
 
 | Variable | Default | Notes |
 |---|---|---|
@@ -326,14 +338,14 @@ Booleans accept `True`/`False` (case-insensitive); lists are comma-separated.
 | `EMAIL_TIMEOUT` | `10` | Seconds — always applied, regardless of backend. |
 | `DEFAULT_FROM_EMAIL` | `noreply@scopetrace.local` | |
 
-### 4.7 Logging
+### 4.8 Logging
 
 | Variable | Default | Notes |
 |---|---|---|
 | `LOG_LEVEL` | `INFO` | |
 | `DJANGO_LOG_LEVEL` | `INFO` | Django's own logger specifically. |
 
-### 4.8 Docker Compose-only (local infra credentials, not read by Django)
+### 4.9 Docker Compose-only (local infra credentials, not read by Django)
 
 | Variable | Default | Notes |
 |---|---|---|
@@ -343,7 +355,7 @@ Booleans accept `True`/`False` (case-insensitive); lists are comma-separated.
 | `FLOWER_USER` / `FLOWER_PASSWORD` | `scopetrace` / `scopetrace123` | Flower's basic auth (`monitoring` profile only). |
 | `VITE_API_URL` | `http://localhost:8000` | Baked into the frontend build at build time (Vite produces a static bundle). |
 
-### 4.9 ~~Declared but unused~~ (removed in Phase 6f)
+### 4.10 ~~Declared but unused~~ (removed in Phase 6f)
 
 `FEATURE_JWT_AUTH`, `FEATURE_ENFORCE_TENANT_SCOPE`, `FEATURE_EMISSION_FACTORS`
 were declared in `config/settings.py` but read nowhere else in the

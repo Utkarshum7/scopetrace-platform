@@ -38,22 +38,29 @@ depth:
 
 ## 2. Future Roadmap
 
-Phases 0–5 (rebrand/infra → correctness fixes → auth/RBAC → carbon engine →
+Phases 0–6 (rebrand/infra → correctness fixes → auth/RBAC → carbon engine →
 metrics/analytics → production engineering: async processing, retries/DLQ,
-scheduling, notifications, monitoring, CI/CD, Docker, this documentation
-pass) are complete. What's next, as currently planned:
+scheduling, notifications, monitoring, CI/CD, Docker, documentation →
+enterprise governance) are complete. What's next, as currently planned:
 
-- **Phase 6 — Enterprise Governance**: full audit timeline UI, a real
-  cryptographic immutable audit hash-chain (see §1, done in 6a), immutable
-  version history on records (done in 6b), a formal Draft → Submitted →
-  Approved/Rejected approval workflow (done in 6c), CSV/JSON compliance
-  reports (done in 6e; PDF still deferred), security hardening (done in
-  6f), reversible soft delete (done in 6d), governance docs closeout (6g).
+- **Phase 6 — Enterprise Governance** *(complete)*: full audit timeline UI,
+  a real cryptographic immutable audit hash-chain (see §1, done in 6a),
+  immutable version history on records (done in 6b), a formal Draft →
+  Submitted → Approved/Rejected approval workflow (done in 6c), CSV/JSON
+  compliance reports (done in 6e; PDF still deferred), security hardening
+  (done in 6f), reversible soft delete (done in 6d), governance docs
+  closeout (6g), a Phase 6h hotfix milestone (frontend workflow contract
+  fix, metrics cache invalidation, a lightweight Vitest test foundation).
 - **Phase 7 — AI**: AI anomaly detection, AI recommendations, an AI ESG
   assistant, AI-assisted report generation, AI-assisted validation. The
   carbon calculation pipeline's `AIRecommendationStage` has been an inert,
   reserved seam for this since Phase 3 — see
-  [`CARBON_ENGINE_DESIGN.md`](CARBON_ENGINE_DESIGN.md).
+  [`CARBON_ENGINE_DESIGN.md`](CARBON_ENGINE_DESIGN.md). **7a (AI Foundation
+  & Governance Seam) is done**: provider-agnostic LLM gateway, schema-
+  enforced responses, per-tenant policy/budget/egress, full call-
+  reproducibility audit trail — advisory-only, no feature implemented yet.
+  See [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md). 7a.5 (evaluation
+  infrastructure) and 7b–7g (the actual AI features) remain.
 - **Phase 8 — UX**: accessibility audit, responsive design pass, theming,
   saved/custom dashboards, an in-app notification center (distinct from
   Phase 5g's email notifications — a UI-visible feed, not a new delivery
