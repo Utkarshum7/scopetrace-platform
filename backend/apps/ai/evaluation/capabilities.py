@@ -26,14 +26,17 @@ CAPABILITY_REGISTRY: dict[str, CapabilityConfig] = {
         response_schema_id="foundation.selftest", response_schema_version=1,
         fixture_dataset="foundation_selftest", fixture_version="v1",
     ),
+    # Phase 7b: the first real capability -- response_schema_version=2 /
+    # fixture_version="v2" (see apps.ai.schemas / this dataset's own v1
+    # directory for the superseded placeholder contract, kept unreferenced).
+    "anomaly_detection": CapabilityConfig(
+        name="anomaly_detection", prompt_name="anomaly_detection",
+        response_schema_id="anomaly_detection", response_schema_version=2,
+        fixture_dataset="anomaly_detection", fixture_version="v2",
+    ),
     # Phase 7a.5 planned-capability entries -- eval-harness fixtures only,
     # no real feature implemented behind any of these yet (see
     # apps.ai.schemas's own docstring).
-    "anomaly_detection": CapabilityConfig(
-        name="anomaly_detection", prompt_name="anomaly_detection",
-        response_schema_id="anomaly_detection", response_schema_version=1,
-        fixture_dataset="anomaly_detection", fixture_version="v1",
-    ),
     "factor_recommendation": CapabilityConfig(
         name="factor_recommendation", prompt_name="factor_recommendation",
         response_schema_id="factor_recommendation", response_schema_version=1,

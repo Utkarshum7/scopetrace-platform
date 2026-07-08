@@ -26,7 +26,7 @@ class RunTier1EvaluationTests(TestCase):
 
     def test_single_capability_scoping(self):
         run = run_tier1_evaluation(trigger="test", capability="anomaly_detection")
-        self.assertEqual(run.total_cases, 2)
+        self.assertEqual(run.total_cases, 3)
         capabilities = set(EvaluationResult.objects.filter(run=run).values_list("capability", flat=True))
         self.assertEqual(capabilities, {"anomaly_detection"})
 

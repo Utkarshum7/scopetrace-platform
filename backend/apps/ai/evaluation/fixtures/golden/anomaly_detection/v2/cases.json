@@ -1,0 +1,71 @@
+[
+  {
+    "case_id": "anomaly_detection_v2_001",
+    "description": "Fuel quantity flagged by the deterministic batch-median outlier rule.",
+    "prompt_name": "anomaly_detection",
+    "response_schema_id": "anomaly_detection",
+    "response_schema_version": 2,
+    "template_vars": {
+      "scope_category": "SCOPE_1",
+      "source_type": "SAP_FUEL",
+      "quantity": "500.00",
+      "unit": "L",
+      "validation_flags": "quantity: Quantity 500.00 is more than 5.0x the batch median (95.00)."
+    },
+    "expected_response": {
+      "explanation": "The recorded quantity of 500.00 L is more than five times the batch median of 95.00 L, well outside the range the deterministic engine treats as normal for this batch.",
+      "contributing_factors": ["quantity far exceeds the batch median", "possible bulk purchase or data-entry error"],
+      "confidence": "HIGH",
+      "suggested_investigation": "Confirm the 500.00 L figure against the underlying fuel invoice or delivery note for this site."
+    },
+    "expected_prompt_template_hash": "21dbdd3e934506917aca3a2a8128b4377cbb55c579348ff338fdb8548995aec3",
+    "expected_rendered_input_hash": "7c78971ea24b8fcecddd214e1d2d37bbeecd85689bf26191b9b10f9b8a0bac89",
+    "min_score": 1.0
+  },
+  {
+    "case_id": "anomaly_detection_v2_002",
+    "description": "Zero-consumption utility record flagged by the deterministic zero-quantity rule.",
+    "prompt_name": "anomaly_detection",
+    "response_schema_id": "anomaly_detection",
+    "response_schema_version": 2,
+    "template_vars": {
+      "scope_category": "SCOPE_2",
+      "source_type": "UTILITY_ELECTRICITY",
+      "quantity": "0.00",
+      "unit": "kWh",
+      "validation_flags": "quantity: Zero consumption -- verify this site was active during this period."
+    },
+    "expected_response": {
+      "explanation": "Zero kWh of electricity consumption was recorded for this billing period, which the deterministic engine flags because it usually indicates either an inactive site or a missing meter read.",
+      "contributing_factors": ["site may have been inactive or vacant", "meter read may not have been captured"],
+      "confidence": "MEDIUM",
+      "suggested_investigation": "Check whether the site was operational during this billing period and confirm the utility meter read was captured correctly."
+    },
+    "expected_prompt_template_hash": "21dbdd3e934506917aca3a2a8128b4377cbb55c579348ff338fdb8548995aec3",
+    "expected_rendered_input_hash": "4bbd8b53924da31d88b72e948c8614d96abffd0065275be09ee9e8f3333f91cc",
+    "min_score": 1.0
+  },
+  {
+    "case_id": "anomaly_detection_v2_003",
+    "description": "Stale posting date flagged by the deterministic date-age rule -- a regression case covering a different validation flag type than the quantity-based cases above.",
+    "prompt_name": "anomaly_detection",
+    "response_schema_id": "anomaly_detection",
+    "response_schema_version": 2,
+    "template_vars": {
+      "scope_category": "SCOPE_1",
+      "source_type": "SAP_FUEL",
+      "quantity": "1200.00",
+      "unit": "L",
+      "validation_flags": "posting_date: Date is 512 days in the past -- confirm this falls within the intended reporting period."
+    },
+    "expected_response": {
+      "explanation": "The posting date on this record is 512 days in the past, well beyond the window the deterministic engine expects for a current reporting period.",
+      "contributing_factors": ["posting date far outside the expected reporting window", "possible backdated or delayed entry"],
+      "confidence": "MEDIUM",
+      "suggested_investigation": "Confirm whether this transaction genuinely belongs to a prior reporting period or whether the posting date was entered incorrectly."
+    },
+    "expected_prompt_template_hash": "21dbdd3e934506917aca3a2a8128b4377cbb55c579348ff338fdb8548995aec3",
+    "expected_rendered_input_hash": "7376a352b2a3141fd7e44f9a69bd0fa67ad5e693c4f453d62c7b9ecc4ba974b6",
+    "min_score": 1.0
+  }
+]
