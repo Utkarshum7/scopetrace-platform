@@ -134,3 +134,45 @@ class AIAnnotationsAPITests(TestCase):
         self.client.force_authenticate(self.analyst)
         response = self.client.get(f"/api/records/{self.record.id}/ai-annotations/")
         self.assertEqual(response.status_code, drf_status.HTTP_404_NOT_FOUND)
+
+    def test_validation_assistance_annotations_surface_through_the_same_endpoint(self):
+        # Phase 7d reuses AIAnnotation (see ADR 0011) rather than adding a
+        # second endpoint -- this endpoint already returns every
+        # capability's rows; the frontend is what splits them into
+        # sections by `capability`.
+        AIAnnotation.objects.create(
+            organization=self.org, record=self.record, interaction=_make_interaction(self.org),
+            capability=AIAnnotation.Capability.VALIDATION_ASSISTANCE,
+            explanation="Quantity is negative.",
+            contributing_factors=["quantity"],
+            confidence=AIAnnotation.Confidence.MEDIUM,
+            suggested_investigation="Re-enter with the correct sign.",
+        )
+        self.client.force_authenticate(self.analyst)
+        response = self.client.get(f"/api/records/{self.record.id}/ai-annotations/")
+        body = response.json()
+        self.assertEqual(len(body), 1)
+        self.assertEqual(body[0]["capability"], "VALIDATION_ASSISTANCE")
+        self.assertEqual(body[0]["contributing_factors"], ["quantity"])
+        self.assertEqual(body[0]["suggested_investigation"], "Re-enter with the correct sign.")
+
+    def test_both_capabilities_returned_together_newest_first(self):
+        import time
+
+        anomaly = AIAnnotation.objects.create(
+            organization=self.org, record=self.record, interaction=_make_interaction(self.org),
+            capability=AIAnnotation.Capability.ANOMALY_DETECTION, explanation="anomaly",
+            confidence=AIAnnotation.Confidence.LOW, suggested_investigation="x",
+        )
+        time.sleep(0.01)
+        validation = AIAnnotation.objects.create(
+            organization=self.org, record=self.record, interaction=_make_interaction(self.org),
+            capability=AIAnnotation.Capability.VALIDATION_ASSISTANCE, explanation="validation",
+            confidence=AIAnnotation.Confidence.LOW, suggested_investigation="y",
+        )
+        self.client.force_authenticate(self.analyst)
+        response = self.client.get(f"/api/records/{self.record.id}/ai-annotations/")
+        body = response.json()
+        self.assertEqual(len(body), 2)
+        self.assertEqual(body[0]["id"], str(validation.id))
+        self.assertEqual(body[1]["id"], str(anomaly.id))
