@@ -597,6 +597,16 @@ AI_DEFAULT_MONTHLY_BUDGET_USD = config('AI_DEFAULT_MONTHLY_BUDGET_USD', default=
 ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
 OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
 
+# Phase 7a.5 -- apps.ai.evaluation's LLM-as-Judge framework (Tier 2,
+# advisory evaluation). False by default: the framework (rubric
+# definitions, pairwise comparison, scoring interface) is real, tested
+# code, but calling it is refused unless explicitly enabled -- "framework
+# only, no production usage yet" per the finalized Phase 7 design. Even
+# when enabled, judge calls go through the same AI_PROVIDER/factory path
+# as everything else (defaulting to 'echo'/'replay' in DEBUG/_TESTING), so
+# this flag alone never causes a real, billable provider call.
+AI_JUDGE_ENABLED = config('AI_JUDGE_ENABLED', default=False, cast=bool)
+
 # ---------------------------------------------------------------------------
 # Logging — structured console logging (captured by Render / Docker stdout).
 # Application loggers (apps.*) emit INFO+; tune via LOG_LEVEL / DJANGO_LOG_LEVEL.

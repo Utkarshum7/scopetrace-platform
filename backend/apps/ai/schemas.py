@@ -91,12 +91,36 @@ REPORT_NARRATION_V1 = {
     "additionalProperties": False,
 }
 
+# --- Phase 7a.5: LLM-as-Judge framework schemas (apps.ai.evaluation.judge) ---
+
+JUDGE_SCORING_V1 = {
+    "type": "object",
+    "required": ["score", "rationale"],
+    "properties": {
+        "score": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "rationale": {"type": "string"},
+    },
+    "additionalProperties": False,
+}
+
+JUDGE_PAIRWISE_V1 = {
+    "type": "object",
+    "required": ["winner", "rationale"],
+    "properties": {
+        "winner": {"type": "string", "enum": ["A", "B", "TIE"]},
+        "rationale": {"type": "string"},
+    },
+    "additionalProperties": False,
+}
+
 _SCHEMAS = {
     ("foundation.selftest", 1): FOUNDATION_SELFTEST_V1,
     ("anomaly_detection", 1): ANOMALY_DETECTION_V1,
     ("factor_recommendation", 1): FACTOR_RECOMMENDATION_V1,
     ("validation_assistance", 1): VALIDATION_ASSISTANCE_V1,
     ("esg_assistant", 1): ESG_ASSISTANT_V1,
+    ("judge_scoring", 1): JUDGE_SCORING_V1,
+    ("judge_pairwise", 1): JUDGE_PAIRWISE_V1,
     ("report_narration", 1): REPORT_NARRATION_V1,
 }
 
