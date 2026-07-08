@@ -2,7 +2,9 @@
 Phase 7a -- apps.ai's Celery task(s). Phase 7b adds
 generate_anomaly_explanations_task, the first real (non-heartbeat) work on
 the 'ai' queue. Phase 7c adds generate_factor_recommendations_task. Phase
-7d adds generate_validation_assistance_task.
+7d adds generate_validation_assistance_task. Phase 7f adds
+generate_report_narration_task -- unlike the other three, dispatched from
+a new API action, not an existing pipeline event (see ADR 0013).
 """
 import logging
 
@@ -211,3 +213,56 @@ def generate_validation_assistance_task(batch_id: str) -> str:
         batch_id, generated, errored,
     )
     return f"generated={generated} errored={errored}"
+
+
+@shared_task(name='apps.ai.tasks.generate_report_narration_task')
+def generate_report_narration_task(
+    organization_id: str, date_from: str, date_to: str, scope: str = "", actor_id: str | None = None,
+) -> str:
+    """Phase 7f -- async, dispatched from a NEW API action
+    (POST /api/report-narration/regenerate/), not an existing pipeline
+    event: unlike anomaly/factor/validation, there is no ingest_task or
+    calculate_task success path to hook into, because compliance reports
+    are on-demand query results, never a persisted row a background job
+    would naturally attach to (ADR 0002). The API view dispatches this
+    task and returns immediately; a slow or unavailable AI provider can
+    therefore never delay the report-narration request's own response,
+    and (since this task is entirely outside the ingest -> calculate
+    pipeline) can never affect report generation correctness either.
+
+    Processes exactly one narration request, not a batch of records --
+    unlike the other three AI tasks, there's no per-item loop to protect
+    with a broad try/except; a real failure here is left to propagate
+    to Celery's own task-failure handling (apps.tasks.signals' existing
+    DEAD LETTER path already covers every task platform-wide).
+
+    date_from/date_to arrive as ISO date strings (Celery task args must
+    be JSON-serializable) and are parsed back to date objects here.
+    """
+    from datetime import date as date_cls
+
+    from django.contrib.auth import get_user_model
+
+    from apps.ai.services.report_narration import generate_report_narration
+    from apps.core.models import Organization
+
+    try:
+        organization = Organization.objects.get(id=organization_id)
+    except Organization.DoesNotExist:
+        logger.error("generate_report_narration_task: organization %s does not exist", organization_id)
+        return "organization_not_found"
+
+    actor = None
+    if actor_id:
+        actor = get_user_model().objects.filter(id=actor_id).first()
+
+    narration = generate_report_narration(
+        organization, date_cls.fromisoformat(date_from), date_cls.fromisoformat(date_to),
+        scope or None, actor=actor,
+    )
+
+    logger.info(
+        "generate_report_narration_task: organization %s period %s..%s (scope=%s) -- %s",
+        organization_id, date_from, date_to, scope or "ALL", "generated" if narration else "no_narration",
+    )
+    return "generated" if narration is not None else "no_narration"
