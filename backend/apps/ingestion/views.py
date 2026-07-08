@@ -42,6 +42,8 @@ from apps.ingestion.tasks import ingest_task
 from apps.carbon.tasks import calculate_task
 from django.db.models import Prefetch
 
+from apps.ai.serializers import AIAnnotationSerializer
+
 from apps.accounts.mixins import TenantScopedViewSetMixin
 from apps.accounts.permissions import (
     CanApprove,
@@ -632,6 +634,24 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
             return record.versions.get(version_number=version_number)
         except EmissionRecordVersion.DoesNotExist:
             raise NotFound(f"No version {version_number} for this record.")
+
+    # --- Phase 7b: read-only AI advisory output ---------------------------
+    # Reuses self.get_object() -- same tenant scoping + IsOrgMember RBAC as
+    # the version-history endpoints above, for the same reason: this
+    # already exposes calculation_trace/factor_provenance to any org
+    # member, so restricting AI annotations specifically would be an
+    # inconsistent asymmetry, not tighter security. Read-only by
+    # construction -- there is no POST/PUT/DELETE action anywhere in this
+    # viewset for AIAnnotation, and the model itself refuses any write
+    # after creation (apps.ai.models.AIAnnotation).
+
+    @action(detail=True, methods=["GET"], url_path="ai-annotations")
+    def ai_annotations(self, request, pk=None):
+        """GET /api/records/{id}/ai-annotations/ — every AI advisory
+        annotation for this record, newest first."""
+        record = self.get_object()
+        qs = record.ai_annotations.order_by("-created_at")
+        return Response(AIAnnotationSerializer(qs, many=True).data)
 
 
 class OrganizationViewSet(viewsets.ReadOnlyModelViewSet):
