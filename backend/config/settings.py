@@ -387,6 +387,7 @@ CELERY_TASK_ROUTES = {
     'apps.core.tasks.heartbeat_task': {'queue': 'maintenance'},
     'apps.core.tasks.send_notification_task': {'queue': 'notifications'},
     'apps.ai.tasks.ai_heartbeat_task': {'queue': 'ai'},
+    'apps.ai.tasks.generate_anomaly_explanations_task': {'queue': 'ai'},
 }
 
 # acks_late + prefetch=1: a task is acknowledged only after it finishes, so a

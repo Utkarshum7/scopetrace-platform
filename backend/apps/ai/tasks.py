@@ -1,9 +1,7 @@
 """
-Phase 7a -- apps.ai's Celery task(s). Kept as minimal as apps.core.tasks
-until a real feature (7b+) needs its own async work: today, only the
-scheduled ai_heartbeat_task exists, routed to the new 'ai' queue itself
-(not 'maintenance') so it doubles as proof that queue actually has a live
-consumer, not just that some worker generally is alive.
+Phase 7a -- apps.ai's Celery task(s). Phase 7b adds
+generate_anomaly_explanations_task, the first real (non-heartbeat) work on
+the 'ai' queue.
 """
 import logging
 
@@ -58,3 +56,52 @@ def ai_heartbeat_task(self) -> str:
     )
     logger.info("apps.ai.tasks.ai_heartbeat_task executed on %s: %s", self.request.hostname, status)
     return status
+
+
+@shared_task(name='apps.ai.tasks.generate_anomaly_explanations_task')
+def generate_anomaly_explanations_task(batch_id: str) -> str:
+    """Phase 7b -- fire-and-forget, dispatched from apps.ingestion.tasks.
+    ingest_task's success path, mirroring apps.core.tasks.
+    send_notification_task's exact dispatch pattern (a separate,
+    independently-scheduled task, never inline with ingestion). A slow or
+    unavailable AI provider can therefore never delay or fail the
+    deterministic ingestion pipeline -- this task doesn't even start until
+    that pipeline has already committed its own transaction and moved on.
+
+    Idempotent under Celery's at-least-once redelivery: re-derives the
+    suspicious-record set fresh from the DB every run and skips any record
+    that already has an anomaly_detection AIAnnotation, rather than
+    trusting anything passed in the task message. One record's failure
+    (caught broadly, logged, counted) never aborts the rest of the batch --
+    matches generate_anomaly_explanation()'s own I6 fail-safe design one
+    level up.
+    """
+    from apps.ai.models import AIAnnotation
+    from apps.ai.services.anomaly_detection import generate_anomaly_explanation
+    from apps.ingestion.models import EmissionRecord
+
+    records = (
+        EmissionRecord.objects.filter(batch_id=batch_id, is_suspicious=True)
+        .exclude(ai_annotations__capability=AIAnnotation.Capability.ANOMALY_DETECTION)
+        .select_related("organization", "batch__data_source")
+    )
+
+    generated = 0
+    errored = 0
+    for record in records:
+        try:
+            annotation = generate_anomaly_explanation(record)
+        except Exception:  # noqa: BLE001 - one bad record must never abort the batch
+            logger.exception(
+                "generate_anomaly_explanations_task: record %s failed", record.id,
+            )
+            errored += 1
+            continue
+        if annotation is not None:
+            generated += 1
+
+    logger.info(
+        "generate_anomaly_explanations_task: batch %s -- %s generated, %s errored",
+        batch_id, generated, errored,
+    )
+    return f"generated={generated} errored={errored}"

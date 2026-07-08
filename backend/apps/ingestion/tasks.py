@@ -153,6 +153,15 @@ def ingest_task(self, batch_id: str, storage_key: str, workflow_id: str) -> str:
             "ingest_task: workflow %s batch %s completed (%s, attempt %s) — %s rows, %s failed",
             workflow_id, batch_id, attempt_label, attempt, result.total_rows, result.failed_rows,
         )
+        # Phase 7b: advisory AI explanations for whatever this run flagged
+        # is_suspicious=True -- dispatched as a separate, independently-
+        # scheduled task (apps.ai.tasks.generate_anomaly_explanations_task)
+        # on its own 'ai' queue, exactly like send_notification_task below
+        # is never called inline. IngestionService/RowValidator's own
+        # deterministic decision (is_suspicious) is not touched by this
+        # dispatch in any way -- it only reads what was already decided.
+        from apps.ai.tasks import generate_anomaly_explanations_task
+        generate_anomaly_explanations_task.delay(batch_id=batch_id)
         return "completed"
     except INGEST_RETRYABLE_EXCEPTIONS:
         logger.warning(
