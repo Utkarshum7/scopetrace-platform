@@ -224,6 +224,28 @@ export const apiService = {
     return response.data;
   },
 
+  // Phase 7e: ESG Assistant -- conversational RAG-style Q&A. `askEsgAssistant`
+  // is the one non-read-only call in this group (asking a question is the
+  // core feature); it never mutates a governed ESG record, only the AI's
+  // own conversation history.
+  async listEsgConversations() {
+    const response = await api.get('/api/esg-assistant/conversations/');
+    const data = response.data;
+    return Array.isArray(data) ? data : data.results;
+  },
+  async createEsgConversation() {
+    const response = await api.post('/api/esg-assistant/conversations/', {});
+    return response.data;
+  },
+  async getEsgConversationMessages(conversationId) {
+    const response = await api.get(`/api/esg-assistant/conversations/${conversationId}/messages/`);
+    return response.data;
+  },
+  async askEsgAssistant(conversationId, question) {
+    const response = await api.post(`/api/esg-assistant/conversations/${conversationId}/ask/`, { question });
+    return response.data;
+  },
+
   // ----- Metrics / analytics -----
   async getMetricsSummary(params = {}) {
     return (await api.get('/api/metrics/summary/', { params })).data;

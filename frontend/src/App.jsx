@@ -3,6 +3,7 @@ import DashboardPage from './pages/DashboardPage';
 import UploadPage from './pages/UploadPage';
 import RecordsPage from './pages/RecordsPage';
 import LoginPage from './pages/LoginPage';
+import ESGAssistantPage from './pages/ESGAssistantPage';
 import { useAuth } from './context/AuthContext';
 
 const ROLE_LABELS = {
@@ -13,7 +14,7 @@ const ROLE_LABELS = {
 };
 
 function App() {
-  const { isAuthenticated, loading, user, role, isPlatformAdmin, canUpload, logout } = useAuth();
+  const { isAuthenticated, loading, user, role, isPlatformAdmin, canUpload, canUseAI, logout } = useAuth();
   // Simple, ultra-stable state-based router
   const [view, setView] = useState({ name: 'dashboard', params: {} });
   const [menuOpen, setMenuOpen] = useState(false);
@@ -24,6 +25,13 @@ function App() {
       setView({ name: 'dashboard', params: {} });
     }
   }, [view.name, canUpload]);
+
+  // Redirect away from the ESG Assistant view if the role can't use AI.
+  useEffect(() => {
+    if (view.name === 'esg-assistant' && !canUseAI) {
+      setView({ name: 'dashboard', params: {} });
+    }
+  }, [view.name, canUseAI]);
 
   // While resolving the session, show a neutral splash.
   if (loading) {
@@ -50,6 +58,8 @@ function App() {
         return canUpload ? <UploadPage setView={setView} /> : <DashboardPage setView={setView} />;
       case 'records':
         return <RecordsPage initialFilters={view.params} key={JSON.stringify(view.params)} />;
+      case 'esg-assistant':
+        return canUseAI ? <ESGAssistantPage /> : <DashboardPage setView={setView} />;
       default:
         return <DashboardPage setView={setView} />;
     }
@@ -113,6 +123,16 @@ function App() {
               </svg>
               Review Ledger
             </button>
+
+            {/* ESG Assistant — only for roles that can use AI */}
+            {canUseAI && (
+              <button onClick={() => setView({ name: 'esg-assistant', params: {} })} className={navBtn(view.name === 'esg-assistant')}>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+                ESG Assistant
+              </button>
+            )}
           </nav>
         </div>
 

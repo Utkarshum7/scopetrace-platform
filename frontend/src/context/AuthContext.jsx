@@ -3,9 +3,11 @@ import { apiService, tokenStore, setAuthFailureHandler } from '../services/api';
 
 const AuthContext = createContext(null);
 
-// Roles permitted to upload / approve (mirrors the backend RBAC matrix).
+// Roles permitted to upload / approve / use AI features (mirrors the
+// backend RBAC matrix -- apps.accounts.permissions).
 const UPLOAD_ROLES = ['ORG_ADMIN', 'ANALYST'];
 const APPROVE_ROLES = ['ORG_ADMIN', 'ANALYST', 'AUDITOR'];
+const AI_ROLES = ['ORG_ADMIN', 'ANALYST', 'AUDITOR'];
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -54,6 +56,7 @@ export const AuthProvider = ({ children }) => {
     isPlatformAdmin,
     canUpload: isPlatformAdmin || (role ? UPLOAD_ROLES.includes(role) : false),
     canApprove: isPlatformAdmin || (role ? APPROVE_ROLES.includes(role) : false),
+    canUseAI: isPlatformAdmin || (role ? AI_ROLES.includes(role) : false),
     login,
     logout,
     refreshUser: loadUser,
