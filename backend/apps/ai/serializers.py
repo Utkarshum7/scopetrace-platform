@@ -1,13 +1,17 @@
 """
 Phase 7b -- read-only serializers for AI output. Phase 7c adds
-AIFactorRecommendationSerializer. apps.ingestion.views imports both
-(apps.ingestion depending on apps.ai is the correct direction per ADR 0006
--- AI reads governed context, never the reverse; nothing in apps.ai
-imports apps.ingestion's serializers).
+AIFactorRecommendationSerializer. Phase 7e adds AIConversationSerializer/
+AIConversationMessageSerializer, used by apps.ai's own views (apps.ai.views)
+-- the first Phase 7 capability with API views of its own, rather than
+being surfaced through an existing apps.ingestion viewset action.
+apps.ingestion.views imports the annotation/factor-recommendation
+serializers (apps.ingestion depending on apps.ai is the correct direction
+per ADR 0006 -- AI reads governed context, never the reverse; nothing in
+apps.ai imports apps.ingestion's serializers).
 """
 from rest_framework import serializers
 
-from apps.ai.models import AIAnnotation, AIFactorRecommendation
+from apps.ai.models import AIAnnotation, AIConversation, AIConversationMessage, AIFactorRecommendation
 
 
 class AIAnnotationSerializer(serializers.ModelSerializer):
@@ -47,3 +51,24 @@ class AIFactorRecommendationSerializer(serializers.ModelSerializer):
         else:
             region_code = "GLOBAL"
         return f"{factor.dataset.publisher} {factor.dataset.version} ({region_code}) — {factor.co2e_per_unit} {factor.unit}"
+
+
+class AIConversationMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AIConversationMessage
+        fields = [
+            "id", "role", "content", "citations", "confidence",
+            "unsupported_claim", "retrieved_context", "created_at",
+        ]
+        read_only_fields = fields
+
+
+class AIConversationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AIConversation
+        fields = ["id", "created_at"]
+        read_only_fields = fields
+
+
+class AskQuestionSerializer(serializers.Serializer):
+    question = serializers.CharField(min_length=1, max_length=2000, trim_whitespace=True)

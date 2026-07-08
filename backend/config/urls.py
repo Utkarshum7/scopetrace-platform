@@ -38,4 +38,6 @@ urlpatterns = [
     path('api/', include('apps.carbon.urls')),
     # Governance / audit — hash-chain verification (Phase 6a)
     path('api/', include('apps.audit.urls')),
+    # ESG Assistant — conversational RAG-style Q&A (Phase 7e)
+    path('api/', include('apps.ai.urls')),
 ]
