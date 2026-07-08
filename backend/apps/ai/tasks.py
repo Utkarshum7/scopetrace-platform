@@ -1,7 +1,8 @@
 """
 Phase 7a -- apps.ai's Celery task(s). Phase 7b adds
 generate_anomaly_explanations_task, the first real (non-heartbeat) work on
-the 'ai' queue. Phase 7c adds generate_factor_recommendations_task.
+the 'ai' queue. Phase 7c adds generate_factor_recommendations_task. Phase
+7d adds generate_validation_assistance_task.
 """
 import logging
 
@@ -157,6 +158,56 @@ def generate_factor_recommendations_task(batch_id: str) -> str:
 
     logger.info(
         "generate_factor_recommendations_task: batch %s -- %s generated, %s errored",
+        batch_id, generated, errored,
+    )
+    return f"generated={generated} errored={errored}"
+
+
+@shared_task(name='apps.ai.tasks.generate_validation_assistance_task')
+def generate_validation_assistance_task(batch_id: str) -> str:
+    """Phase 7d -- fire-and-forget, dispatched from apps.ingestion.tasks.
+    ingest_task's success path (a sibling dispatch alongside
+    generate_anomaly_explanations_task, not apps.carbon.tasks.
+    calculate_task -- FAILED status is a validation-time decision, not a
+    calculation-time one). A slow or unavailable AI provider can therefore
+    never delay or fail the deterministic ingestion pipeline -- this task
+    doesn't even start until that pipeline has already committed its own
+    transaction and moved on.
+
+    Idempotent under Celery's at-least-once redelivery: re-derives the
+    FAILED-record set fresh from the DB every run and skips any record
+    that already has a validation_assistance AIAnnotation, rather than
+    trusting anything passed in the task message. One record's failure
+    (caught broadly, logged, counted) never aborts the rest of the batch --
+    matches generate_validation_assistance()'s own I6 fail-safe design one
+    level up.
+    """
+    from apps.ai.models import AIAnnotation
+    from apps.ai.services.validation_assistance import generate_validation_assistance
+    from apps.ingestion.models import EmissionRecord
+
+    records = (
+        EmissionRecord.objects.filter(batch_id=batch_id, status=EmissionRecord.RecordStatus.FAILED)
+        .exclude(ai_annotations__capability=AIAnnotation.Capability.VALIDATION_ASSISTANCE)
+        .select_related("organization", "batch__data_source")
+    )
+
+    generated = 0
+    errored = 0
+    for record in records:
+        try:
+            annotation = generate_validation_assistance(record)
+        except Exception:  # noqa: BLE001 - one bad record must never abort the batch
+            logger.exception(
+                "generate_validation_assistance_task: record %s failed", record.id,
+            )
+            errored += 1
+            continue
+        if annotation is not None:
+            generated += 1
+
+    logger.info(
+        "generate_validation_assistance_task: batch %s -- %s generated, %s errored",
         batch_id, generated, errored,
     )
     return f"generated={generated} errored={errored}"

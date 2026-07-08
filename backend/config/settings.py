@@ -389,6 +389,7 @@ CELERY_TASK_ROUTES = {
     'apps.ai.tasks.ai_heartbeat_task': {'queue': 'ai'},
     'apps.ai.tasks.generate_anomaly_explanations_task': {'queue': 'ai'},
     'apps.ai.tasks.generate_factor_recommendations_task': {'queue': 'ai'},
+    'apps.ai.tasks.generate_validation_assistance_task': {'queue': 'ai'},
 }
 
 # acks_late + prefetch=1: a task is acknowledged only after it finishes, so a

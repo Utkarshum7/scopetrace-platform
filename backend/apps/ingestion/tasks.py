@@ -162,6 +162,16 @@ def ingest_task(self, batch_id: str, storage_key: str, workflow_id: str) -> str:
         # dispatch in any way -- it only reads what was already decided.
         from apps.ai.tasks import generate_anomaly_explanations_task
         generate_anomaly_explanations_task.delay(batch_id=batch_id)
+        # Phase 7d: advisory AI validation assistance for whatever this run
+        # flagged status=FAILED -- dispatched the same way, on the same
+        # 'ai' queue, as a sibling of the anomaly-explanation dispatch
+        # above (never apps.carbon.tasks.calculate_task -- FAILED is a
+        # validation-time decision, not a calculation-time one).
+        # IngestionService/RowValidator's own deterministic decision
+        # (status=FAILED) is not touched by this dispatch in any way -- it
+        # only reads what was already decided.
+        from apps.ai.tasks import generate_validation_assistance_task
+        generate_validation_assistance_task.delay(batch_id=batch_id)
         return "completed"
     except INGEST_RETRYABLE_EXCEPTIONS:
         logger.warning(
