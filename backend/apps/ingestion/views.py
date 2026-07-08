@@ -42,7 +42,7 @@ from apps.ingestion.tasks import ingest_task
 from apps.carbon.tasks import calculate_task
 from django.db.models import Prefetch
 
-from apps.ai.serializers import AIAnnotationSerializer
+from apps.ai.serializers import AIAnnotationSerializer, AIFactorRecommendationSerializer
 
 from apps.accounts.mixins import TenantScopedViewSetMixin
 from apps.accounts.permissions import (
@@ -652,6 +652,23 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
         record = self.get_object()
         qs = record.ai_annotations.order_by("-created_at")
         return Response(AIAnnotationSerializer(qs, many=True).data)
+
+    # --- Phase 7c: read-only AI factor recommendations --------------------
+    # Same self.get_object() precedent, same reasoning as ai-annotations
+    # above. Read-only by construction -- no POST/PUT/DELETE action
+    # anywhere in this viewset for AIFactorRecommendation, and the model
+    # itself refuses any write after creation
+    # (apps.ai.models.AIFactorRecommendation).
+
+    @action(detail=True, methods=["GET"], url_path="factor-recommendations")
+    def factor_recommendations(self, request, pk=None):
+        """GET /api/records/{id}/factor-recommendations/ — every AI
+        advisory factor recommendation for this record, newest first."""
+        record = self.get_object()
+        qs = record.ai_factor_recommendations.select_related(
+            "recommended_factor__dataset", "recommended_factor__region"
+        ).order_by("-created_at")
+        return Response(AIFactorRecommendationSerializer(qs, many=True).data)
 
 
 class OrganizationViewSet(viewsets.ReadOnlyModelViewSet):
