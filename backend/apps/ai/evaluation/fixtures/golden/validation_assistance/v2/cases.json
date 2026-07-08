@@ -1,0 +1,74 @@
+[
+  {
+    "case_id": "validation_assistance_v2_001",
+    "description": "Negative fuel quantity flagged by the deterministic sign-check rule.",
+    "prompt_name": "validation_assistance",
+    "response_schema_id": "validation_assistance",
+    "response_schema_version": 2,
+    "template_vars": {
+      "scope_category": "",
+      "source_type": "SAP_FUEL",
+      "quantity": "",
+      "unit": "",
+      "validation_errors": "quantity: Negative quantities are not permitted.",
+      "raw_payload": "{'Werk': 'DE01', 'Buchungsdatum': '15.03.2026', 'Material': 'DSL', 'Materialkurztext': 'Diesel', 'Menge': '-500,00', 'Einheit': 'L', 'Nettopreis': '750.00'}"
+    },
+    "expected_response": {
+      "explanation": "The recorded fuel quantity is -500,00, which the deterministic validator rejects because negative quantities are not permitted; this is most likely a sign error introduced when the source system exported a credit/return transaction as a plain purchase row.",
+      "affected_fields": ["Menge"],
+      "confidence": "MEDIUM",
+      "suggested_correction": "Confirm with the source system whether this was a return or credit, and re-enter the row with the correct sign or as a separate adjustment entry."
+    },
+    "expected_prompt_template_hash": "cb91d66427001128764c2628ba793d4b7aa2855b028952ed769f03b0e71e5fe0",
+    "expected_rendered_input_hash": "986d0a54b3bf7403c31aff087ede815cb9b41faa3754978c18518bcaef5d5262",
+    "min_score": 1.0
+  },
+  {
+    "case_id": "validation_assistance_v2_002",
+    "description": "Unparseable electricity consumption value flagged by the deterministic numeric-parse rule.",
+    "prompt_name": "validation_assistance",
+    "response_schema_id": "validation_assistance",
+    "response_schema_version": 2,
+    "template_vars": {
+      "scope_category": "",
+      "source_type": "UTILITY_ELECTRICITY",
+      "quantity": "",
+      "unit": "",
+      "validation_errors": "quantity: Unable to parse numeric value.",
+      "raw_payload": "{'Site': 'HQ-London', 'BillingPeriod': '2026-02', 'Consumption': 'N/A', 'Unit': 'kWh'}"
+    },
+    "expected_response": {
+      "explanation": "The Consumption field contains the text 'N/A' instead of a number, which the deterministic validator cannot parse as a quantity; this usually means the utility meter read was missing or unavailable when this bill was exported.",
+      "affected_fields": ["Consumption"],
+      "confidence": "HIGH",
+      "suggested_correction": "Obtain the actual meter read for HQ-London's February 2026 billing period from the utility provider and re-enter it in place of 'N/A'."
+    },
+    "expected_prompt_template_hash": "cb91d66427001128764c2628ba793d4b7aa2855b028952ed769f03b0e71e5fe0",
+    "expected_rendered_input_hash": "d474aaa72d9133b20d6c88c978f3ae1f19934b9466bc3e81c71f9990adf57941",
+    "min_score": 1.0
+  },
+  {
+    "case_id": "validation_assistance_v2_003",
+    "description": "Unrecognized unit code flagged by the deterministic unit-lookup rule -- a regression case covering a different validation error type than the quantity-based cases above.",
+    "prompt_name": "validation_assistance",
+    "response_schema_id": "validation_assistance",
+    "response_schema_version": 2,
+    "template_vars": {
+      "scope_category": "",
+      "source_type": "SAP_FUEL",
+      "quantity": "",
+      "unit": "",
+      "validation_errors": "unit: Unknown unit code 'XYZ' is not a recognized SAP unit.",
+      "raw_payload": "{'Werk': 'DE02', 'Buchungsdatum': '01.04.2026', 'Material': 'DSL', 'Materialkurztext': 'Diesel', 'Menge': '250,00', 'Einheit': 'XYZ', 'Nettopreis': '400.00'}"
+    },
+    "expected_response": {
+      "explanation": "The unit code 'XYZ' is not among the recognized SAP fuel units (e.g. L, KG, GAL), which the deterministic validator rejects; this is most likely a typo or an export-mapping error in the source system's unit-of-measure field.",
+      "affected_fields": ["Einheit"],
+      "confidence": "MEDIUM",
+      "suggested_correction": "Check the source system's unit-of-measure configuration for this material and re-enter the row with a recognized unit code such as L or KG."
+    },
+    "expected_prompt_template_hash": "cb91d66427001128764c2628ba793d4b7aa2855b028952ed769f03b0e71e5fe0",
+    "expected_rendered_input_hash": "e26cc9cd6df866a34dcdabf21a204dbf9fe10b6984866cf4102718779cbf4f4d",
+    "min_score": 1.0
+  }
+]

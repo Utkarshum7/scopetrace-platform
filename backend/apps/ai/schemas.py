@@ -25,7 +25,13 @@ output `recommended_activity_type` as free text; v2 instead asks the AI to
 pick a LABEL (candidate_1, candidate_2, ..., or "none") from a small,
 service-provided candidate set of real EmissionFactor rows -- never a raw
 identifier, since LLMs are unreliable at reproducing UUIDs verbatim (see
-apps.ai.services.factor_recommendation). Both v1 schemas are kept,
+apps.ai.services.factor_recommendation). Phase 7d implements
+validation_assistance next: v1 had the AI output a single
+`suggested_correction` for one raw_value/field_name pair; v2 instead
+explains a whole record's `validation_errors` dict at once (matching
+anomaly_detection's own record-level shape) and adds `affected_fields`
+-- the concrete field names implicated, not just prose (see
+apps.ai.services.validation_assistance). All three v1 schemas are kept,
 unreferenced, as a historical record of the original placeholder contract
 -- never edited in place, matching every other versioned artifact in this
 codebase (AIPromptVersion, golden
@@ -121,6 +127,27 @@ VALIDATION_ASSISTANCE_V1 = {
     "additionalProperties": False,
 }
 
+# Phase 7d: the real validation-ASSISTANCE contract. Deliberately has no
+# field that could validate/reject/edit/approve a record -- the
+# deterministic validator (apps.ingestion.services.validator.RowValidator)
+# already decided this record is FAILED before AI is ever invoked; AI only
+# explains why and suggests what a human might correct. `explanation` is
+# expected to include the likely cause (there is no separate field for it
+# -- see ADR 0011); `affected_fields` names the concrete record fields
+# implicated, mapped onto AIAnnotation.contributing_factors;
+# `suggested_correction` maps onto AIAnnotation.suggested_investigation.
+VALIDATION_ASSISTANCE_V2 = {
+    "type": "object",
+    "required": ["explanation", "affected_fields", "confidence", "suggested_correction"],
+    "properties": {
+        "explanation": {"type": "string"},
+        "affected_fields": {"type": "array", "items": {"type": "string"}},
+        "confidence": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]},
+        "suggested_correction": {"type": "string"},
+    },
+    "additionalProperties": False,
+}
+
 # Free text lives inside a typed field of a validated envelope -- never as
 # the entire response (ADR 0005) -- `citations`/`unsupported_claim` make a
 # fabricated or unsupported answer machine-checkable, not just readable.
@@ -175,6 +202,7 @@ _SCHEMAS = {
     ("factor_recommendation", 1): FACTOR_RECOMMENDATION_V1,
     ("factor_recommendation", 2): FACTOR_RECOMMENDATION_V2,
     ("validation_assistance", 1): VALIDATION_ASSISTANCE_V1,
+    ("validation_assistance", 2): VALIDATION_ASSISTANCE_V2,
     ("esg_assistant", 1): ESG_ASSISTANT_V1,
     ("judge_scoring", 1): JUDGE_SCORING_V1,
     ("judge_pairwise", 1): JUDGE_PAIRWISE_V1,

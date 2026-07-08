@@ -42,14 +42,17 @@ CAPABILITY_REGISTRY: dict[str, CapabilityConfig] = {
         response_schema_id="factor_recommendation", response_schema_version=2,
         fixture_dataset="factor_recommendation", fixture_version="v2",
     ),
+    # Phase 7d: the third real capability -- response_schema_version=2 /
+    # fixture_version="v2" (see apps.ai.schemas for the superseded v1
+    # placeholder contract, kept unreferenced).
+    "validation_assistance": CapabilityConfig(
+        name="validation_assistance", prompt_name="validation_assistance",
+        response_schema_id="validation_assistance", response_schema_version=2,
+        fixture_dataset="validation_assistance", fixture_version="v2",
+    ),
     # Phase 7a.5 planned-capability entries -- eval-harness fixtures only,
     # no real feature implemented behind any of these yet (see
     # apps.ai.schemas's own docstring).
-    "validation_assistance": CapabilityConfig(
-        name="validation_assistance", prompt_name="validation_assistance",
-        response_schema_id="validation_assistance", response_schema_version=1,
-        fixture_dataset="validation_assistance", fixture_version="v1",
-    ),
     "esg_assistant": CapabilityConfig(
         name="esg_assistant", prompt_name="esg_assistant",
         response_schema_id="esg_assistant", response_schema_version=1,
