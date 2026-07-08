@@ -229,10 +229,10 @@ and become real end-to-end API-level RBAC once 7b+ adds the first endpoint.
 
 ## 10. What's explicitly NOT in Phase 7a (updated as later milestones land)
 
-No validation assist, no ESG assistant, no report narrative generation —
-each remains a later milestone (7d–7f) that calls `invoke_ai()`, never
-reimplements any part of this foundation. Also still not implemented (per
-the finalized Phase 7 design):
+No ESG assistant, no report narrative generation — each remains a later
+milestone (7e–7f) that calls `invoke_ai()`, never reimplements any part of
+this foundation. Also still not implemented (per the finalized Phase 7
+design):
 - A concrete self-hosted/BYO provider adapter (the seam exists; no adapter).
 - ~~The AI evaluation/golden-set harness~~ — done in **Phase 7a.5**, see
   [`AI_EVALUATION.md`](AI_EVALUATION.md).
@@ -248,6 +248,12 @@ the finalized Phase 7 design):
   read-only `GET /api/records/{id}/factor-recommendations/` endpoint, and
   a second sub-section in the same "AI Insights" panel. See §13 and ADR
   0010.
+- ~~Validation assistance~~ — done in **Phase 7d**:
+  `apps.ai.services.validation_assistance` (capability
+  `validation_assistance`), reusing `AIAnnotation` with a second
+  `Capability` choice rather than a new model, surfaced through the
+  SAME `GET /api/records/{id}/ai-annotations/` endpoint and a third
+  sub-section in the same "AI Insights" panel. See §14 and ADR 0011.
 
 ---
 
@@ -334,7 +340,52 @@ recommended is byte-identical before and after a successful call.
 
 ---
 
-## 14. Related documents
+## 14. Phase 7d — AI Validation Assistant
+
+The third real Phase 7 capability. `apps.ai.services.validation_assistance.
+generate_validation_assistance(record)` runs against records whose
+`EmissionRecord.status` is exactly `FAILED` — the deterministic validator
+(`apps.ingestion.services.validator.RowValidator`) already excluded this
+row from calculations. `SUSPICIOUS` is explicitly out of scope here — that
+outcome is already Phase 7b's `anomaly_detection` territory. See ADR 0011,
+Decision 1.
+
+Unlike 7c, this capability reuses `AIAnnotation` rather than introducing a
+third model: `VALIDATION_ASSISTANCE_V2`'s schema (`explanation`,
+`affected_fields`, `confidence`, `suggested_correction`) maps onto
+`AIAnnotation`'s existing four columns with no type mismatch —
+`contributing_factors` holds affected field names, `suggested_
+investigation` holds the suggested correction. See ADR 0011, Decision 3,
+for why this differs from 7c's decision to build `AIFactorRecommendation`
+as a dedicated model.
+
+**Dispatch is fire-and-forget, off the deterministic pipeline entirely** —
+`apps.ai.tasks.generate_validation_assistance_task` (the `ai` queue) is
+dispatched from `ingest_task`'s success path, as a sibling of `generate_
+anomaly_explanations_task` (not `calculate_task` — `FAILED` is a
+validation-time decision, matching where it's decided; see ADR 0011,
+Decision 2).
+
+**Read path**: no new endpoint. Because this capability reuses
+`AIAnnotation`, the existing `GET /api/records/{id}/ai-annotations/`
+already returns `VALIDATION_ASSISTANCE` rows alongside
+`ANOMALY_DETECTION` ones — the frontend's `AIInsightsPanel` splits them
+client-side by `capability` into a third sub-section (Issue / explanation
+/ Suggested fix / confidence), clearly labeled "AI Advisory," alongside
+the existing anomaly and factor-recommendation sub-sections.
+
+The milestone's explicit callout — "no record mutation, no validation
+status changes, deterministic validator remains authoritative" — has a
+formal, merge-gate-visible proof:
+`InvariantI2ValidationAssistanceConcreteProofTests` in
+`apps/ai/evaluation/tests_invariants.py`, which confirms every field on
+the record (including `status` and `validation_errors`) is byte-identical
+before and after a successful call, and that the record remains exactly
+`RecordStatus.FAILED` afterward.
+
+---
+
+## 15. Related documents
 
 - [`ROADMAP.md`](ROADMAP.md) — Phase 7 milestone breakdown (7a–7g).
 - [`AI_EVALUATION.md`](AI_EVALUATION.md) — Phase 7a.5's evaluation/
@@ -343,10 +394,11 @@ recommended is byte-identical before and after a successful call.
   must keep green.
 - [`CARBON_ENGINE_DESIGN.md`](CARBON_ENGINE_DESIGN.md) — the pipeline's
   reserved `AIRecommendationStage`/`OptimizationStage` seams, still inert
-  after Phase 7c (see ADR 0009 for why anomaly explanation didn't use them).
+  after Phase 7d (see ADR 0009 for why anomaly explanation didn't use them).
 - [`docs/adr/0005-ai-provider-abstraction-and-schema-enforcement.md`](adr/0005-ai-provider-abstraction-and-schema-enforcement.md)
 - [`docs/adr/0006-ai-advisory-only-no-direct-mutation.md`](adr/0006-ai-advisory-only-no-direct-mutation.md)
 - [`docs/adr/0007-ai-tenant-egress-and-cost-policy.md`](adr/0007-ai-tenant-egress-and-cost-policy.md)
 - [`docs/adr/0008-ai-evaluation-tiering.md`](adr/0008-ai-evaluation-tiering.md)
 - [`docs/adr/0009-anomaly-explanation-async-dispatch-and-immutable-annotations.md`](adr/0009-anomaly-explanation-async-dispatch-and-immutable-annotations.md)
 - [`docs/adr/0010-factor-recommendation-candidate-labels-and-dedicated-model.md`](adr/0010-factor-recommendation-candidate-labels-and-dedicated-model.md)
+- [`docs/adr/0011-validation-assistance-reuses-aiannotation.md`](adr/0011-validation-assistance-reuses-aiannotation.md)

@@ -91,8 +91,22 @@ enterprise governance) are complete. What's next, as currently planned:
   `recommended_factor`), surfaced read-only via
   `GET /api/records/{id}/factor-recommendations/` and a second sub-section
   in the same "AI Insights" panel. See AI_ARCHITECTURE.md §13 and ADR
-  0010. 7d–7g (validation assist, ESG assistant, report narration,
-  observability/cost governance) remain.
+  0010. **7d (AI Validation Assistant) is done**: the third real Phase 7
+  capability. The deterministic validator
+  (`apps.ingestion.services.validator.RowValidator`) still decides which
+  rows are `FAILED` (unchanged); AI only explains why and suggests a
+  correction, via a new `validation_assistance` capability (schema v2 --
+  explanation/affected fields/confidence/suggested correction), dispatched
+  fire-and-forget from `ingest_task`'s success path alongside the
+  anomaly-explanation dispatch (never `calculate_task` -- `FAILED` is a
+  validation-time decision). Reuses `AIAnnotation` with a second
+  `Capability` choice rather than a new model (unlike 7c's dedicated
+  `AIFactorRecommendation`, every output here already fit the existing
+  columns), so no new endpoint either -- the existing
+  `GET /api/records/{id}/ai-annotations/` already returns both
+  capabilities, split client-side into a third "AI Insights" panel
+  sub-section. See AI_ARCHITECTURE.md §14 and ADR 0011. 7e–7g (ESG
+  assistant, report narration, observability/cost governance) remain.
 - **Phase 8 — UX**: accessibility audit, responsive design pass, theming,
   saved/custom dashboards, an in-app notification center (distinct from
   Phase 5g's email notifications — a UI-visible feed, not a new delivery

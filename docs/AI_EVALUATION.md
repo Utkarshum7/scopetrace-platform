@@ -41,7 +41,8 @@ apps/ai/evaluation/                  (its own nested Django app -- own models/mi
       anomaly_detection/v2/cases.json    (Phase 7b -- the real capability)
       factor_recommendation/v1/cases.json    (superseded, kept unreferenced)
       factor_recommendation/v2/cases.json    (Phase 7c -- the real capability)
-      validation_assistance/v1/cases.json
+      validation_assistance/v1/cases.json    (superseded, kept unreferenced)
+      validation_assistance/v2/cases.json    (Phase 7d -- the real capability)
       esg_assistant/v1/cases.json
       report_narration/v1/cases.json
       foundation_selftest/v1/cases.json
@@ -89,19 +90,23 @@ milestone's scope asked for. `tests_fixtures.py`'s
 `GoldenFixtureHashSelfConsistencyTests` proves every fixture's recorded
 hash still matches a fresh render, for every real fixture, every test run.
 
-12 cases are actively loaded across 6 capabilities today (16 ship on disk,
+13 cases are actively loaded across 6 capabilities today (17 ship on disk,
 counting superseded-but-kept `v1` files no capability config references
-anymore): 3 in `anomaly_detection/v2` (Phase 7b's real capability,
-replacing the 2-case `v1` placeholder) and 3 in `factor_recommendation/v2`
-(Phase 7c's real capability, replacing its own 2-case `v1` placeholder), 2
-each for `esg_assistant`/`validation_assistance`, 1 for `report_narration`,
-1 for the existing `foundation.selftest`. `anomaly_detection`'s and
-`factor_recommendation`'s v1 → v2 jumps are this versioning discipline's
-real exercise, not just documentation: see ADR 0009 for why
-`anomaly_detection` v2 dropped its `is_anomalous` field entirely (AI must
-never classify, only explain), and ADR 0010 for why
+anymore): 3 each in `anomaly_detection/v2` (Phase 7b's real capability,
+replacing a 2-case `v1` placeholder), `factor_recommendation/v2` (Phase
+7c's real capability, replacing its own 2-case `v1` placeholder), and
+`validation_assistance/v2` (Phase 7d's real capability, replacing its own
+2-case `v1` placeholder), 2 for `esg_assistant`, 1 for `report_narration`,
+1 for the existing `foundation.selftest`. `anomaly_detection`'s,
+`factor_recommendation`'s, and `validation_assistance`'s v1 → v2 jumps are
+this versioning discipline's real exercise, not just documentation: see
+ADR 0009 for why `anomaly_detection` v2 dropped its `is_anomalous` field
+entirely (AI must never classify, only explain), ADR 0010 for why
 `factor_recommendation` v2 asks the AI to pick a candidate LABEL rather
-than reproduce a raw `EmissionFactor` identifier.
+than reproduce a raw `EmissionFactor` identifier, and ADR 0011 for why
+`validation_assistance` v2 explains a whole record's `validation_errors`
+dict at once (matching `anomaly_detection`'s own record-level shape)
+instead of a single raw_value/field_name pair.
 
 ---
 
