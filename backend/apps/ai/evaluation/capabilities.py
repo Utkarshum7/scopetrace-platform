@@ -59,13 +59,13 @@ CAPABILITY_REGISTRY: dict[str, CapabilityConfig] = {
         response_schema_id="esg_assistant", response_schema_version=2,
         fixture_dataset="esg_assistant", fixture_version="v2",
     ),
-    # Phase 7a.5 planned-capability entries -- eval-harness fixtures only,
-    # no real feature implemented behind any of these yet (see
-    # apps.ai.schemas's own docstring).
+    # Phase 7f: the fifth and final planned real capability --
+    # response_schema_version=2 / fixture_version="v2" (see apps.ai.schemas
+    # for the superseded v1 placeholder contract, kept unreferenced).
     "report_narration": CapabilityConfig(
         name="report_narration", prompt_name="report_narration",
-        response_schema_id="report_narration", response_schema_version=1,
-        fixture_dataset="report_narration", fixture_version="v1",
+        response_schema_id="report_narration", response_schema_version=2,
+        fixture_dataset="report_narration", fixture_version="v2",
     ),
 }
 

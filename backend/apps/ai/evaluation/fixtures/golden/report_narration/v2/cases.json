@@ -1,0 +1,71 @@
+[
+  {
+    "case_id": "report_narration_v2_001",
+    "description": "A clear downward emissions trend across the reporting period, all scopes.",
+    "prompt_name": "report_narration",
+    "response_schema_id": "report_narration",
+    "response_schema_version": 2,
+    "template_vars": {
+      "date_from": "2026-01-01",
+      "date_to": "2026-03-31",
+      "scope": "ALL",
+      "report_context": "summary: total_co2e_tonnes=512.300000000, record_count=340, by_scope={'SCOPE_1': 298.100000000, 'SCOPE_2': 214.200000000}\nactivity_breakdown: DIESEL_STATIONARY=180.500000000, GRID_ELECTRICITY=214.200000000, JET_KEROSENE=117.600000000\ntrend: 2025-11=610.400000000, 2025-12=575.900000000, 2026-01=540.100000000, 2026-02=498.700000000, 2026-03=498.100000000"
+    },
+    "expected_response": {
+      "executive_summary": "Total approved emissions for Q1 2026 were 512.30 tCO2e across 340 records, split between Scope 1 (298.10 tCO2e) and Scope 2 (214.20 tCO2e).",
+      "key_highlights": ["Emissions declined for five consecutive months", "Grid electricity is the largest single activity source at 214.20 tCO2e"],
+      "trend_explanations": "Monthly emissions fell steadily from 610.40 tCO2e in November 2025 to 498.10 tCO2e in March 2026, a sustained downward trend across the reporting period.",
+      "recommendations": ["Investigate which specific sites or activities drove the November-to-March decline, to assess whether it can be sustained or replicated."],
+      "confidence": "HIGH"
+    },
+    "expected_prompt_template_hash": "3ff5c6dd7e374bf433a643b3308cc1c5b4d5fd4774898b7ba61d201bf87d7925",
+    "expected_rendered_input_hash": "78b63246b784c5a94ded23a31b4072b77763a4307bf3cbb9f20d9e5547c7cb35",
+    "min_score": 1.0
+  },
+  {
+    "case_id": "report_narration_v2_002",
+    "description": "A scope-filtered report showing a rising trend -- the narrative must explain a worsening figure honestly, not just a positive one.",
+    "prompt_name": "report_narration",
+    "response_schema_id": "report_narration",
+    "response_schema_version": 2,
+    "template_vars": {
+      "date_from": "2026-01-01",
+      "date_to": "2026-03-31",
+      "scope": "SCOPE_1",
+      "report_context": "summary: total_co2e_tonnes=298.100000000, record_count=210, by_scope={'SCOPE_1': 298.100000000}\nactivity_breakdown: DIESEL_STATIONARY=298.100000000\ntrend: 2025-11=240.000000000, 2025-12=255.300000000, 2026-01=270.800000000, 2026-02=285.400000000, 2026-03=298.100000000"
+    },
+    "expected_response": {
+      "executive_summary": "Scope 1 emissions for Q1 2026 totaled 298.10 tCO2e across 210 records, entirely from diesel stationary combustion.",
+      "key_highlights": ["Scope 1 emissions rose every month from November 2025 through March 2026", "Diesel stationary combustion is the sole Scope 1 activity source in this period"],
+      "trend_explanations": "Scope 1 emissions increased steadily from 240.00 tCO2e in November 2025 to 298.10 tCO2e in March 2026, a sustained upward trend driven entirely by diesel stationary combustion.",
+      "recommendations": ["Review diesel stationary combustion activity for the sites driving this increase to identify potential efficiency or fuel-switching opportunities."],
+      "confidence": "HIGH"
+    },
+    "expected_prompt_template_hash": "3ff5c6dd7e374bf433a643b3308cc1c5b4d5fd4774898b7ba61d201bf87d7925",
+    "expected_rendered_input_hash": "1c54fc76c5e6003e00d0af4665e5681d056186d40f43e2babe355d0154dfd59b",
+    "min_score": 1.0
+  },
+  {
+    "case_id": "report_narration_v2_003",
+    "description": "A thin, single-month, low-record-count period -- confidence must reflect the limited data rather than overstating certainty.",
+    "prompt_name": "report_narration",
+    "response_schema_id": "report_narration",
+    "response_schema_version": 2,
+    "template_vars": {
+      "date_from": "2026-03-01",
+      "date_to": "2026-03-31",
+      "scope": "ALL",
+      "report_context": "summary: total_co2e_tonnes=12.400000000, record_count=6, by_scope={'SCOPE_1': 12.400000000}\nactivity_breakdown: DIESEL_STATIONARY=12.400000000\ntrend: 2026-03=12.400000000"
+    },
+    "expected_response": {
+      "executive_summary": "Approved emissions for March 2026 totaled 12.40 tCO2e across only 6 records, all from diesel stationary combustion.",
+      "key_highlights": ["Only 6 approved records fall within this single-month period", "All emissions in this period are Scope 1 diesel stationary combustion"],
+      "trend_explanations": "Only one month of data is available in this period, so no month-over-month trend can be assessed.",
+      "recommendations": ["Widen the reporting period to at least a full quarter before drawing trend conclusions from this data."],
+      "confidence": "LOW"
+    },
+    "expected_prompt_template_hash": "3ff5c6dd7e374bf433a643b3308cc1c5b4d5fd4774898b7ba61d201bf87d7925",
+    "expected_rendered_input_hash": "c9be643c1ce0be5b8f848bca16767e63371c4bab960855c1b3c2c33f9b6d3546",
+    "min_score": 1.0
+  }
+]

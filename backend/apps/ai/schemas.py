@@ -42,10 +42,17 @@ identical to v1; only the prompt template, golden dataset, and the real
 service behind them are new. The version bump still happens, purely to
 keep every capability's "placeholder generation vs real generation"
 semantics consistent (see ADR 0012) -- not because the JSON contract
-itself needed fixing this time. All four v1 schemas are kept,
-unreferenced, as a historical record of the original placeholder contract
--- never edited in place, matching every other versioned artifact in this
-codebase (AIPromptVersion, golden
+itself needed fixing this time. Phase 7f implements report_narration
+last: v1 had the AI output one free-text `narrative` blob plus a
+`referenced_figures` list; v2 splits it into four distinct sections
+(`executive_summary`, `key_highlights`, `trend_explanations`,
+`recommendations`) matching the milestone's exact display requirements,
+back to the v1-was-flawed pattern (a single blob can't be independently
+labeled "AI Advisory" per UI section the way four typed fields can) --
+see apps.ai.services.report_narration and ADR 0013. All five v1 schemas
+are kept, unreferenced, as a historical record of the original
+placeholder contract -- never edited in place, matching every other
+versioned artifact in this codebase (AIPromptVersion, golden
 datasets).
 """
 
@@ -199,6 +206,24 @@ REPORT_NARRATION_V1 = {
     "additionalProperties": False,
 }
 
+# Phase 7f: the real report-narration contract. Four distinct sections
+# rather than one blob -- each maps to its own labeled "AI Advisory" UI
+# section, and each is independently derived from the SAME approved-only
+# report context (never a number the deterministic report engine didn't
+# already produce -- see apps.ai.services.report_context_builder).
+REPORT_NARRATION_V2 = {
+    "type": "object",
+    "required": ["executive_summary", "key_highlights", "trend_explanations", "recommendations", "confidence"],
+    "properties": {
+        "executive_summary": {"type": "string"},
+        "key_highlights": {"type": "array", "items": {"type": "string"}},
+        "trend_explanations": {"type": "string"},
+        "recommendations": {"type": "array", "items": {"type": "string"}},
+        "confidence": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]},
+    },
+    "additionalProperties": False,
+}
+
 # --- Phase 7a.5: LLM-as-Judge framework schemas (apps.ai.evaluation.judge) ---
 
 JUDGE_SCORING_V1 = {
@@ -234,6 +259,7 @@ _SCHEMAS = {
     ("judge_scoring", 1): JUDGE_SCORING_V1,
     ("judge_pairwise", 1): JUDGE_PAIRWISE_V1,
     ("report_narration", 1): REPORT_NARRATION_V1,
+    ("report_narration", 2): REPORT_NARRATION_V2,
 }
 
 
