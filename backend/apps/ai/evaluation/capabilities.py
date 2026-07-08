@@ -50,14 +50,18 @@ CAPABILITY_REGISTRY: dict[str, CapabilityConfig] = {
         response_schema_id="validation_assistance", response_schema_version=2,
         fixture_dataset="validation_assistance", fixture_version="v2",
     ),
+    # Phase 7e: the fourth real capability -- response_schema_version=2 /
+    # fixture_version="v2". Unlike 7b/7c/7d, the schema fields themselves
+    # didn't change (see apps.ai.schemas's docstring) -- only the prompt,
+    # golden dataset, and real service are new.
+    "esg_assistant": CapabilityConfig(
+        name="esg_assistant", prompt_name="esg_assistant",
+        response_schema_id="esg_assistant", response_schema_version=2,
+        fixture_dataset="esg_assistant", fixture_version="v2",
+    ),
     # Phase 7a.5 planned-capability entries -- eval-harness fixtures only,
     # no real feature implemented behind any of these yet (see
     # apps.ai.schemas's own docstring).
-    "esg_assistant": CapabilityConfig(
-        name="esg_assistant", prompt_name="esg_assistant",
-        response_schema_id="esg_assistant", response_schema_version=1,
-        fixture_dataset="esg_assistant", fixture_version="v1",
-    ),
     "report_narration": CapabilityConfig(
         name="report_narration", prompt_name="report_narration",
         response_schema_id="report_narration", response_schema_version=1,

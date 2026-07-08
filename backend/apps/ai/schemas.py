@@ -31,7 +31,18 @@ validation_assistance next: v1 had the AI output a single
 explains a whole record's `validation_errors` dict at once (matching
 anomaly_detection's own record-level shape) and adds `affected_fields`
 -- the concrete field names implicated, not just prose (see
-apps.ai.services.validation_assistance). All three v1 schemas are kept,
+apps.ai.services.validation_assistance). Phase 7e implements
+esg_assistant next -- a deliberate exception to the v1-was-flawed
+pattern above: v1's fields (`answer`, `citations`, `confidence`,
+`unsupported_claim`) were already the right shape for a RAG-style
+assistant (a citation list and a machine-checkable "did I actually
+support this" flag, not just free text -- see ADR 0005's "machine-
+checkable, not just readable" principle). v2 is field-for-field
+identical to v1; only the prompt template, golden dataset, and the real
+service behind them are new. The version bump still happens, purely to
+keep every capability's "placeholder generation vs real generation"
+semantics consistent (see ADR 0012) -- not because the JSON contract
+itself needed fixing this time. All four v1 schemas are kept,
 unreferenced, as a historical record of the original placeholder contract
 -- never edited in place, matching every other versioned artifact in this
 codebase (AIPromptVersion, golden
@@ -163,6 +174,21 @@ ESG_ASSISTANT_V1 = {
     "additionalProperties": False,
 }
 
+# Phase 7e: the real esg_assistant contract -- field-for-field identical
+# to v1 (see this module's docstring for why no field changed). Bumped
+# for versioning-scheme consistency only.
+ESG_ASSISTANT_V2 = {
+    "type": "object",
+    "required": ["answer", "citations", "confidence", "unsupported_claim"],
+    "properties": {
+        "answer": {"type": "string"},
+        "citations": {"type": "array", "items": {"type": "string"}},
+        "confidence": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]},
+        "unsupported_claim": {"type": "boolean"},
+    },
+    "additionalProperties": False,
+}
+
 REPORT_NARRATION_V1 = {
     "type": "object",
     "required": ["narrative", "referenced_figures"],
@@ -204,6 +230,7 @@ _SCHEMAS = {
     ("validation_assistance", 1): VALIDATION_ASSISTANCE_V1,
     ("validation_assistance", 2): VALIDATION_ASSISTANCE_V2,
     ("esg_assistant", 1): ESG_ASSISTANT_V1,
+    ("esg_assistant", 2): ESG_ASSISTANT_V2,
     ("judge_scoring", 1): JUDGE_SCORING_V1,
     ("judge_pairwise", 1): JUDGE_PAIRWISE_V1,
     ("report_narration", 1): REPORT_NARRATION_V1,

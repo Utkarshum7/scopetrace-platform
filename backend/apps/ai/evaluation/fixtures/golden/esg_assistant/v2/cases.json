@@ -1,0 +1,62 @@
+[
+  {
+    "case_id": "esg_assistant_v2_001",
+    "description": "A metrics question answerable directly from the retrieved org summary context.",
+    "prompt_name": "esg_assistant",
+    "response_schema_id": "esg_assistant",
+    "response_schema_version": 2,
+    "template_vars": {
+      "question": "What was our total CO2e for this reporting period?",
+      "context": "org_summary: total_co2e_tonnes=842.150000000, by_scope={'SCOPE_1': 512.300000000, 'SCOPE_2': 329.850000000}, batch_count=14, coverage=0.93"
+    },
+    "expected_response": {
+      "answer": "Total CO2e for this reporting period was 842.15 tonnes, made up of 512.30 tonnes from Scope 1 and 329.85 tonnes from Scope 2, across 14 uploaded batches.",
+      "citations": ["org_summary"],
+      "confidence": "HIGH",
+      "unsupported_claim": false
+    },
+    "expected_prompt_template_hash": "7724dfe0438ea8ff5f26c2b0281150a979c88e288df76d666567db59f6bcdfc3",
+    "expected_rendered_input_hash": "2c2c35ef561154fc7b4c8d86371a4af984eea444bc2ee332aeb7424a0de5b271",
+    "min_score": 1.0
+  },
+  {
+    "case_id": "esg_assistant_v2_002",
+    "description": "A conceptual platform-usage question answerable from static platform-info context, not org-specific data.",
+    "prompt_name": "esg_assistant",
+    "response_schema_id": "esg_assistant",
+    "response_schema_version": 2,
+    "template_vars": {
+      "question": "What emission scopes does ScopeTrace track?",
+      "context": "platform_info: ScopeTrace tracks SCOPE_1 (direct emissions, e.g. fuel combustion) and SCOPE_2 (indirect emissions from purchased energy, e.g. electricity) today; SCOPE_3 (value chain) is not yet a supported activity type."
+    },
+    "expected_response": {
+      "answer": "ScopeTrace currently tracks Scope 1 (direct emissions, such as fuel combustion) and Scope 2 (indirect emissions from purchased energy, such as electricity). Scope 3 (value chain emissions) is not yet a supported activity type.",
+      "citations": ["platform_info"],
+      "confidence": "HIGH",
+      "unsupported_claim": false
+    },
+    "expected_prompt_template_hash": "7724dfe0438ea8ff5f26c2b0281150a979c88e288df76d666567db59f6bcdfc3",
+    "expected_rendered_input_hash": "5a85fedef3a9cadca0998231375aaecfa20d87712de3c515b368b30a5a0c7806",
+    "min_score": 1.0
+  },
+  {
+    "case_id": "esg_assistant_v2_003",
+    "description": "An honest 'not enough context' case -- the retrieved context has no Scope 3 data at all, so the assistant must flag the answer as unsupported rather than guessing.",
+    "prompt_name": "esg_assistant",
+    "response_schema_id": "esg_assistant",
+    "response_schema_version": 2,
+    "template_vars": {
+      "question": "What was our Scope 3 total this quarter?",
+      "context": "org_summary: total_co2e_tonnes=842.150000000, by_scope={'SCOPE_1': 512.300000000, 'SCOPE_2': 329.850000000}, batch_count=14, coverage=0.93"
+    },
+    "expected_response": {
+      "answer": "The retrieved context only breaks emissions down into Scope 1 and Scope 2 totals; it does not include a Scope 3 figure, so I can't confidently answer this question from the available data.",
+      "citations": ["org_summary"],
+      "confidence": "LOW",
+      "unsupported_claim": true
+    },
+    "expected_prompt_template_hash": "7724dfe0438ea8ff5f26c2b0281150a979c88e288df76d666567db59f6bcdfc3",
+    "expected_rendered_input_hash": "88000d04dfd75640d7db05823256724a808299da504abf0d86ea609f6f557740",
+    "min_score": 1.0
+  }
+]
