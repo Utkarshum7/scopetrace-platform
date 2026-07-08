@@ -5,23 +5,34 @@ capability (VALIDATION_ASSISTANCE) rather than a third model -- see ADR
 0011: every output validation_assistance needs (explanation, affected
 fields, confidence, suggested correction) already maps onto AIAnnotation's
 existing four columns with no type mismatch, unlike factor_recommendation
-which needed a structurally new field (an FK to EmissionFactor).
+which needed a structurally new field (an FK to EmissionFactor). Phase 7e
+adds AIConversation + AIConversationMessage -- a genuinely new shape
+(multi-turn, user-initiated) that doesn't fit either existing model: it
+has no single governed `record` it's attached to, and its rows accumulate
+over a conversation rather than being one advisory output per event. Only
+AIConversationMessage is immutable (see ADR 0012); AIConversation itself
+is a plain, un-guarded container so its `user` FK can safely stay
+on_delete=SET_NULL like AIInteraction.actor, without reintroducing the
+SET_NULL-cascade-vs-blocked-update bug class ADR 0009 already worked
+around for AIAnnotation.
 
 None of these models ever hold or mutate governed business data (I1/I2 from
 docs/AI_ARCHITECTURE.md's invariants): AIPromptVersion is a registry of what
 was asked, AIInteraction is an audit/reproducibility record of what happened
 on each call, TenantAIPolicy is per-organization AI configuration,
-AIAnnotation/AIFactorRecommendation are immutable advisory output attached
-to a record. The DIRECTION of reference matters: no governed model
+AIAnnotation/AIFactorRecommendation/AIConversationMessage are immutable
+advisory output attached to a record (or, for AIConversationMessage, to a
+conversation). The DIRECTION of reference matters: no governed model
 (EmissionRecord, EmissionCalculation, EmissionFactor) has a foreign key TO
 anything here, and none of apps.ai's own logic ever writes to a governed
 model -- see apps/ai/services/gateway.py's docstring for where that
-boundary is enforced. AIAnnotation.record and
-AIFactorRecommendation.record/.recommended_factor are the FKs that point
-the OTHER way (an apps.ai model referencing governed models, read-only) --
-exactly the "AI reads context, AI never writes back" shape ADR 0006
-requires; nothing in apps.ingestion or apps.carbon ever imports or writes
-either model.
+boundary is enforced. AIAnnotation.record,
+AIFactorRecommendation.record/.recommended_factor, and
+AIConversationMessage's retrieval context (built read-only, never a FK)
+are how the OTHER direction (an apps.ai model referencing governed models,
+read-only) stays true -- exactly the "AI reads context, AI never writes
+back" shape ADR 0006 requires; nothing in apps.ingestion or apps.carbon
+ever imports or writes any model in this file.
 """
 import uuid
 
@@ -429,3 +440,132 @@ class AIFactorRecommendation(models.Model):
 
     def __str__(self):
         return f"Factor recommendation for record {self.record_id}"
+
+
+class AIConversation(models.Model):
+    """Phase 7e -- a container for one esg_assistant conversation's
+    messages. Deliberately NOT immutable/guarded the way AIConversationMessage
+    is: a conversation is just a grouping row, not itself advisory output,
+    so there's nothing to protect by blocking bulk update/delete on it. That
+    absence of a guard is what makes `user` safe as on_delete=SET_NULL
+    (matching AIInteraction.actor's own nullable pattern) -- deleting a user
+    never needs to cascade into a blocked queryset here. See ADR 0012.
+
+    Org-scoped, not per-user-private: any org member who can use AI can see
+    any conversation in their org, matching how AIAnnotation/
+    AIFactorRecommendation are already visible org-wide regardless of which
+    analyst's action originally triggered them.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        Organization, on_delete=models.PROTECT, related_name="ai_conversations",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ai_conversations",
+        help_text="Who started this conversation. Null if that user account was later deleted.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["organization", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"ESG Assistant conversation {self.id}"
+
+
+class _AIConversationMessageQuerySet(models.QuerySet):
+    """Append-only, identical reasoning to _AIAnnotationQuerySet -- no
+    SET_NULL field on this model either (conversation/organization/
+    interaction are all PROTECT), so no cascade shape can ever require a
+    carve-out here."""
+
+    def delete(self):
+        raise ValidationError("AI conversation messages are immutable and cannot be bulk-deleted.")
+
+    def update(self, **kwargs):
+        raise ValidationError("AI conversation messages are immutable and cannot be bulk-updated.")
+
+
+class AIConversationMessage(models.Model):
+    """Immutable, advisory-only turn in an esg_assistant conversation.
+    A USER-role message records the human's question (no `interaction` --
+    nothing was invoked); an ASSISTANT-role message records the AI's
+    answer, always with `interaction` set to the exact gateway call that
+    produced it.
+
+    `retrieved_context` persists exactly what apps.ai.services.
+    esg_context_builder assembled for THIS turn -- the milestone's
+    "retrieved context" display requirement, and a reproducibility record
+    matching AIInteraction's own "what was actually sent" philosophy.
+    Blank for USER messages (nothing was retrieved to answer a question
+    that hasn't been asked yet).
+
+    conversation/organization/interaction are all on_delete=PROTECT -- no
+    SET_NULL anywhere, same reasoning as AIAnnotation. `interaction` is
+    nullable (blank for USER messages only).
+    """
+
+    class Role(models.TextChoices):
+        USER = "USER", "User"
+        ASSISTANT = "ASSISTANT", "Assistant"
+
+    class Confidence(models.TextChoices):
+        LOW = "LOW", "Low"
+        MEDIUM = "MEDIUM", "Medium"
+        HIGH = "HIGH", "High"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        Organization, on_delete=models.PROTECT, related_name="ai_conversation_messages",
+    )
+    conversation = models.ForeignKey(
+        AIConversation, on_delete=models.PROTECT, related_name="messages",
+    )
+    interaction = models.ForeignKey(
+        AIInteraction, null=True, blank=True, on_delete=models.PROTECT, related_name="conversation_messages",
+        help_text="The exact gateway call that produced this message. Null for USER-role messages.",
+    )
+    role = models.CharField(max_length=10, choices=Role.choices)
+    content = models.TextField(help_text="The question (USER) or answer (ASSISTANT).")
+    citations = models.JSONField(
+        default=list, blank=True, help_text="References into the retrieved context supporting the answer.",
+    )
+    confidence = models.CharField(max_length=10, choices=Confidence.choices, blank=True)
+    unsupported_claim = models.BooleanField(
+        default=False, help_text="True if the AI flagged its own answer as not fully supported by the context.",
+    )
+    retrieved_context = models.TextField(
+        blank=True, help_text="The context block retrieved and shown to the AI for this turn.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    objects = _AIConversationMessageQuerySet.as_manager()
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["conversation", "created_at"]),
+            models.Index(fields=["organization", "-created_at"]),
+        ]
+        ordering = ["created_at"]
+
+    def clean(self):
+        super().clean()
+        if self.pk and AIConversationMessage.objects.filter(pk=self.pk).exists():
+            raise ValidationError("AI conversation messages are immutable and cannot be modified after creation.")
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("AI conversation messages are immutable and cannot be deleted.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.role} message in conversation {self.conversation_id}"

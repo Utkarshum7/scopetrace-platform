@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import AIAnnotation, AIFactorRecommendation, AIInteraction, AIPromptVersion, TenantAIPolicy
+from .models import (
+    AIAnnotation,
+    AIConversation,
+    AIConversationMessage,
+    AIFactorRecommendation,
+    AIInteraction,
+    AIPromptVersion,
+    TenantAIPolicy,
+)
 
 
 @admin.register(AIPromptVersion)
@@ -71,6 +79,36 @@ class AIFactorRecommendationAdmin(admin.ModelAdmin):
     def has_add_permission(self, request):
         # Rows are created only via apps.ai.services.factor_recommendation
         # -- immutable once created.
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(AIConversation)
+class AIConversationAdmin(admin.ModelAdmin):
+    list_display = ("id", "organization", "user", "created_at")
+    search_fields = ("id", "organization__name", "user__username")
+    readonly_fields = [f.name for f in AIConversation._meta.fields]
+
+    def has_add_permission(self, request):
+        # Rows are created only via the esg_assistant API/service.
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(AIConversationMessage)
+class AIConversationMessageAdmin(admin.ModelAdmin):
+    list_display = ("conversation", "role", "confidence", "organization", "created_at")
+    list_filter = ("role", "confidence")
+    search_fields = ("conversation__id", "organization__name")
+    readonly_fields = [f.name for f in AIConversationMessage._meta.fields]
+
+    def has_add_permission(self, request):
+        # Rows are created only via apps.ai.services.esg_assistant --
+        # immutable once created.
         return False
 
     def has_change_permission(self, request, obj=None):
