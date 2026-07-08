@@ -3,9 +3,9 @@ Egress policy enforcement -- two independent jobs:
 
 1. enforce_provider_allowed(): is the resolved provider even reachable under
    this tenant's egress tier? NO_EGRESS tenants may only use zero-egress
-   providers (today: 'echo' only -- a real self-hosted/BYO adapter is a
-   documented, deferred Phase 7a seam per the finalized Phase 7 design, not
-   yet a concrete provider).
+   providers (today: 'echo' and 'replay' -- a real self-hosted/BYO adapter
+   is a documented, deferred Phase 7a seam per the finalized Phase 7
+   design, not yet a concrete provider).
 2. redact_template_vars(): under the REDACTED tier (the platform default),
    scrub common PII-shaped patterns from tenant-derived template_vars
    *before* they are rendered into a prompt -- so the hash recorded on
@@ -17,11 +17,11 @@ provider reachability.
 import re
 from dataclasses import dataclass
 
-# A real self-hosted/BYO model or the 'echo' dev provider are the only
-# providers that make zero external network calls. Anthropic/OpenAI are
-# never in this set, by construction (they exist specifically to call an
-# external vendor API).
-ZERO_EGRESS_PROVIDERS = frozenset({"echo"})
+# A real self-hosted/BYO model, or the 'echo'/'replay' dev+eval providers,
+# are the only providers that make zero external network calls.
+# Anthropic/OpenAI are never in this set, by construction (they exist
+# specifically to call an external vendor API).
+ZERO_EGRESS_PROVIDERS = frozenset({"echo", "replay"})
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 # Phone numbers, account/reference numbers, etc. -- deliberately broad
