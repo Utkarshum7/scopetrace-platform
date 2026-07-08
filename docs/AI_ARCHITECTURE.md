@@ -229,10 +229,9 @@ and become real end-to-end API-level RBAC once 7b+ adds the first endpoint.
 
 ## 10. What's explicitly NOT in Phase 7a (updated as later milestones land)
 
-No ESG assistant, no report narrative generation — each remains a later
-milestone (7e–7f) that calls `invoke_ai()`, never reimplements any part of
-this foundation. Also still not implemented (per the finalized Phase 7
-design):
+No report narrative generation — it remains a later milestone (7f) that
+calls `invoke_ai()`, never reimplements any part of this foundation. Also
+still not implemented (per the finalized Phase 7 design):
 - A concrete self-hosted/BYO provider adapter (the seam exists; no adapter).
 - ~~The AI evaluation/golden-set harness~~ — done in **Phase 7a.5**, see
   [`AI_EVALUATION.md`](AI_EVALUATION.md).
@@ -254,6 +253,13 @@ design):
   `Capability` choice rather than a new model, surfaced through the
   SAME `GET /api/records/{id}/ai-annotations/` endpoint and a third
   sub-section in the same "AI Insights" panel. See §14 and ADR 0011.
+- ~~ESG Assistant, any `AIConversation`/`AIConversationMessage` model~~ —
+  done in **Phase 7e**: `apps.ai.services.esg_assistant` (capability
+  `esg_assistant`) plus `apps.ai.services.esg_context_builder` (structured
+  retrieval, not a vector store), `AIConversation`/`AIConversationMessage`
+  (only messages immutable), apps.ai's own first API views
+  (`/api/esg-assistant/conversations/...`), and a new dedicated ESG
+  Assistant page. See §16 and ADR 0012.
 
 ---
 
@@ -385,7 +391,61 @@ before and after a successful call, and that the record remains exactly
 
 ---
 
-## 15. Related documents
+## 16. Phase 7e — ESG Assistant (RAG)
+
+The fourth real Phase 7 capability, and the first with a genuinely
+different shape: conversational (multi-turn), user-initiated (not
+triggered by a pipeline event), with no single governed record to attach
+advisory output to. See ADR 0012 for the four structural decisions this
+section summarizes.
+
+**Retrieval is deterministic, structured retrieval — not a vector
+store.** `apps.ai.services.esg_context_builder.build_context(organization)`
+queries `MetricsService.summary()` (the same dashboard aggregation),
+the compliance-report's APPROVED-only query pattern (a separate,
+audit-grade total), recent `UploadBatch` rows, and active
+`EmissionFactorDataset` rows — every figure comes from a query this
+codebase already trusts elsewhere for the same data. Tenant isolation is
+structural: every query takes `organization` as a required, explicit
+parameter.
+
+**`ask_esg_assistant(conversation, question)` is synchronous, not
+Celery-queued** — unlike 7b/7c/7d's fire-and-forget background
+enrichment, a human is waiting in the UI for THIS answer to THIS
+question. The USER's question is persisted unconditionally, independent
+of whether the AI call succeeds; the ASSISTANT's answer (with
+citations/confidence/unsupported_claim and the exact `retrieved_context`
+shown to the AI) is persisted only on a successful `invoke_ai()` call.
+This capability was never in the ingest → calculate pipeline, so "never
+increase ingest → calculate latency" holds by construction.
+
+**Persistence**: `AIConversation` (organization, user — a plain,
+un-guarded container) and `AIConversationMessage` (immutable,
+`AuditTrail`-style, all-`PROTECT` FKs). Only messages are immutable, not
+the conversation container — see ADR 0012, Decision 3, for why that
+split avoids a new deletion hazard on `AIConversation.user`.
+
+**Read path**: apps.ai's own first API views (previously every AI
+capability was surfaced through an `@action` on an existing
+apps.ingestion viewset). `GET/POST /api/esg-assistant/conversations/`,
+`GET .../{id}/messages/`, `POST .../{id}/ask/` — structurally read-only
+except the two actions a conversational feature necessarily requires
+(no Update/Destroy mixin anywhere). Gated by `CanUseAI`, unused since its
+Phase 7a introduction until this milestone. The frontend gained a new,
+dedicated ESG Assistant page (not a detail-drawer panel — a chat
+interface warrants its own screen), showing the conversation, citations,
+retrieved context, and confidence, every assistant response labeled "AI
+Advisory."
+
+The milestone's explicit callouts — "no governed data mutation," "no
+cross-tenant retrieval," "RBAC enforcement" — have formal,
+merge-gate-visible proofs: `InvariantI2EsgAssistantConcreteProofTests`
+and `InvariantI3EsgAssistantConcreteProofTests` in
+`apps/ai/evaluation/tests_invariants.py`.
+
+---
+
+## 17. Related documents
 
 - [`ROADMAP.md`](ROADMAP.md) — Phase 7 milestone breakdown (7a–7g).
 - [`AI_EVALUATION.md`](AI_EVALUATION.md) — Phase 7a.5's evaluation/
@@ -394,11 +454,14 @@ before and after a successful call, and that the record remains exactly
   must keep green.
 - [`CARBON_ENGINE_DESIGN.md`](CARBON_ENGINE_DESIGN.md) — the pipeline's
   reserved `AIRecommendationStage`/`OptimizationStage` seams, still inert
-  after Phase 7d (see ADR 0009 for why anomaly explanation didn't use them).
+  after Phase 7e (see ADR 0009 for why anomaly explanation didn't use them).
 - [`docs/adr/0005-ai-provider-abstraction-and-schema-enforcement.md`](adr/0005-ai-provider-abstraction-and-schema-enforcement.md)
 - [`docs/adr/0006-ai-advisory-only-no-direct-mutation.md`](adr/0006-ai-advisory-only-no-direct-mutation.md)
 - [`docs/adr/0007-ai-tenant-egress-and-cost-policy.md`](adr/0007-ai-tenant-egress-and-cost-policy.md)
 - [`docs/adr/0008-ai-evaluation-tiering.md`](adr/0008-ai-evaluation-tiering.md)
 - [`docs/adr/0009-anomaly-explanation-async-dispatch-and-immutable-annotations.md`](adr/0009-anomaly-explanation-async-dispatch-and-immutable-annotations.md)
+- [`docs/adr/0010-factor-recommendation-candidate-labels-and-dedicated-model.md`](adr/0010-factor-recommendation-candidate-labels-and-dedicated-model.md)
+- [`docs/adr/0011-validation-assistance-reuses-aiannotation.md`](adr/0011-validation-assistance-reuses-aiannotation.md)
+- [`docs/adr/0012-esg-assistant-synchronous-structured-retrieval.md`](adr/0012-esg-assistant-synchronous-structured-retrieval.md)
 - [`docs/adr/0010-factor-recommendation-candidate-labels-and-dedicated-model.md`](adr/0010-factor-recommendation-candidate-labels-and-dedicated-model.md)
 - [`docs/adr/0011-validation-assistance-reuses-aiannotation.md`](adr/0011-validation-assistance-reuses-aiannotation.md)

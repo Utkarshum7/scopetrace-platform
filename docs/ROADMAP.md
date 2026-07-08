@@ -105,8 +105,21 @@ enterprise governance) are complete. What's next, as currently planned:
   columns), so no new endpoint either -- the existing
   `GET /api/records/{id}/ai-annotations/` already returns both
   capabilities, split client-side into a third "AI Insights" panel
-  sub-section. See AI_ARCHITECTURE.md §14 and ADR 0011. 7e–7g (ESG
-  assistant, report narration, observability/cost governance) remain.
+  sub-section. See AI_ARCHITECTURE.md §14 and ADR 0011. **7e (ESG
+  Assistant / RAG) is done**: the fourth real Phase 7 capability, and the
+  first with a genuinely different shape -- conversational, user-
+  initiated, no single governed record to attach output to. Retrieval is
+  deterministic structured retrieval against already tenant/RBAC/soft-
+  delete/approval-aware services (`MetricsService`, the compliance-report
+  query pattern), not a vector store. `ask_esg_assistant()` runs
+  synchronously (not queued -- a human is waiting for the answer in the
+  same request), persisting the question unconditionally and the answer
+  only on success, as immutable `AIConversationMessage` rows grouped
+  under a plain `AIConversation` container. apps.ai gained its own first
+  API views (`/api/esg-assistant/conversations/...`, gated by `CanUseAI`)
+  and a new dedicated ESG Assistant page. See AI_ARCHITECTURE.md §16 and
+  ADR 0012. 7f–7g (report narration, observability/cost governance)
+  remain.
 - **Phase 8 — UX**: accessibility audit, responsive design pass, theming,
   saved/custom dashboards, an in-app notification center (distinct from
   Phase 5g's email notifications — a UI-visible feed, not a new delivery
