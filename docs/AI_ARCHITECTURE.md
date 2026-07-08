@@ -235,7 +235,8 @@ those is a later milestone (7b–7f) that calls `invoke_ai()`, never
 reimplements any part of this foundation. Also not in 7a (per the
 finalized Phase 7 design):
 - A concrete self-hosted/BYO provider adapter (the seam exists; no adapter).
-- The AI evaluation/golden-set harness (Phase 7a.5).
+- ~~The AI evaluation/golden-set harness~~ — done in **Phase 7a.5**, see
+  [`AI_EVALUATION.md`](AI_EVALUATION.md).
 - Any `AISuggestion`/`AIAnnotation` model — those belong to the feature
   milestone that first needs one.
 
@@ -244,9 +245,14 @@ finalized Phase 7 design):
 ## 11. Related documents
 
 - [`ROADMAP.md`](ROADMAP.md) — Phase 7 milestone breakdown (7a–7g).
+- [`AI_EVALUATION.md`](AI_EVALUATION.md) — Phase 7a.5's evaluation/
+  regression framework: golden datasets, replay providers, the two-tier CI
+  split, the formal I1–I6 invariant merge gate every future AI milestone
+  must keep green.
 - [`CARBON_ENGINE_DESIGN.md`](CARBON_ENGINE_DESIGN.md) — the pipeline's
   reserved `AIRecommendationStage`/`OptimizationStage` seams this
   foundation will plug into from 7b onward.
 - [`docs/adr/0005-ai-provider-abstraction-and-schema-enforcement.md`](adr/0005-ai-provider-abstraction-and-schema-enforcement.md)
 - [`docs/adr/0006-ai-advisory-only-no-direct-mutation.md`](adr/0006-ai-advisory-only-no-direct-mutation.md)
 - [`docs/adr/0007-ai-tenant-egress-and-cost-policy.md`](adr/0007-ai-tenant-egress-and-cost-policy.md)
+- [`docs/adr/0008-ai-evaluation-tiering.md`](adr/0008-ai-evaluation-tiering.md)

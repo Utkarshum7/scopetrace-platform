@@ -59,8 +59,16 @@ enterprise governance) are complete. What's next, as currently planned:
   & Governance Seam) is done**: provider-agnostic LLM gateway, schema-
   enforced responses, per-tenant policy/budget/egress, full call-
   reproducibility audit trail — advisory-only, no feature implemented yet.
-  See [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md). 7a.5 (evaluation
-  infrastructure) and 7b–7g (the actual AI features) remain.
+  See [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md). **7a.5 (AI Evaluation
+  Infrastructure) is done**: golden datasets + automatic prompt-regression
+  detection for all five planned capabilities, deterministic replay
+  providers, a formal I1–I6 invariant suite intended as a merge gate for
+  every future AI milestone, an LLM-as-Judge framework (built, tested,
+  disabled by default), and a two-tier CI split (deterministic checks
+  blocking, LLM-judge/qualitative checks advisory) — still no AI feature
+  implemented, only the harness every future capability must pass. See
+  [`AI_EVALUATION.md`](AI_EVALUATION.md). The Phase 7 foundation is now
+  complete; 7b–7g (the actual AI features) remain.
 - **Phase 8 — UX**: accessibility audit, responsive design pass, theming,
   saved/custom dashboards, an in-app notification center (distinct from
   Phase 5g's email notifications — a UI-visible feed, not a new delivery
