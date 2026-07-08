@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react';
 import { apiService } from '../services/api';
 
 /**
- * AIInsightsPanel — Phase 7b. Read-only, advisory-only: renders whatever
- * apps.ai already generated (GET /api/records/{id}/ai-annotations/), never
- * triggers generation itself and never offers any action that could be
- * mistaken for a governance decision. Renders nothing while loading or if
- * no annotations exist yet — this is deliberately a passive, expandable
- * addition to the existing detail drawer, not a new page or a required step
- * in the review flow.
+ * AIInsightsPanel — Phase 7b (anomaly explanations), extended in Phase 7c
+ * with factor recommendations. Read-only, advisory-only: renders whatever
+ * apps.ai already generated (GET /api/records/{id}/ai-annotations/ and
+ * GET /api/records/{id}/factor-recommendations/), never triggers
+ * generation itself and never offers any action that could be mistaken
+ * for a governance decision. Renders nothing while loading or if NEITHER
+ * annotations nor factor recommendations exist yet — this is
+ * deliberately a passive, expandable addition to the existing detail
+ * drawer, not a new page or a required step in the review flow.
  */
 const CONFIDENCE_STYLES = {
   LOW: 'bg-slate-800/60 border-slate-700 text-slate-400',
@@ -18,19 +20,21 @@ const CONFIDENCE_STYLES = {
 
 export const AIInsightsPanel = ({ recordId }) => {
   const [annotations, setAnnotations] = useState([]);
+  const [factorRecommendations, setFactorRecommendations] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
-    apiService
-      .getRecordAIAnnotations(recordId)
-      .then((data) => {
-        if (!cancelled) setAnnotations(data);
-      })
-      .catch(() => {
-        if (!cancelled) setAnnotations([]);
+    Promise.all([
+      apiService.getRecordAIAnnotations(recordId).catch(() => []),
+      apiService.getRecordFactorRecommendations(recordId).catch(() => []),
+    ])
+      .then(([annotationsData, factorRecommendationsData]) => {
+        if (cancelled) return;
+        setAnnotations(annotationsData);
+        setFactorRecommendations(factorRecommendationsData);
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
@@ -40,7 +44,7 @@ export const AIInsightsPanel = ({ recordId }) => {
     };
   }, [recordId]);
 
-  if (isLoading || annotations.length === 0) return null;
+  if (isLoading || (annotations.length === 0 && factorRecommendations.length === 0)) return null;
 
   return (
     <div className="rounded-lg border border-indigo-500/30 bg-indigo-950/20 overflow-hidden">
@@ -112,8 +116,68 @@ export const AIInsightsPanel = ({ recordId }) => {
               </span>
             </div>
           ))}
+
+          {factorRecommendations.map((r, idx) => (
+            <div
+              key={r.id}
+              className={`flex flex-col gap-2 pt-2 ${
+                idx > 0 || annotations.length > 0 ? 'border-t border-indigo-500/10' : ''
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold text-indigo-300 uppercase tracking-wider">
+                  factor recommendation
+                </span>
+                <span
+                  className={`px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wide ${
+                    CONFIDENCE_STYLES[r.confidence] || CONFIDENCE_STYLES.LOW
+                  }`}
+                >
+                  {r.confidence} confidence
+                </span>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                  Recommended factor
+                </span>
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  {r.recommended_factor_label || 'None of the candidates were a confident match.'}
+                </p>
+              </div>
+
+              <p className="text-[11px] text-slate-300 leading-relaxed">{r.explanation}</p>
+
+              {r.reasoning && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                    Reasoning
+                  </span>
+                  <p className="text-[11px] text-indigo-200/90 leading-relaxed">{r.reasoning}</p>
+                </div>
+              )}
+
+              {r.alternative_candidates?.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                    Alternative candidates
+                  </span>
+                  <ul className="list-disc list-inside space-y-0.5 text-[10px] text-slate-400 pl-1">
+                    {r.alternative_candidates.map((candidate, i) => (
+                      <li key={i}>{candidate}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <span className="text-[9px] text-slate-600 font-mono">
+                {new Date(r.created_at).toLocaleString()}
+              </span>
+            </div>
+          ))}
+
           <p className="text-[9px] text-indigo-400/60 italic pt-1">
-            AI-generated explanation. Advisory only — does not alter this record&apos;s status or data.
+            AI-generated. Advisory only — does not alter this record&apos;s status, data, or emission factor.
           </p>
         </div>
       )}

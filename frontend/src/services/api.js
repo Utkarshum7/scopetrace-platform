@@ -217,6 +217,13 @@ export const apiService = {
     return response.data;
   },
 
+  // Phase 7c: read-only AI advisory factor recommendations for a record --
+  // never a mutation endpoint. Returns [] if none exist yet.
+  async getRecordFactorRecommendations(recordId) {
+    const response = await api.get(`/api/records/${recordId}/factor-recommendations/`);
+    return response.data;
+  },
+
   // ----- Metrics / analytics -----
   async getMetricsSummary(params = {}) {
     return (await api.get('/api/metrics/summary/', { params })).data;
