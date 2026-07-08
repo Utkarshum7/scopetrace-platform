@@ -132,6 +132,15 @@ def calculate_task(self, batch_id: str, workflow_id: str) -> str:
         # a separate, independently-retryable task so mail delivery can
         # never delay returning "completed" here or affect batch state.
         send_notification_task.delay(batch_id=batch_id)
+        # Phase 7c: advisory AI factor recommendations for whatever this
+        # run left UNRESOLVED_NO_FACTOR -- dispatched as a separate,
+        # independently-scheduled task (apps.ai.tasks.
+        # generate_factor_recommendations_task) on its own 'ai' queue,
+        # exactly like send_notification_task above. CarbonCalculationService's
+        # own deterministic resolution_status is not touched by this
+        # dispatch in any way -- it only reads what was already decided.
+        from apps.ai.tasks import generate_factor_recommendations_task
+        generate_factor_recommendations_task.delay(batch_id=batch_id)
         return "completed"
     except CALCULATE_RETRYABLE_EXCEPTIONS:
         logger.warning(

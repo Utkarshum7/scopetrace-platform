@@ -1,7 +1,7 @@
 """
 Phase 7a -- apps.ai's Celery task(s). Phase 7b adds
 generate_anomaly_explanations_task, the first real (non-heartbeat) work on
-the 'ai' queue.
+the 'ai' queue. Phase 7c adds generate_factor_recommendations_task.
 """
 import logging
 
@@ -102,6 +102,61 @@ def generate_anomaly_explanations_task(batch_id: str) -> str:
 
     logger.info(
         "generate_anomaly_explanations_task: batch %s -- %s generated, %s errored",
+        batch_id, generated, errored,
+    )
+    return f"generated={generated} errored={errored}"
+
+
+@shared_task(name='apps.ai.tasks.generate_factor_recommendations_task')
+def generate_factor_recommendations_task(batch_id: str) -> str:
+    """Phase 7c -- fire-and-forget, dispatched from apps.carbon.tasks.
+    calculate_task's success path, mirroring
+    generate_anomaly_explanations_task's exact dispatch pattern (a
+    separate, independently-scheduled task on the 'ai' queue, never inline
+    with calculation). A slow or unavailable AI provider can therefore
+    never delay or fail the deterministic calculation pipeline -- this
+    task doesn't even start until CarbonCalculationService has already
+    committed every EmissionCalculation row for the batch.
+
+    Idempotent under Celery's at-least-once redelivery: re-derives the
+    UNRESOLVED_NO_FACTOR record set fresh from the DB every run and skips
+    any record that already has an AIFactorRecommendation, rather than
+    trusting anything passed in the task message. One record's failure
+    (caught broadly, logged, counted) never aborts the rest of the batch --
+    matches recommend_emission_factor()'s own I6 fail-safe design one
+    level up.
+    """
+    from apps.ai.services.factor_recommendation import recommend_emission_factor
+    from apps.carbon.models import EmissionCalculation
+    from apps.ingestion.models import EmissionRecord
+
+    records = (
+        EmissionRecord.objects.filter(
+            batch_id=batch_id,
+            calculations__is_current=True,
+            calculations__resolution_status=EmissionCalculation.ResolutionStatus.UNRESOLVED_NO_FACTOR,
+        )
+        .exclude(ai_factor_recommendations__isnull=False)
+        .select_related("organization", "batch__data_source")
+        .distinct()
+    )
+
+    generated = 0
+    errored = 0
+    for record in records:
+        try:
+            recommendation = recommend_emission_factor(record)
+        except Exception:  # noqa: BLE001 - one bad record must never abort the batch
+            logger.exception(
+                "generate_factor_recommendations_task: record %s failed", record.id,
+            )
+            errored += 1
+            continue
+        if recommendation is not None:
+            generated += 1
+
+    logger.info(
+        "generate_factor_recommendations_task: batch %s -- %s generated, %s errored",
         batch_id, generated, errored,
     )
     return f"generated={generated} errored={errored}"
