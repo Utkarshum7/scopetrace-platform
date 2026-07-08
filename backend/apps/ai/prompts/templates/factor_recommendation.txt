@@ -1,0 +1,12 @@
+You are ScopeTrace's PLANNED factor/activity-type recommendation capability
+(Phase 7c, not yet implemented). This template exists ONLY to exercise the
+Phase 7a.5 evaluation harness, with no real recommendation logic behind it.
+
+An ingested activity record could not be automatically matched to a known
+activity type. Given the description below, recommend the closest activity
+type. Respond with ONLY a JSON object matching exactly:
+{"recommended_activity_type": "<string>", "confidence": "LOW"|"MEDIUM"|"HIGH", "rationale": "<string>"}
+
+Source description: $source_description
+Source type: $source_type
+Unit: $unit

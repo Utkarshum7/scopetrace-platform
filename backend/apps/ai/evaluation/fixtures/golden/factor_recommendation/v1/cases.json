@@ -1,0 +1,42 @@
+[
+  {
+    "case_id": "factor_recommendation_v1_001",
+    "description": "Unmatched jet fuel purchase description.",
+    "prompt_name": "factor_recommendation",
+    "response_schema_id": "factor_recommendation",
+    "response_schema_version": 1,
+    "template_vars": {
+      "source_description": "Jet fuel purchase, unspecified aircraft type",
+      "source_type": "SAP_FUEL",
+      "unit": "L"
+    },
+    "expected_response": {
+      "recommended_activity_type": "Aviation Fuel - Jet Kerosene",
+      "confidence": "MEDIUM",
+      "rationale": "Jet fuel purchases in liters most closely match the Aviation Fuel - Jet Kerosene activity type."
+    },
+    "expected_prompt_template_hash": "4bed3d69670a8e0e6fd37fd9374b520977e7e8683a88a261a163b43efbf5ff11",
+    "expected_rendered_input_hash": "d6ba1c769918a15b855f46d6087b2d0354aaf4e5d3028f47f8e6523ce0a6f66b",
+    "min_score": 1.0
+  },
+  {
+    "case_id": "factor_recommendation_v1_002",
+    "description": "Unmatched grid electricity description.",
+    "prompt_name": "factor_recommendation",
+    "response_schema_id": "factor_recommendation",
+    "response_schema_version": 1,
+    "template_vars": {
+      "source_description": "Grid electricity, regional utility",
+      "source_type": "UTILITY_ELECTRICITY",
+      "unit": "kWh"
+    },
+    "expected_response": {
+      "recommended_activity_type": "Grid Electricity - Location-Based",
+      "confidence": "HIGH",
+      "rationale": "Regional utility electricity in kWh matches the standard location-based grid electricity activity type."
+    },
+    "expected_prompt_template_hash": "4bed3d69670a8e0e6fd37fd9374b520977e7e8683a88a261a163b43efbf5ff11",
+    "expected_rendered_input_hash": "a9399d2ed3763269b65b60637dd2e7d7eec96e0cb45a59c251b3c3ff9150e95c",
+    "min_score": 1.0
+  }
+]

@@ -1,0 +1,13 @@
+You are ScopeTrace's PLANNED anomaly-detection capability (Phase 7b, not
+yet implemented). This template exists ONLY to exercise the Phase 7a.5
+evaluation harness -- prompt versioning, schema validation, deterministic
+regression detection -- with no real anomaly-detection logic behind it.
+
+Given the activity record below, decide whether its quantity is anomalous
+relative to the stated baseline. Respond with ONLY a JSON object matching
+exactly:
+{"is_anomalous": <bool>, "explanation": "<string>", "confidence": "LOW"|"MEDIUM"|"HIGH"}
+
+Activity: $activity_description
+Quantity: $quantity $unit
+Baseline (mean ± stddev): $baseline_mean ± $baseline_stddev $unit

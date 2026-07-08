@@ -1,0 +1,21 @@
+[
+  {
+    "case_id": "report_narration_v1_001",
+    "description": "Standard quarterly summary narration referencing already-computed figures only.",
+    "prompt_name": "report_narration",
+    "response_schema_id": "report_narration",
+    "response_schema_version": 1,
+    "template_vars": {
+      "period": "Q1 2026",
+      "total_co2e_tonnes": "452.3",
+      "scope_breakdown": "Scope 1: 200.1t, Scope 2: 180.5t, Scope 3: 71.7t"
+    },
+    "expected_response": {
+      "narrative": "In Q1 2026, total emissions were 452.3 tCO2e, led by Scope 1 at 200.1 tCO2e, followed by Scope 2 at 180.5 tCO2e and Scope 3 at 71.7 tCO2e.",
+      "referenced_figures": ["Total CO2e", "Scope 1", "Scope 2", "Scope 3"]
+    },
+    "expected_prompt_template_hash": "136952cdb4577d38d9a0a63a170079843841b36877c1f67f7b8a9ef9d7b58403",
+    "expected_rendered_input_hash": "e6a05a862f108a8fd56479df802b380378b292e15053d453d4e3cfedf84d4465",
+    "min_score": 1.0
+  }
+]
