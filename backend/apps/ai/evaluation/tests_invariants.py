@@ -154,6 +154,87 @@ class InvariantI2AnomalyDetectionConcreteProofTests(TestCase):
         self.assertEqual(before, after)
 
 
+@override_settings(AI_ENABLED=True, AI_PROVIDER="echo", AI_DEFAULT_MODEL="echo-1")
+class InvariantI2FactorRecommendationConcreteProofTests(TestCase):
+    """I2, Phase 7c edition: the formal, merge-gate-visible proof of the
+    milestone's own explicit callout -- "Verify AI never changes the
+    deterministic factor." apps.ai.services.factor_recommendation legitimately
+    NEEDS to import apps.carbon.models (EmissionCalculation, EmissionFactor)
+    to read candidates, so -- exactly like anomaly_detection's proof above --
+    the invariant shifts from "no import" to "read-only usage": every field
+    on BOTH the calculation and the candidate factor it recommended is
+    byte-identical before and after a successful recommend_emission_factor()
+    call. Duplicates none of tests_factor_recommendation.py's own coverage
+    -- this is the formal version of the same claim, run as part of the
+    same merge-gate suite every other invariant in this file belongs to.
+    """
+
+    def setUp(self):
+        from apps.carbon.tests.factories import activity_type, dataset, factor
+        from apps.core.models import DataSource
+
+        self.org = Organization.objects.create(name="Invariant I2 Factor Rec Org")
+        TenantAIPolicy.objects.create(organization=self.org, ai_enabled=True, provider_override="echo")
+        self.ds = DataSource.objects.create(
+            organization=self.org, name="SAP", source_type=DataSource.SourceType.SAP_FUEL,
+        )
+        self.activity_type = activity_type()
+        self.dataset = dataset()
+        self.factor = factor(self.dataset, self.activity_type)
+
+    def test_recommend_emission_factor_never_mutates_calculation_or_factor_fields(self):
+        from unittest.mock import patch
+
+        from apps.ai.services.factor_recommendation import recommend_emission_factor
+        from apps.ai.services.gateway import AIGatewayResult
+        from apps.carbon.models import EmissionCalculation
+        from apps.ingestion.models import EmissionRecord, UploadBatch
+
+        batch = UploadBatch.objects.create(organization=self.org, data_source=self.ds, file_name="i2_factor.csv")
+        record = EmissionRecord.objects.create(
+            organization=self.org, batch=batch, row_index=1, raw_data_payload={"a": 1},
+            status=EmissionRecord.RecordStatus.DRAFT, normalized_value=500,
+            normalized_unit="L", scope_category="SCOPE_1",
+        )
+        calc = EmissionCalculation.objects.create(
+            organization=self.org, emission_record=record, is_current=True,
+            resolution_status=EmissionCalculation.ResolutionStatus.UNRESOLVED_NO_FACTOR,
+            activity_type=self.activity_type, scope="SCOPE_1",
+            activity_quantity=500, activity_unit="L",
+        )
+
+        calc_before = {f.name: getattr(calc, f.name) for f in EmissionCalculation._meta.fields}
+        factor_before = {f.name: getattr(self.factor, f.name) for f in self.factor._meta.fields}
+
+        interaction = AIInteraction.objects.create(
+            organization=self.org, capability="factor_recommendation", provider="echo", model_id="echo-1",
+            outcome=AIInteraction.Outcome.OK, egress_tier_applied=TenantAIPolicy.EgressTier.REDACTED,
+        )
+        parsed = {
+            "recommended_candidate_label": "candidate_1", "confidence": "HIGH",
+            "explanation": "x", "reasoning": "x", "alternative_candidates": [],
+        }
+        with patch(
+            "apps.ai.services.factor_recommendation.invoke_ai",
+            return_value=AIGatewayResult(outcome=AIInteraction.Outcome.OK, interaction_id=str(interaction.id), parsed=parsed),
+        ):
+            recommendation = recommend_emission_factor(record)
+        self.assertIsNotNone(recommendation)  # the call actually succeeded -- a meaningful proof, not a vacuous one
+        self.assertEqual(recommendation.recommended_factor, self.factor)
+
+        calc.refresh_from_db()
+        self.factor.refresh_from_db()
+        calc_after = {f.name: getattr(calc, f.name) for f in EmissionCalculation._meta.fields}
+        factor_after = {f.name: getattr(self.factor, f.name) for f in self.factor._meta.fields}
+        self.assertEqual(calc_before, calc_after)
+        self.assertEqual(factor_before, factor_after)
+        # The deterministic resolution_status this capability targets is
+        # explicitly still UNRESOLVED_NO_FACTOR -- the recommendation is
+        # advisory output attached alongside it, never a resolution.
+        self.assertEqual(calc_after["resolution_status"], EmissionCalculation.ResolutionStatus.UNRESOLVED_NO_FACTOR)
+        self.assertIsNone(calc_after["emission_factor"])
+
+
 class InvariantI3TenantIsolationTests(TestCase):
     """I3: no cross-tenant context ever enters a prompt or a budget total.
     Gateway-level proof already lives in

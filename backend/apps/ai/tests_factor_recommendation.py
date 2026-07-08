@@ -121,6 +121,13 @@ class RecommendEmissionFactorHappyPathTests(TestCase):
     def test_creates_a_recommendation_and_resolves_the_chosen_label(self):
         record = _make_record(self.org, self.batch)
         _make_calculation(self.org, record, activity_type=self.activity_type)
+        # factor1/factor2 share the same dataset (identical priority and
+        # import_timestamp) and the factory's default value, so which one
+        # _candidate_factors() orders first is not something this test
+        # should hardcode an assumption about -- ask the same function the
+        # service uses, then assert the service resolved the label to
+        # exactly that object.
+        expected_candidate_1 = _candidate_factors(self.activity_type)[0]
         parsed = {
             "recommended_candidate_label": "candidate_1",
             "confidence": "HIGH",
@@ -134,7 +141,7 @@ class RecommendEmissionFactorHappyPathTests(TestCase):
         ) as mocked:
             rec = recommend_emission_factor(record)
         self.assertIsNotNone(rec)
-        self.assertEqual(rec.recommended_factor, self.factor1)
+        self.assertEqual(rec.recommended_factor, expected_candidate_1)
         self.assertEqual(rec.record, record)
         self.assertEqual(rec.confidence, "HIGH")
         self.assertEqual(rec.alternative_candidates, ["candidate_2"])
