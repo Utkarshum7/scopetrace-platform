@@ -3,6 +3,7 @@ import { apiService } from '../services/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { FilterBar } from '../components/FilterBar';
 import { ApprovalModal } from '../components/ApprovalModal';
+import { AIInsightsPanel } from '../components/AIInsightsPanel';
 
 export const RecordsPage = ({ initialFilters = {} }) => {
   const [records, setRecords] = useState([]);
@@ -331,6 +332,9 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                 </ul>
               </div>
             )}
+
+            {/* AI Insights — Phase 7b, advisory only, renders nothing if empty */}
+            <AIInsightsPanel recordId={selectedRecord.id} />
 
             {selectedRecord.status === 'SUBMITTED' && (
               <div className="p-3 bg-violet-950/30 border border-violet-500/30 text-violet-300 text-xs rounded-lg flex items-center gap-1.5">

@@ -210,6 +210,13 @@ export const apiService = {
     return response.data;
   },
 
+  // Phase 7b: read-only AI advisory annotations (e.g. anomaly explanations)
+  // for a record -- never a mutation endpoint. Returns [] if none exist yet.
+  async getRecordAIAnnotations(recordId) {
+    const response = await api.get(`/api/records/${recordId}/ai-annotations/`);
+    return response.data;
+  },
+
   // ----- Metrics / analytics -----
   async getMetricsSummary(params = {}) {
     return (await api.get('/api/metrics/summary/', { params })).data;
