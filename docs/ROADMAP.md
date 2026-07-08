@@ -67,8 +67,19 @@ enterprise governance) are complete. What's next, as currently planned:
   disabled by default), and a two-tier CI split (deterministic checks
   blocking, LLM-judge/qualitative checks advisory) — still no AI feature
   implemented, only the harness every future capability must pass. See
-  [`AI_EVALUATION.md`](AI_EVALUATION.md). The Phase 7 foundation is now
-  complete; 7b–7g (the actual AI features) remain.
+  [`AI_EVALUATION.md`](AI_EVALUATION.md). **7b (Advisory AI Anomaly
+  Detection) is done**: the first real Phase 7 capability. The
+  deterministic engine still decides `is_suspicious` (unchanged); AI only
+  explains why, via a new `anomaly_detection` capability (schema v2 --
+  explanation/contributing factors/confidence/suggested investigation,
+  never a classification), dispatched fire-and-forget from `ingest_task`'s
+  success path (never inline in the calculation pipeline --
+  `AIRecommendationStage` remains inert), persisted as immutable
+  `AIAnnotation` rows, surfaced read-only via
+  `GET /api/records/{id}/ai-annotations/` and a new "AI Insights" panel in
+  the existing records detail drawer. See AI_ARCHITECTURE.md §12 and ADR
+  0009. 7c–7g (factor recommendation, validation assist, ESG assistant,
+  report narration, observability/cost governance) remain.
 - **Phase 8 — UX**: accessibility audit, responsive design pass, theming,
   saved/custom dashboards, an in-app notification center (distinct from
   Phase 5g's email notifications — a UI-visible feed, not a new delivery

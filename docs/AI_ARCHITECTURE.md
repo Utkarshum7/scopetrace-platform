@@ -227,22 +227,54 @@ and become real end-to-end API-level RBAC once 7b+ adds the first endpoint.
 
 ---
 
-## 10. What's explicitly NOT in Phase 7a
+## 10. What's explicitly NOT in Phase 7a (updated as later milestones land)
 
-No anomaly detection, no factor/activity recommendation, no validation
-assist, no ESG assistant, no report narrative generation — every one of
-those is a later milestone (7b–7f) that calls `invoke_ai()`, never
-reimplements any part of this foundation. Also not in 7a (per the
-finalized Phase 7 design):
+No factor/activity recommendation, no validation assist, no ESG assistant,
+no report narrative generation — each remains a later milestone (7c–7f)
+that calls `invoke_ai()`, never reimplements any part of this foundation.
+Also still not implemented (per the finalized Phase 7 design):
 - A concrete self-hosted/BYO provider adapter (the seam exists; no adapter).
 - ~~The AI evaluation/golden-set harness~~ — done in **Phase 7a.5**, see
   [`AI_EVALUATION.md`](AI_EVALUATION.md).
-- Any `AISuggestion`/`AIAnnotation` model — those belong to the feature
-  milestone that first needs one.
+- ~~Anomaly detection, any `AIAnnotation` model~~ — done in **Phase 7b**:
+  `apps.ai.services.anomaly_detection` (capability `anomaly_detection`),
+  `AIAnnotation` (immutable, PROTECT-only FKs), a read-only
+  `GET /api/records/{id}/ai-annotations/` endpoint, and a frontend "AI
+  Insights" panel. See §12 and ADR 0009.
 
 ---
 
-## 11. Related documents
+## 12. Phase 7b — Advisory AI Anomaly Detection
+
+The first real Phase 7 capability. `apps.ai.services.anomaly_detection.
+generate_anomaly_explanation(record)` builds prompt context from an
+ALREADY-suspicious `EmissionRecord` — scope, source type, normalized
+quantity, and (the actual evidence) the deterministic engine's own
+`validation_errors`, formatted verbatim — calls `invoke_ai()`, and
+persists exactly one immutable `AIAnnotation` on success. AI never
+classifies (`ANOMALY_DETECTION_V2`'s schema has no `is_anomalous` field,
+unlike the Phase 7a.5 placeholder v1); the deterministic engine
+(`apps.ingestion.services.validator.RowValidator`) already decided a
+record is suspicious before AI is ever invoked.
+
+**Dispatch is fire-and-forget, off the deterministic pipeline entirely** —
+`apps.ai.tasks.generate_anomaly_explanations_task` (the `ai` queue) is
+dispatched from `ingest_task`'s success path with the same one-line
+`.delay()` pattern already used for `send_notification_task`, never
+inline in the synchronous calculation pipeline's reserved
+`AIRecommendationStage` seam (still inert). See ADR 0009 for the full
+reasoning and the alternatives considered.
+
+**Read path**: `GET /api/records/{id}/ai-annotations/`, mirroring the
+existing `/versions/` action's exact `self.get_object()` tenant-scoping
+precedent — no mutation verb exists on this path. The frontend's
+`AIInsightsPanel` (in `RecordsPage.jsx`'s existing detail drawer, no page
+redesign) renders whatever this endpoint returns, clearly labeled
+"AI Advisory," and renders nothing when empty.
+
+---
+
+## 13. Related documents
 
 - [`ROADMAP.md`](ROADMAP.md) — Phase 7 milestone breakdown (7a–7g).
 - [`AI_EVALUATION.md`](AI_EVALUATION.md) — Phase 7a.5's evaluation/
@@ -250,9 +282,10 @@ finalized Phase 7 design):
   split, the formal I1–I6 invariant merge gate every future AI milestone
   must keep green.
 - [`CARBON_ENGINE_DESIGN.md`](CARBON_ENGINE_DESIGN.md) — the pipeline's
-  reserved `AIRecommendationStage`/`OptimizationStage` seams this
-  foundation will plug into from 7b onward.
+  reserved `AIRecommendationStage`/`OptimizationStage` seams, still inert
+  after Phase 7b (see ADR 0009 for why anomaly explanation didn't use them).
 - [`docs/adr/0005-ai-provider-abstraction-and-schema-enforcement.md`](adr/0005-ai-provider-abstraction-and-schema-enforcement.md)
 - [`docs/adr/0006-ai-advisory-only-no-direct-mutation.md`](adr/0006-ai-advisory-only-no-direct-mutation.md)
 - [`docs/adr/0007-ai-tenant-egress-and-cost-policy.md`](adr/0007-ai-tenant-egress-and-cost-policy.md)
 - [`docs/adr/0008-ai-evaluation-tiering.md`](adr/0008-ai-evaluation-tiering.md)
+- [`docs/adr/0009-anomaly-explanation-async-dispatch-and-immutable-annotations.md`](adr/0009-anomaly-explanation-async-dispatch-and-immutable-annotations.md)

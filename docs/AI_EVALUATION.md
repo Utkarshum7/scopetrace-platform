@@ -37,7 +37,8 @@ apps/ai/evaluation/                  (its own nested Django app -- own models/mi
   fixtures/
     loader.py                loads golden-dataset JSON into EvaluationCase objects
     golden/
-      anomaly_detection/v1/cases.json
+      anomaly_detection/v1/cases.json    (superseded, kept unreferenced)
+      anomaly_detection/v2/cases.json    (Phase 7b -- the real capability)
       factor_recommendation/v1/cases.json
       validation_assistance/v1/cases.json
       esg_assistant/v1/cases.json
@@ -87,8 +88,13 @@ milestone's scope asked for. `tests_fixtures.py`'s
 `GoldenFixtureHashSelfConsistencyTests` proves every fixture's recorded
 hash still matches a fresh render, for every real fixture, every test run.
 
-11 cases ship across 6 capabilities today (2 each for the 5 planned
-capabilities, 1 for the existing `foundation.selftest`).
+14 cases ship across 6 capabilities today: 3 in `anomaly_detection/v2`
+(Phase 7b's real capability, replacing the 2-case `v1` placeholder, kept
+unreferenced), 2 each for the remaining 4 planned capabilities, 1 for the
+existing `foundation.selftest`. `anomaly_detection`'s v1 → v2 jump is this
+versioning discipline's first real exercise, not just documentation: see
+ADR 0009 for why v2 dropped its `is_anomalous` field entirely (AI must
+never classify, only explain).
 
 ---
 
@@ -232,19 +238,32 @@ CLI command — Django's test runner already is the harness's entry point).
 
 ---
 
-## 10. Adding a real capability later (7b+)
+## 10. Adding a real capability (the steps Phase 7b actually followed)
 
 1. Reuse the existing `CAPABILITY_REGISTRY` entry (or add a new one) —
    the prompt template and schema may be kept as-is, version-bumped, or
-   replaced; Phase 7a.5's contracts are a sketch, not a commitment.
-2. Add/update `fixtures/golden/<dataset>/v2/cases.json` if the schema or
-   prompt shape changes (new version directory, never edit `v1` in place).
+   replaced; a Phase 7a.5 placeholder contract is a sketch, not a
+   commitment. `anomaly_detection` bumped schema v1 → v2 and rewrote its
+   template (see AI_ARCHITECTURE.md §12, ADR 0009).
+2. Add `fixtures/golden/<dataset>/v2/cases.json` if the schema or prompt
+   shape changes (new version directory, never edit `v1` in place) — 3
+   real-scenario cases for `anomaly_detection/v2`.
 3. Wire the real feature through `apps.ai.services.gateway.invoke_ai()`
-   (never bypass it) for actual tenant-facing calls.
+   (never bypass it) for actual tenant-facing calls — a new
+   capability-specific service module
+   (`apps.ai.services.anomaly_detection`) builds prompt context from
+   governed data (read-only) and persists the result as an immutable
+   `AIAnnotation`, never through the gateway's own generic response
+   handling alone.
 4. Keep `tests_invariants.py` green — it is the merge gate.
+   `InvariantI2AnomalyDetectionConcreteProofTests` is the first
+   capability-specific addition to it: a behavioral (not just structural)
+   proof that the real capability's service function never mutates the
+   governed record it reads.
 
 ## 11. Related documents
 
-- [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md) — the Phase 7a foundation.
+- [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md) — the Phase 7a/7b foundation.
 - [`CI_CD.md`](CI_CD.md) — overall CI philosophy (blocking vs. advisory).
 - [`docs/adr/0008-ai-evaluation-tiering.md`](adr/0008-ai-evaluation-tiering.md)
+- [`docs/adr/0009-anomaly-explanation-async-dispatch-and-immutable-annotations.md`](adr/0009-anomaly-explanation-async-dispatch-and-immutable-annotations.md)
