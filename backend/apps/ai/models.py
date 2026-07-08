@@ -14,7 +14,11 @@ AIConversationMessage is immutable (see ADR 0012); AIConversation itself
 is a plain, un-guarded container so its `user` FK can safely stay
 on_delete=SET_NULL like AIInteraction.actor, without reintroducing the
 SET_NULL-cascade-vs-blocked-update bug class ADR 0009 already worked
-around for AIAnnotation.
+around for AIAnnotation. Phase 7f adds AIReportNarration -- immutable,
+PROTECT-only FKs like AIFactorRecommendation, but keyed by a
+(date_from, date_to, scope) report period rather than a single
+EmissionRecord, since compliance reports are on-demand query results
+(ADR 0002), not persisted rows this model could otherwise reference.
 
 None of these models ever hold or mutate governed business data (I1/I2 from
 docs/AI_ARCHITECTURE.md's invariants): AIPromptVersion is a registry of what
@@ -569,3 +573,93 @@ class AIConversationMessage(models.Model):
 
     def __str__(self):
         return f"{self.role} message in conversation {self.conversation_id}"
+
+
+class _AIReportNarrationQuerySet(models.QuerySet):
+    """Append-only, identical reasoning to _AIFactorRecommendationQuerySet
+    -- no SET_NULL field on this model either (organization/interaction
+    are both PROTECT), so no cascade shape can ever require a carve-out
+    here."""
+
+    def delete(self):
+        raise ValidationError("AI report narrations are immutable and cannot be bulk-deleted.")
+
+    def update(self, **kwargs):
+        raise ValidationError("AI report narrations are immutable and cannot be bulk-updated.")
+
+
+class AIReportNarration(models.Model):
+    """Immutable, advisory-only AI narrative for one compliance report
+    period (organization, date_from, date_to, scope -- the same
+    parameters `apps.carbon.services.reports.compliance_summary` takes).
+    Compliance reports themselves are on-demand query results, never
+    persisted (ADR 0002) -- this model persists only the AI's OWN
+    narrative output about a given period, not a snapshot of the
+    underlying report data, exactly mirroring how AIAnnotation/
+    AIFactorRecommendation persist advisory output about live governed
+    data without snapshotting that data itself.
+
+    Built ONLY from approved, deterministic data (apps.ai.services.
+    report_context_builder reuses compliance_summary()'s exact APPROVED-
+    only filter shape, never apps.carbon.services.metrics.MetricsService,
+    which intentionally includes non-approved records for its dashboard
+    use case) -- see ADR 0013.
+
+    Four distinct sections, not one narrative blob (unlike the Phase 7a.5
+    placeholder v1 schema): executive_summary, key_highlights,
+    trend_explanations, recommendations -- matching the milestone's exact
+    display requirements.
+
+    organization/interaction are both on_delete=PROTECT -- no SET_NULL
+    anywhere, same reasoning as AIAnnotation/AIFactorRecommendation.
+    """
+
+    class Confidence(models.TextChoices):
+        LOW = "LOW", "Low"
+        MEDIUM = "MEDIUM", "Medium"
+        HIGH = "HIGH", "High"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        Organization, on_delete=models.PROTECT, related_name="ai_report_narrations",
+    )
+    interaction = models.ForeignKey(
+        AIInteraction, on_delete=models.PROTECT, related_name="report_narrations",
+        help_text="The exact gateway call that produced this narration.",
+    )
+    date_from = models.DateField()
+    date_to = models.DateField()
+    scope = models.CharField(
+        max_length=20, blank=True, help_text="Empty means all scopes -- matches compliance_summary's own scope=None.",
+    )
+    executive_summary = models.TextField()
+    key_highlights = models.JSONField(default=list, blank=True)
+    trend_explanations = models.TextField()
+    recommendations = models.JSONField(
+        default=list, blank=True, help_text="Advisory suggestions only -- never applied automatically.",
+    )
+    confidence = models.CharField(max_length=10, choices=Confidence.choices)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    objects = _AIReportNarrationQuerySet.as_manager()
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["organization", "date_from", "date_to", "-created_at"]),
+        ]
+        ordering = ["-created_at"]
+
+    def clean(self):
+        super().clean()
+        if self.pk and AIReportNarration.objects.filter(pk=self.pk).exists():
+            raise ValidationError("AI report narrations are immutable and cannot be modified after creation.")
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("AI report narrations are immutable and cannot be deleted.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Report narration {self.date_from}..{self.date_to} ({self.scope or 'ALL'})"

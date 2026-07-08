@@ -7,6 +7,7 @@ from .models import (
     AIFactorRecommendation,
     AIInteraction,
     AIPromptVersion,
+    AIReportNarration,
     TenantAIPolicy,
 )
 
@@ -108,6 +109,22 @@ class AIConversationMessageAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         # Rows are created only via apps.ai.services.esg_assistant --
+        # immutable once created.
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(AIReportNarration)
+class AIReportNarrationAdmin(admin.ModelAdmin):
+    list_display = ("organization", "date_from", "date_to", "scope", "confidence", "created_at")
+    list_filter = ("confidence",)
+    search_fields = ("organization__name",)
+    readonly_fields = [f.name for f in AIReportNarration._meta.fields]
+
+    def has_add_permission(self, request):
+        # Rows are created only via apps.ai.services.report_narration --
         # immutable once created.
         return False
 
