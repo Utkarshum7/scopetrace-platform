@@ -520,31 +520,43 @@ class MetricsCacheInvalidationTests(TestCase):
         )
 
     def test_soft_delete_bumps_calc_version(self):
+        # Phase 7.5 (H3): bump_calc_version() now defers via
+        # transaction.on_commit() (closes a stale-cache race -- see
+        # apps.carbon.tests.test_metrics_cache_transaction_safety). TestCase
+        # wraps every test in its own atomic() block that's always rolled
+        # back, so on_commit callbacks never fire on their own here;
+        # captureOnCommitCallbacks(execute=True) simulates the commit.
         before = get_calc_version(self.org.id)
-        soft_delete_record(record=self.record, actor=self.org_admin, reason="x")
+        with self.captureOnCommitCallbacks(execute=True):
+            soft_delete_record(record=self.record, actor=self.org_admin, reason="x")
         self.assertEqual(get_calc_version(self.org.id), before + 1)
 
     def test_restore_bumps_calc_version(self):
-        soft_delete_record(record=self.record, actor=self.org_admin, reason="x")
+        with self.captureOnCommitCallbacks(execute=True):
+            soft_delete_record(record=self.record, actor=self.org_admin, reason="x")
         before = get_calc_version(self.org.id)
-        restore_record(record=self.record, actor=self.org_admin)
+        with self.captureOnCommitCallbacks(execute=True):
+            restore_record(record=self.record, actor=self.org_admin)
         self.assertEqual(get_calc_version(self.org.id), before + 1)
 
     def test_dashboard_reflects_delete_without_stale_cache(self):
         first = self.client.get("/api/metrics/summary/")
         self.assertEqual(Decimal(first.json()["total_co2e_tonnes"]), Decimal("5"))
 
-        soft_delete_record(record=self.record, actor=self.org_admin, reason="x")
+        with self.captureOnCommitCallbacks(execute=True):
+            soft_delete_record(record=self.record, actor=self.org_admin, reason="x")
 
         second = self.client.get("/api/metrics/summary/")
         self.assertEqual(Decimal(second.json()["total_co2e_tonnes"]), Decimal("0"))
 
     def test_dashboard_reflects_restore_without_stale_cache(self):
-        soft_delete_record(record=self.record, actor=self.org_admin, reason="x")
+        with self.captureOnCommitCallbacks(execute=True):
+            soft_delete_record(record=self.record, actor=self.org_admin, reason="x")
         first = self.client.get("/api/metrics/summary/")
         self.assertEqual(Decimal(first.json()["total_co2e_tonnes"]), Decimal("0"))
 
-        restore_record(record=self.record, actor=self.org_admin)
+        with self.captureOnCommitCallbacks(execute=True):
+            restore_record(record=self.record, actor=self.org_admin)
 
         second = self.client.get("/api/metrics/summary/")
         self.assertEqual(Decimal(second.json()["total_co2e_tonnes"]), Decimal("5"))

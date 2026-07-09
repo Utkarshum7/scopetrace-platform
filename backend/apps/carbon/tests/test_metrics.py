@@ -100,7 +100,12 @@ class MetricsCacheTests(TestCase):
         self.assertEqual(r1, r2)
         self.assertEqual(calls["n"], 1)  # producer ran once (cache hit second time)
 
-        metrics_cache.bump_calc_version(self.org_id)
+        # Phase 7.5 (H3): bump_calc_version() now defers its cache mutation to
+        # transaction.on_commit() -- TestCase wraps every test in an atomic
+        # block that's rolled back, never committed, so the bump would never
+        # fire without explicitly executing on_commit callbacks here.
+        with self.captureOnCommitCallbacks(execute=True):
+            metrics_cache.bump_calc_version(self.org_id)
         metrics_cache.cached(self.org_id, "summary", {"a": 1}, producer)
         self.assertEqual(calls["n"], 2)  # version bump invalidated -> producer ran again
 

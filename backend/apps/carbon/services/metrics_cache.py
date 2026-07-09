@@ -11,6 +11,7 @@ import hashlib
 import json
 
 from django.core.cache import cache
+from django.db import transaction
 
 _VERSION_TTL = None      # version keys never expire on their own
 DEFAULT_TTL = 300        # metrics payloads cached for 5 minutes
@@ -30,13 +31,38 @@ def get_calc_version(org_id):
 
 
 def bump_calc_version(org_id):
-    """Invalidate all cached metrics for an org (call after any calc write)."""
-    key = _version_key(org_id)
-    try:
-        return cache.incr(key)
-    except ValueError:
-        cache.set(key, 1, _VERSION_TTL)
-        return 1
+    """Invalidate all cached metrics for an org -- call after any write that
+    changes calculation data (ingest, recalc, backfill, soft-delete/restore).
+
+    Phase 7.5 (H3): the actual cache mutation is deferred to
+    transaction.on_commit(), regardless of whether the caller happens to be
+    inside an open transaction.atomic() or not. This closes a real race: the
+    Redis increment used to run at the exact call site, which is NOT part of
+    the enclosing DB transaction -- when a caller invoked this from inside a
+    still-open atomic() block (several call sites did), a concurrent metrics
+    read could observe the bumped version, compute metrics against the
+    NOT-YET-COMMITTED (thus not-yet-visible) calculation rows, and cache that
+    stale/incomplete snapshot under the new version key for up to
+    DEFAULT_TTL. Deferring to on_commit() makes the bump happen only once the
+    underlying data is durably visible to every other connection, and makes
+    it correct-by-construction at every current AND future call site -- no
+    caller has to remember to bump "after" its own atomic block closes.
+
+    A useful side effect: if the enclosing transaction rolls back, this
+    on_commit callback never runs at all, so a failed write no longer
+    triggers a pointless (if harmless) cache invalidation either.
+
+    If there is no open transaction, Django runs the callback immediately --
+    identical to the pre-7.5 behavior for callers outside a transaction.
+    """
+    def _do_bump():
+        key = _version_key(org_id)
+        try:
+            cache.incr(key)
+        except ValueError:
+            cache.set(key, 1, _VERSION_TTL)
+
+    transaction.on_commit(_do_bump)
 
 
 def cache_key(org_id, endpoint, params):
