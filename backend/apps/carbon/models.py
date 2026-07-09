@@ -73,6 +73,44 @@ class ActivityType(models.Model):
         return self.code
 
 
+# Fields frozen once a dataset is ACTIVE. Only `status` (and the bookkeeping
+# `updated_at`) may change on an ACTIVE dataset -- e.g. an ACTIVE -> SUPERSEDED
+# transition when a newer version is activated. Single source of truth, shared
+# by EmissionFactorDataset.clean(), EmissionFactorDataset.save() and
+# EmissionFactorDatasetQuerySet.update().
+_DATASET_IMMUTABLE_FIELDS = (
+    "publisher", "name", "version", "region_id", "valid_from",
+    "valid_to", "checksum", "source_filename", "source_url",
+    "publication_date", "priority",
+)
+
+
+class EmissionFactorDatasetQuerySet(models.QuerySet):
+    """Phase 7.5 (H1): enforce the "immutable once ACTIVE" invariant at the
+    bulk-`.update()` layer, which bypasses Model.save()/clean() entirely.
+
+    A status-only transition (the importer's ACTIVE -> SUPERSEDED supersede,
+    apps.carbon.management.commands.import_emission_factors) is still
+    permitted -- only an update that would change a provenance field
+    (`_DATASET_IMMUTABLE_FIELDS`) on a queryset matching at least one ACTIVE
+    row is refused. DRAFT datasets stay fully mutable. Mirrors the
+    queryset-guard pattern already used by apps.audit.AuditTrailQuerySet and
+    apps.core.querysets.SetNullCascadeSafeQuerySet.
+    """
+
+    def update(self, **kwargs):
+        changing_protected = sorted(f for f in kwargs if f in _DATASET_IMMUTABLE_FIELDS)
+        if changing_protected and self.filter(
+            status=EmissionFactorDataset.Status.ACTIVE
+        ).exists():
+            raise ValidationError(
+                "Dataset(s) are ACTIVE and immutable; "
+                f"{changing_protected} cannot be changed via update(). "
+                "Publish a new version instead."
+            )
+        return super().update(**kwargs)
+
+
 class EmissionFactorDataset(models.Model):
     """
     The versioning + provenance unit. Immutable once ACTIVE — corrections are new
@@ -112,6 +150,8 @@ class EmissionFactorDataset(models.Model):
     metadata = models.JSONField(default=dict, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = EmissionFactorDatasetQuerySet.as_manager()
+
     class Meta:
         verbose_name = "Emission Factor Dataset"
         ordering = ["-import_timestamp"]
@@ -129,26 +169,45 @@ class EmissionFactorDataset(models.Model):
     def __str__(self):
         return f"{self.publisher} {self.version} ({self.status})"
 
+    def _assert_active_immutability(self):
+        """Raise ValidationError if this instance would change a frozen
+        provenance field of a row that is ACTIVE *in the database*. Only a
+        status transition (and `updated_at`) is allowed on an ACTIVE dataset.
+
+        Shared by clean() (so admin/ModelForm enforcement is unchanged) and
+        save() (so programmatic writes, which never call full_clean(), are
+        enforced too). Compares against the persisted row, so a brand-new
+        instance -- or one whose row no longer exists -- is a no-op.
+        """
+        if self._state.adding or not self.pk:
+            return
+        try:
+            original = EmissionFactorDataset.objects.get(pk=self.pk)
+        except EmissionFactorDataset.DoesNotExist:
+            return
+        if original.status != self.Status.ACTIVE:
+            return
+        for field in _DATASET_IMMUTABLE_FIELDS:
+            if getattr(original, field) != getattr(self, field):
+                raise ValidationError(
+                    f"Dataset is ACTIVE and immutable; '{field}' cannot be changed. "
+                    "Publish a new version instead."
+                )
+
     def clean(self):
         super().clean()
         # Immutable once ACTIVE: only the status may change (e.g. -> SUPERSEDED).
-        if self.pk:
-            try:
-                original = EmissionFactorDataset.objects.get(pk=self.pk)
-            except EmissionFactorDataset.DoesNotExist:
-                return
-            if original.status == self.Status.ACTIVE:
-                protected = (
-                    "publisher", "name", "version", "region_id", "valid_from",
-                    "valid_to", "checksum", "source_filename", "source_url",
-                    "publication_date", "priority",
-                )
-                for field in protected:
-                    if getattr(original, field) != getattr(self, field):
-                        raise ValidationError(
-                            f"Dataset is ACTIVE and immutable; '{field}' cannot be changed. "
-                            "Publish a new version instead."
-                        )
+        self._assert_active_immutability()
+
+    def save(self, *args, **kwargs):
+        # Enforce the ACTIVE-immutability invariant on every programmatic
+        # write too -- .save()/.objects.create() never run full_clean(), so
+        # clean() alone would only protect the admin/ModelForm path. This is
+        # a targeted check, NOT a full_clean(): it deliberately does not
+        # re-validate unrelated fields, so it can't change behavior for any
+        # write that isn't mutating a frozen field of an ACTIVE row.
+        self._assert_active_immutability()
+        super().save(*args, **kwargs)
 
 
 class EmissionFactor(models.Model):
