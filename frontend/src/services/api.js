@@ -277,6 +277,18 @@ export const apiService = {
     const d = (await api.get('/api/factor-datasets/', { params })).data;
     return d.results ?? d;
   },
+
+  // Phase 7g: AI observability/cost-governance/ops-health -- all read-only,
+  // reusing the Metrics API's own request pattern (plain GET + query params).
+  async getAIObservability(params = {}) {
+    return (await api.get('/api/ai/ops/observability/', { params })).data;
+  },
+  async getAIOpsHealth() {
+    return (await api.get('/api/ai/ops/health/')).data;
+  },
+  async getAICosts(params = {}) {
+    return (await api.get('/api/ai/costs/', { params })).data;
+  },
 };
 
 export default api;

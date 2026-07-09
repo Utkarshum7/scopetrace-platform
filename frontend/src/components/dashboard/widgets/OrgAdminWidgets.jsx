@@ -5,6 +5,7 @@ import { ListSkeleton } from '../../ui/Skeleton';
 import { EmptyState } from '../../ui/EmptyState';
 
 const num = (v, d = 1) => Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: d });
+const money = (v) => Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export const OrgKpisWidget = ({ filters }) => {
   const { status, data, refetch } = useWidgetData(
@@ -84,6 +85,45 @@ export const UserActivityWidget = () => {
           </div>
         ))}
       </div>
+    </WidgetFrame>
+  );
+};
+
+// Phase 7g -- org-scoped AI cost governance. CanViewAICosts (Org Admin /
+// Auditor / Platform Admin) is the real boundary, apps.ai.ops_views.
+// AICostGovernanceView -- placed alongside the other Org Admin widgets
+// since that's the primary audience; also registered for Auditor (see
+// registry.js) to match the permission class's own role set.
+export const AIBudgetWidget = ({ filters }) => {
+  const { status, data, refetch } = useWidgetData(
+    ['ai-costs', filters],
+    () => apiService.getAICosts(filters),
+  );
+  const pct = data?.budget?.utilization_pct;
+  const barPct = Math.min(pct ?? 0, 100);
+  return (
+    <WidgetFrame title="AI Budget" subtitle="This month" status={status} onRetry={refetch}>
+      {!data?.ai_enabled ? (
+        <div className="text-xs text-slate-500 flex items-center justify-center h-full">AI is not enabled for this organization.</div>
+      ) : (
+        <div className="flex flex-col gap-3 h-full justify-center">
+          <div className="flex items-baseline gap-2">
+            <span className={`text-3xl font-black ${data?.budget?.over_budget ? 'text-rose-400' : 'text-emerald-400'}`}>
+              {pct != null ? `${pct}%` : '—'}
+            </span>
+            <span className="text-xs text-slate-500">of monthly budget used</span>
+          </div>
+          <div className="w-full bg-slate-800 rounded-full h-2.5">
+            <div
+              className={`h-2.5 rounded-full transition-all duration-500 ${data?.budget?.over_budget ? 'bg-rose-500 shadow-[0_0_8px_#f43f5e]' : 'bg-emerald-500 shadow-[0_0_8px_#10b981]'}`}
+              style={{ width: `${barPct}%` }}
+            />
+          </div>
+          <span className="text-[10px] text-slate-500">
+            ${money(data?.budget?.spent_usd)} spent of ${money(data?.budget?.budget_usd)} · {num(data?.token_consumption?.input_tokens, 0)} in / {num(data?.token_consumption?.output_tokens, 0)} out tokens
+          </span>
+        </div>
+      )}
     </WidgetFrame>
   );
 };

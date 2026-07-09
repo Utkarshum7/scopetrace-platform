@@ -23,6 +23,7 @@ import {
   CoverageWidget,
   UserActivityWidget,
   FactorDatasetWidget,
+  AIBudgetWidget,
 } from './widgets/OrgAdminWidgets';
 import {
   CrossTenantWidget,
@@ -30,6 +31,12 @@ import {
   ActiveOrganizationsWidget,
   DatasetInventoryWidget,
 } from './widgets/PlatformWidgets';
+import {
+  AIUsageWidget,
+  AIProviderMixWidget,
+  AIEvaluationWidget,
+  AILatencyTrendWidget,
+} from './widgets/AIObservabilityWidgets';
 
 // span: full (whole row) | half | third
 const COMMON = [
@@ -51,11 +58,16 @@ const BY_ROLE = {
   // roles (with Org Admin) that can actually see AI report narration
   // (CanViewActivity, matching the compliance report's own RBAC), so the
   // widget that surfaces it needs to reach them, not just Viewer.
+  // Phase 7g: AI Budget also added here -- CanViewAICosts' role set
+  // (apps.accounts.permissions) is Org Admin/Auditor/Platform Admin,
+  // mirroring CanViewActivity exactly, same reason 'reports' reaches
+  // both roles.
   AUDITOR: [
     { id: 'pending-approvals', component: PendingApprovalsWidget, span: 'third' },
     { id: 'audit-queue', component: AuditQueueWidget, span: 'third' },
     { id: 'locked-records', component: LockedRecordsWidget, span: 'third' },
     { id: 'reports', component: ReportsWidget, span: 'third' },
+    { id: 'ai-budget', component: AIBudgetWidget, span: 'third' },
   ],
   ORG_ADMIN: [
     { id: 'org-kpis', component: OrgKpisWidget, span: 'half' },
@@ -63,12 +75,20 @@ const BY_ROLE = {
     { id: 'user-activity', component: UserActivityWidget, span: 'half' },
     { id: 'factor-dataset', component: FactorDatasetWidget, span: 'half' },
     { id: 'reports', component: ReportsWidget, span: 'third' },
+    { id: 'ai-budget', component: AIBudgetWidget, span: 'third' },
   ],
+  // Phase 7g: cross-tenant AI observability (IsPlatformAdmin, apps.ai.
+  // ops_views.AIObservabilityView) -- Platform Admin only, same boundary
+  // as the pre-existing cross-tenant carbon widgets above.
   PLATFORM_ADMIN: [
     { id: 'cross-tenant', component: CrossTenantWidget, span: 'half' },
     { id: 'system-health', component: SystemHealthWidget, span: 'half' },
     { id: 'active-orgs', component: ActiveOrganizationsWidget, span: 'half' },
     { id: 'dataset-inventory', component: DatasetInventoryWidget, span: 'half' },
+    { id: 'ai-usage', component: AIUsageWidget, span: 'half' },
+    { id: 'ai-provider-mix', component: AIProviderMixWidget, span: 'half' },
+    { id: 'ai-evaluation', component: AIEvaluationWidget, span: 'half' },
+    { id: 'ai-latency-trend', component: AILatencyTrendWidget, span: 'half' },
   ],
 };
 
