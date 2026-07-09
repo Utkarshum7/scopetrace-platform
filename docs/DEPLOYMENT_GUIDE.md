@@ -149,7 +149,7 @@ npm run lint
   backend`), `gunicorn config.wsgi:application`, health-checked at
   `/healthz`.
 - **Celery worker**: Render worker service, same codebase, `celery -A config
-  worker -Q celery,ingestion,calculation,maintenance,notifications`.
+  worker -Q celery,ingestion,calculation,maintenance,notifications,ai`.
 - **Celery Beat**: a second Render worker service, single instance only,
   `celery -A config beat`.
 - **Redis**: Render-managed instance — Celery broker/result-backend and the
@@ -193,7 +193,7 @@ explicit, deliberate pass.
 - A Render `type: redis` managed instance, referenced by `api`/`worker`/
   `beat` via `fromService` (not copy-pasted).
 - A `type: worker` service (`scopetrace-worker`) running
-  `celery -A config worker -Q celery,ingestion,calculation,maintenance,notifications`.
+  `celery -A config worker -Q celery,ingestion,calculation,maintenance,notifications,ai`.
 - A second `type: worker` service (`scopetrace-beat`) running
   `celery -A config beat` — no `releaseCommand` on either (only `api` owns
   migrations/seeding), and deliberately no persistent disk for Beat's

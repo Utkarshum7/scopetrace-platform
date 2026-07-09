@@ -159,11 +159,18 @@ services:
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     # -Q lists every queue explicitly — see docs/ARCHITECTURE_OVERVIEW.md §3
-    # for the full queue topology. One worker service consumes all five
-    # today, same as docker-compose.yml's `worker`; splitting a queue onto
-    # its own dedicated worker service later needs no code change, only a
-    # second service here with a narrower `-Q`.
-    startCommand: celery -A config worker --loglevel=info -Q celery,ingestion,calculation,maintenance,notifications
+    # for the full queue topology. One worker service consumes all six
+    # today (celery, ingestion, calculation, maintenance, notifications, ai),
+    # same as docker-compose.yml's `worker`; splitting a queue onto its own
+    # dedicated worker service later needs no code change, only a second
+    # service here with a narrower `-Q`.
+    #
+    # The queue list here MUST cover every queue in
+    # config.settings.CELERY_TASK_ROUTES (plus the default 'celery' queue);
+    # a missing queue silently strands its tasks in Redis with no consumer.
+    # apps.tasks.tests_queue_coverage enforces this in CI against both this
+    # file and docker-compose.yml.
+    startCommand: celery -A config worker --loglevel=info -Q celery,ingestion,calculation,maintenance,notifications,ai
     envVarGroups:
       - scopetrace-shared
     envVars:

@@ -115,6 +115,7 @@ flowchart LR
         Q_CALC["calculation"]
         Q_M["maintenance"]
         Q_N["notifications"]
+        Q_AI["ai"]
     end
 
     T_ping["apps.core.tasks.ping"] --> Q_C
@@ -125,11 +126,12 @@ flowchart LR
     T_dlqclean["cleanup_old_failed_task_logs_task"] --> Q_M
     T_heartbeat["heartbeat_task"] --> Q_M
     T_notify["send_notification_task"] --> Q_N
+    T_ai["ai_heartbeat_task + 4 capability tasks"] --> Q_AI
 
-    Q_C & Q_I & Q_CALC & Q_M & Q_N --> WORKER["worker service\n(-Q celery,ingestion,calculation,maintenance,notifications)"]
+    Q_C & Q_I & Q_CALC & Q_M & Q_N & Q_AI --> WORKER["worker service\n(-Q celery,ingestion,calculation,maintenance,notifications,ai)"]
 ```
 
-One worker service consumes all five queues today (`docker-compose.yml`'s
+One worker service consumes all six queues today (`docker-compose.yml`'s
 `worker.command`) — the separation is a **routing seam**, not a behavior
 change: a future deployment can dedicate a worker pool to any one queue
 (e.g. `calculation` once AI enrichment makes it meaningfully slower) by

@@ -370,7 +370,7 @@ CELERY_TASK_DEFAULT_QUEUE = config('CELERY_TASK_DEFAULT_QUEUE', default='celery'
 # burst of scheduled maintenance work can never delay outbound notification
 # emails, and vice versa.
 #
-# Phase 7a: 'ai' is a new, fifth queue -- AI work (foundation today; real
+# Phase 7a: 'ai' is a new, sixth queue -- AI work (foundation today; real
 # anomaly-detection/recommendation/assistant tasks from 7b onward) is
 # bursty and rate-limited by vendor APIs in a way none of the existing
 # queues are, so it gets its own routing seam from day one rather than
