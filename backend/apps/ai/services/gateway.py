@@ -19,15 +19,16 @@ real business-data change must go through the EXISTING governed workflow
 (apps.ingestion.services.workflow / the calculation recalculation path),
 never through this gateway.
 
-Idempotency note: idempotency_key prevents a redelivered/duplicate call from
-re-billing the provider (a real cost/audit safeguard for Celery's at-least-
-once redelivery, matching this codebase's ACKS_LATE contract). It is NOT a
-data cache -- a replayed call returns the prior outcome and interaction_id
-but no parsed body (this module deliberately never persists raw response
-text; see AIInteraction's own docstring for why). A feature milestone that
-needs to recover a prior result's *data* on redelivery should look it up in
-its own table (e.g. an AISuggestion row keyed by the same idempotency_key),
-not rely on this gateway to hand it back.
+Idempotency note (Phase 7.5 H2, Finding 3): idempotency_key makes a
+redelivered/duplicate call safe under Celery's at-least-once (ACKS_LATE)
+redelivery. A replayed call returns the SAME parsed body and interaction_id
+as the original, reconstructed from the persisted raw response
+(AIInteraction.response_text, stored only for idempotent calls) re-validated
+against the original schema. This is what lets a capability service (e.g.
+anomaly_detection -> AIAnnotation) recover after a crash BETWEEN the gateway's
+OK write and its own downstream persistence -- the failure mode the pre-7.5
+"returns no parsed body" contract lost silently. Calls WITHOUT an
+idempotency_key keep the hashes-only privacy contract and never short-circuit.
 """
 import hashlib
 import time
@@ -75,15 +76,7 @@ def invoke_ai(
 
     # 1. Idempotency short-circuit.
     if idempotency_key:
-        prior = (
-            AIInteraction.objects.filter(
-                organization=organization,
-                idempotency_key=idempotency_key,
-                outcome=AIInteraction.Outcome.OK,
-            )
-            .order_by("-created_at")
-            .first()
-        )
+        prior = _prior_ok_interaction(organization, idempotency_key)
         if prior is not None:
             # Phase 7g: a short-circuited call writes no new AIInteraction
             # row (see this module's own docstring), so it's otherwise
@@ -92,7 +85,7 @@ def invoke_ai(
             from apps.ai.services.cache_metrics import record_cache_hit
 
             record_cache_hit()
-            return AIGatewayResult(outcome=prior.outcome, interaction_id=str(prior.id))
+            return _replay_result(prior)
 
     # 2. Policy resolution -- global kill switch + per-tenant opt-in.
     policy = resolve_policy(organization)
@@ -204,6 +197,10 @@ def invoke_ai(
         prompt_version=rendered.prompt_version, prompt_template_hash=rendered.template_hash,
         rendered_input_hash=rendered.rendered_input_hash, redaction_applied=redaction.redacted,
         response_hash=hashlib.sha256(response.text.encode("utf-8")).hexdigest(),
+        # Persist the raw response ONLY for idempotent calls, so a redelivery
+        # can replay the identical result (Finding 3). Non-idempotent calls
+        # stay hashes-only. Empty string (not the text) when there's no key.
+        response_text=response.text if idempotency_key else "",
         schema_valid=schema_valid, input_tokens=response.input_tokens,
         output_tokens=response.output_tokens, cost_usd=cost_usd, latency_ms=response.latency_ms,
         return_result=False,
@@ -215,6 +212,51 @@ def invoke_ai(
         parsed=parsed if schema_valid else None,
         raw_text=response.text,
         error_detail=interaction.error_detail,
+    )
+
+
+def _prior_ok_interaction(organization, idempotency_key):
+    """The most recent prior OK interaction for this (org, idempotency_key),
+    or None. The single query behind both the pre-lock fast-path short-circuit
+    and the in-lock re-check (Phase 7.5 H2)."""
+    return (
+        AIInteraction.objects.filter(
+            organization=organization,
+            idempotency_key=idempotency_key,
+            outcome=AIInteraction.Outcome.OK,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+
+
+def _replay_result(prior) -> AIGatewayResult:
+    """Reconstruct the ORIGINAL result of a prior OK call from its persisted
+    row, so a redelivered/duplicate idempotent call returns the identical
+    parsed body instead of parsed=None (Phase 7.5 H2, Finding 3).
+
+    Re-validates the persisted raw response against the same schema the
+    original call used (schema id/version are recorded in `parameters`), so
+    replay goes through the exact same validation path -- it never trusts a
+    stored 'parsed' blob. A prior row with no persisted response_text (a
+    non-idempotent call, or one written before this field existed) degrades
+    gracefully to parsed=None, exactly the pre-7.5 behavior.
+    """
+    parsed = None
+    if prior.response_text:
+        try:
+            schema = get_schema(
+                prior.parameters.get("response_schema_id", ""),
+                prior.parameters.get("response_schema_version", 0),
+            )
+            parsed, _ = validate_response(prior.response_text, schema)
+        except KeyError:
+            parsed = None
+    return AIGatewayResult(
+        outcome=prior.outcome,
+        interaction_id=str(prior.id),
+        parsed=parsed,
+        raw_text=prior.response_text,
     )
 
 
@@ -251,6 +293,7 @@ def _write_and_return(
     rendered_input_hash="",
     redaction_applied=False,
     response_hash="",
+    response_text="",
     schema_valid=None,
     input_tokens=None,
     output_tokens=None,
@@ -279,6 +322,7 @@ def _write_and_return(
         context_provenance=context_provenance,
         parameters=parameters,
         response_hash=response_hash,
+        response_text=response_text,
         schema_valid=schema_valid,
         outcome=outcome,
         error_detail=error_detail,

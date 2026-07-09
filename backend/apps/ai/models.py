@@ -43,6 +43,7 @@ import uuid
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
+from django.db.models import Q
 
 from apps.core.models import Organization
 
@@ -166,11 +167,13 @@ class AIInteraction(models.Model):
     (provider/model/prompt_version/parameters/hashes), what tenant data fed
     it (context_provenance), and what happened (outcome/cost/tokens/latency).
 
-    Deliberately does NOT store the raw rendered prompt or raw response text
-    -- only hashes -- unless the resolved egress tier explicitly permits it
-    (see apps.ai.services.egress). Hashes alone are always enough to prove
-    *which* exact input/output pair this is, without holding a second copy
-    of potentially-sensitive tenant-derived content at rest.
+    Deliberately does NOT store the raw rendered prompt -- only hashes.
+    Hashes alone are enough to prove *which* exact input this is without
+    holding a second copy of potentially-sensitive tenant-derived content at
+    rest. The one exception is `response_text`: the raw response is persisted
+    ONLY for calls carrying an idempotency_key, so a redelivery can replay the
+    identical result rather than losing it (Phase 7.5 H2, Finding 3). Every
+    non-idempotent call remains hashes-only.
     """
 
     class Outcome(models.TextChoices):
@@ -228,6 +231,15 @@ class AIInteraction(models.Model):
 
     # --- output -------------------------------------------------------------
     response_hash = models.CharField(max_length=64, blank=True)
+    # Phase 7.5 (H2, Finding 3): the raw provider response, persisted ONLY for
+    # calls that carry an idempotency_key, so a redelivered/duplicate call can
+    # replay the IDENTICAL parsed result instead of losing it. Without this, a
+    # worker crash between the gateway's OK write and a capability service's
+    # own persistence (e.g. AIAnnotation) permanently lost the AI output: the
+    # replay short-circuit returned parsed=None forever. Non-idempotent calls
+    # (idempotency_key="") stay hashes-only, preserving the class-docstring
+    # privacy contract for every call that didn't opt into durable replay.
+    response_text = models.TextField(blank=True)
     schema_valid = models.BooleanField(null=True, help_text="Null = no schema was expected for this call.")
     outcome = models.CharField(max_length=20, choices=Outcome.choices)
     error_detail = models.TextField(blank=True, help_text="Sanitized error/validation detail -- never raw tenant data.")
