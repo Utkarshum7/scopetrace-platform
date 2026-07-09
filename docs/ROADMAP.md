@@ -33,15 +33,18 @@ depth:
 | Seed emission factors are an illustrative DEFRA 2024 subset, not the full official dataset | Documented since Phase 3 | [`CARBON_ENGINE_DESIGN.md`](CARBON_ENGINE_DESIGN.md) |
 | No read-replica / DB routing support | Not needed at current scale | [`OPERATIONS_RUNBOOK.md`](OPERATIONS_RUNBOOK.md) §8 |
 | README screenshots are stock placeholder images | Explicitly marked as TODO in the file itself, awaiting a real deployment to screenshot | `README.md` |
+| AI observability/cost endpoints have no caching layer (unlike `apps.carbon.services.metrics_cache`) | Deliberate -- AI call volume is orders of magnitude smaller than carbon calculation data at current scale; revisit if that changes | `AI_ARCHITECTURE.md` §19, ADR 0014 |
 
 ---
 
 ## 2. Future Roadmap
 
-Phases 0–6 (rebrand/infra → correctness fixes → auth/RBAC → carbon engine →
+Phases 0–7 (rebrand/infra → correctness fixes → auth/RBAC → carbon engine →
 metrics/analytics → production engineering: async processing, retries/DLQ,
 scheduling, notifications, monitoring, CI/CD, Docker, documentation →
-enterprise governance) are complete. What's next, as currently planned:
+enterprise governance → AI: five real capabilities plus observability/
+cost governance/ops hardening) are complete. What's next, as currently
+planned:
 
 - **Phase 6 — Enterprise Governance** *(complete)*: full audit timeline UI,
   a real cryptographic immutable audit hash-chain (see §1, done in 6a),
@@ -133,8 +136,18 @@ enterprise governance) are complete. What's next, as currently planned:
   existing Reports dashboard widget. RBAC matches the compliance report
   itself (`CanViewActivity`, not the broader `CanUseAI` every other
   capability uses) since narration is commentary on that same gated
-  artifact. See AI_ARCHITECTURE.md §18 and ADR 0013. 7g (observability/
-  cost governance) remains -- the last planned Phase 7 sub-milestone.
+  artifact. See AI_ARCHITECTURE.md §18 and ADR 0013. **7g (AI
+  Observability, Cost Governance & Operational Hardening) is done --
+  Phase 7 is complete.** No new AI capability; pure read-only aggregation
+  over `AIInteraction`/`EvaluationRun`/`EvaluationResult` data every
+  prior Phase 7 milestone already writes -- no new accounting model.
+  `apps.ai.services.observability`/`cost_governance`/`ops_health` back
+  three new endpoints (`GET /api/ai/ops/observability/`,
+  `GET /api/ai/ops/health/` -- both Platform Admin; `GET /api/ai/costs/`
+  -- Org Admin/Auditor, activating the Phase 7a `CanViewAICosts` seam)
+  and new Platform Admin/Org Admin/Auditor dashboard widgets (AI usage,
+  provider mix, evaluation health, latency trend, budget utilization).
+  See AI_ARCHITECTURE.md §19, AI_EVALUATION.md §9, and ADR 0014.
 - **Phase 8 — UX**: accessibility audit, responsive design pass, theming,
   saved/custom dashboards, an in-app notification center (distinct from
   Phase 5g's email notifications — a UI-visible feed, not a new delivery
@@ -142,8 +155,12 @@ enterprise governance) are complete. What's next, as currently planned:
   clean extension point, not a redesign).
 - **Phase 9 — Observability**: Prometheus/Grafana/Loki/OpenTelemetry/Sentry,
   structured logging beyond today's `logging`-module-based approach. Flower
-  (Phase 5h) and the two health endpoints are today's observability
-  surface; this phase is the "real" production-grade layer on top.
+  (Phase 5h), the three health endpoints (`/healthz`, `/healthz/worker/`,
+  `/healthz/ai/`), and Phase 7g's AI observability/cost-governance/ops-
+  health endpoints + dashboard widgets are today's observability surface;
+  this phase is the "real" production-grade layer on top (metrics scraped
+  by an actual time-series backend, not read on-demand from the app's own
+  database).
 - **Phase 10 — Production Release**: a real landing page, a demo
   environment, published architecture diagrams (this document's Mermaid
   diagrams are a starting point), API documentation (OpenAPI/Swagger —

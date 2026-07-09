@@ -162,6 +162,7 @@ docker compose exec api python manage.py backfill_calculations
 |---|---|---|---|
 | `GET /healthz` | DB reachability (`SELECT 1`) | `200 {"status": "ok", "database": "ok"}` | `503 {"status": "unhealthy", "database": "unreachable", "detail": "<exception>"}` |
 | `GET /healthz/worker/` | Real `celery inspect ping` control-plane round trip + passive Beat heartbeat freshness | `200 {"status": "ok", "workers": ["celery@<host>"], "beat_heartbeat": {"status": "ok", "worker_id": "...", "age_seconds": N}}` | `503` — three distinct causes, each with an actionable `detail`: broker not configured, broker unreachable, or broker reachable but zero workers responded |
+| `GET /healthz/ai/` | `AI_ENABLED` state + provider construction check (config/credentials only, no network call) + AI heartbeat freshness | `200 {"status": "ok", "ai_enabled": true\|false, "provider": "...", "ai_heartbeat": {...}}` — `ai_enabled: false` is a healthy 200, not a failure | `503 {"status": "unhealthy", "detail": "provider misconfigured: ..."}` when enabled but misconfigured |
 
 `beat_heartbeat` is additive context on every response (including the
 earliest broker-not-configured failure) — it never changes the endpoint's
@@ -200,6 +201,47 @@ without a UI.
 `FLOWER_USER`/`FLOWER_PASSWORD`, and never expose port 5555 publicly — it's
 an operator tool, gated behind the `monitoring` Compose profile specifically
 so it's opt-in per environment.
+
+---
+
+## 5a. AI Operations (Phase 7g)
+
+Three authenticated, read-only endpoints (`apps.ai.ops_views`) go beyond
+`/healthz/ai/`'s pass/fail signal with real operational detail. All build
+entirely from `AIInteraction`/`EvaluationRun`/`EvaluationResult` rows the
+platform already writes — see [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md)
+§19 and ADR 0014.
+
+| Endpoint | RBAC | Reports |
+|---|---|---|
+| `GET /api/ai/ops/observability/` | Platform Admin | requests/failures, latency (+ daily trend), provider usage, replay usage, token usage, estimated cost, cache hits, evaluation health |
+| `GET /api/ai/ops/health/` | Platform Admin | AI provider status, AI heartbeat, `ai` queue depth (real Redis `LLEN`, not just worker liveness), evaluation health, replay provider health (construction + on-disk fixture count) |
+| `GET /api/ai/costs/` | Org Admin / Auditor | token consumption, estimated spend, monthly budget utilization %, provider/capability distribution — scoped to the active organization only |
+
+```bash
+# Platform-wide (superuser JWT required)
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/ai/ops/observability/ | python -m json.tool
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/ai/ops/health/ | python -m json.tool
+
+# Per-organization (Org Admin/Auditor JWT + X-Organization-ID if the user has multiple memberships)
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/ai/costs/ | python -m json.tool
+```
+
+**Reading `/api/ai/ops/health/`'s `queue_depth`:** `status: "ok"` with a
+`depth` count is a real backlog size on the `ai` queue (redelivery-safe —
+`LLEN` never consumes a message). A persistently growing depth with no
+corresponding worker activity is the same "queue draining" investigation
+as §9.1, scoped to the `ai` queue specifically:
+`docker compose logs worker | grep -A5 '\[queues\]'` to confirm the
+worker actually subscribes to `ai` (not just `celery,ingestion,
+calculation,maintenance,notifications`).
+
+**Reading evaluation health:** `regressions`/`schema_failures`/
+`replay_failures` > 0 in `/api/ai/ops/observability/`'s `evaluation`
+section means the last 10 CI evaluation runs had real failures — cross-
+reference the failing `EvaluationRun.id` against CI logs for
+`apps/ai/evaluation/tests_invariants.py` and the specific prompt/schema
+version involved (see [`AI_EVALUATION.md`](AI_EVALUATION.md) §9).
 
 ---
 
@@ -318,6 +360,37 @@ docker compose logs --no-color worker | grep "<workflow_id>"
    each holding connections open can exhaust a small Postgres plan's limit
    faster than expected.
 4. If genuinely down: see [`INCIDENT_RESPONSE.md`](INCIDENT_RESPONSE.md).
+
+### 9.4a "AI budget alert / an organization is over its monthly AI budget"
+
+1. `GET /api/ai/costs/` (as an Org Admin/Auditor for that org, or check
+   `apps.ai.services.cost_governance.org_cost_summary(org)` from a shell)
+   — `budget.over_budget: true` confirms it, `budget.spent_usd` /
+   `budget.budget_usd` give the exact figures.
+2. This is a **soft** signal, not an enforcement mechanism — the gateway's
+   own `check_budget()` (see `AI_ARCHITECTURE.md` §6) already refuses new
+   calls once the budget is exceeded (`AI_DISABLED`-style outcome, not a
+   hard crash); this endpoint is for visibility/reporting, not the
+   enforcement point itself.
+3. Adjust `TenantAIPolicy.monthly_budget_usd` for the organization (Org
+   Admin, `CanManageAIPolicy`) if the budget itself needs raising, or
+   investigate `provider_distribution`/`capability_distribution` in the
+   same response to see which capability is driving spend.
+
+### 9.4b "AI queue backlog is growing"
+
+1. `GET /api/ai/ops/health/` (Platform Admin) — `queue_depth.depth` on the
+   `ai` queue.
+2. Follow §9.1's general stuck-queue investigation, scoped to `ai`
+   specifically — confirm the worker's `-Q` flag includes it, confirm
+   Redis is reachable, check for a crash loop in the specific AI task
+   (`generate_anomaly_explanations_task`, `generate_factor_
+   recommendations_task`, `generate_validation_assistance_task`,
+   `generate_report_narration_task`, or `ai_heartbeat_task`).
+3. A vendor outage (Anthropic/OpenAI down or rate-limiting) will also
+   manifest as a growing `ai` queue depth with `PROVIDER_ERROR`-outcome
+   `AIInteraction` rows piling up — check `/api/ai/ops/observability/`'s
+   `requests.by_outcome` for a spike, not just the queue depth alone.
 
 ### 9.4 "I need to redeploy after a hotfix"
 

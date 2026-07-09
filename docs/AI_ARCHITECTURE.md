@@ -206,6 +206,13 @@ call); `ai_heartbeat_task`'s last result is surfaced as additive
 `ai_heartbeat` context, never the authoritative pass/fail signal — same
 pattern as `/healthz/worker/`'s `beat_heartbeat`.
 
+Phase 7g moved the actual `ai_heartbeat` cache-read logic to
+`apps.ai.services.ops_health.ai_heartbeat_status()` (apps.ai owns
+`AI_HEARTBEAT_CACHE_KEY`, not apps.core) — `healthz_ai` now delegates to
+it, response shape unchanged. That same module backs a richer,
+authenticated counterpart for Platform Admins,
+`GET /api/ai/ops/health/` — see §19.
+
 ---
 
 ## 9. RBAC
@@ -219,19 +226,25 @@ pattern as `/healthz/worker/`'s `beat_heartbeat`.
   permission but an AI-disabled org still reaches the gateway and gets a
   clean `AI_DISABLED` outcome, not a bare 403.
 - **`CanManageAIPolicy`** — Org Admin only; who can edit `TenantAIPolicy`.
+  Still has no endpoint of its own as of 7g (`TenantAIPolicy` is admin/
+  fixture-managed only).
 - **`CanViewAICosts`** — Org Admin + Auditor, mirrors `CanViewActivity`.
+  Activated in 7g by `GET /api/ai/costs/` — its first real endpoint.
 
-No AI-specific DRF endpoint exists yet in 7a to attach these to — they are
-tested directly against the permission classes (`apps.ai.tests_permissions`)
-and become real end-to-end API-level RBAC once 7b+ adds the first endpoint.
+`CanUseAI` got its first real endpoint in 7e (`AIConversationViewSet`);
+`CanViewAICosts` got its first in 7g. Both are tested directly against
+the permission classes (`apps.ai.tests_permissions`) and end-to-end at
+the real API (`apps.ai.tests_esg_assistant_api`, `apps.ai.
+tests_ops_views`).
 
 ---
 
 ## 10. What's explicitly NOT in Phase 7a (updated as later milestones land)
 
-All five planned Phase 7 capabilities are now implemented (7b-7f); what
-remains for Phase 7 is observability/cost governance (7g). Still not
-implemented (per the finalized Phase 7 design):
+All five planned Phase 7 capabilities are implemented (7b-7f), and
+observability/cost governance/ops hardening (7g) is also done — see §19.
+**Phase 7 is complete.** Still not implemented (out of Phase 7's scope
+entirely, per the finalized design):
 - A concrete self-hosted/BYO provider adapter (the seam exists; no adapter).
 - ~~The AI evaluation/golden-set harness~~ — done in **Phase 7a.5**, see
   [`AI_EVALUATION.md`](AI_EVALUATION.md).
@@ -269,6 +282,12 @@ implemented (per the finalized Phase 7 design):
   event to hook into since compliance reports are on-demand per ADR
   0002), and an AI Narrative sub-section in the existing Reports
   dashboard widget. See §18 and ADR 0013.
+- ~~Observability, cost governance, operational health endpoints~~ — done
+  in **Phase 7g**: `apps.ai.services.observability`/`cost_governance`/
+  `ops_health` (pure read-only aggregation, no new accounting model),
+  three endpoints (`/api/ai/ops/observability/`, `/api/ai/ops/health/`,
+  `/api/ai/costs/`), and Platform Admin/Org Admin/Auditor dashboard
+  widgets. See §19 and ADR 0014.
 
 ---
 
@@ -512,7 +531,71 @@ tests_invariants.py`.
 
 ---
 
-## 19. Related documents
+## 19. Phase 7g — AI Observability, Cost Governance & Operational Hardening
+
+The final Phase 7 milestone. No new AI capability — production readiness
+over the five that already exist. See ADR 0014 for the four structural
+decisions this section summarizes.
+
+**Everything is read-only aggregation over data already written.**
+`apps.ai.services.observability.platform_ai_summary()` reads
+`AIInteraction` (requests, latency incl. a daily-bucketed trend, failures,
+provider usage, replay usage, tokens, cost) and
+`EvaluationRun`/`EvaluationResult` (evaluation health) — no new
+accounting model, no second implementation of "how much did this cost."
+`apps.ai.services.cost_governance.org_cost_summary()` reuses
+`apps.ai.services.policy.resolve_policy()` and `apps.ai.services.cost.
+check_budget()` **verbatim** for budget utilization — the same
+resolution/aggregation the gateway itself uses on every call. The one
+genuinely new piece of bookkeeping is `apps.ai.services.cache_metrics`,
+a single additive cache counter for `invoke_ai()`'s idempotency short-
+circuit (a prior-outcome replay that writes no new `AIInteraction` row,
+and was otherwise structurally invisible to any `AIInteraction`-based
+metric) — mirrors `AI_HEARTBEAT_CACHE_KEY`'s existing pattern, not a new
+model or migration.
+
+**Three read-only endpoints, two RBAC boundaries.**
+`GET /api/ai/ops/observability/` (`platform_ai_summary`) and
+`GET /api/ai/ops/health/` (`apps.ai.services.ops_health.ai_ops_health` —
+AI provider status, AI heartbeat, `ai` queue depth via direct Redis
+`LLEN`, evaluation health, replay provider health) are `IsPlatformAdmin`
+-only, cross-tenant, matching `apps.carbon.metrics_views.
+PlatformMetricsView`'s own boundary. `GET /api/ai/costs/`
+(`org_cost_summary`) activates `CanViewAICosts` — a Phase 7a seam
+("Organization Admins and Auditors may view AI cost/observability data")
+that had no endpoint until now.
+
+**Evaluation health reports real trend data, not fabricated metrics.**
+`evaluation_summary()` (renamed from a private helper so
+`ops_health` can reuse it) reports `regressions`/`schema_failures`/
+`replay_failures` as real counts from `EvaluationResult.Outcome` and a
+real per-run `recent_runs` pass/fail trend (oldest-first, capped at 10,
+one entry per actually-persisted `EvaluationRun`). "Invariant failures"
+(the I1–I6 suite) has no persistence layer of its own — it's a CI merge
+gate, reported as a documented static pointer, not invented runtime data.
+
+**`/healthz/ai/`'s response shape is unchanged.** `apps.ai.services.
+ops_health.ai_heartbeat_status()` is now the single source of truth for
+reading `AI_HEARTBEAT_CACHE_KEY`; `apps.core.views.healthz_ai` delegates
+to it instead of duplicating the cache-read logic inline (apps.ai, not
+apps.core, owns that cache key) — regression-tested to still return the
+byte-identical `ai_heartbeat` shape.
+
+**Dashboard**: pure presentation over the three endpoints above, no
+client-side aggregation — Platform Admin gets four widgets (AI Usage,
+Provider Mix donut, Evaluation Health, Latency Trend chart, all sharing
+one deduped `getAIObservability()` query); Org Admin/Auditor get one
+(AI Budget — utilization bar, spend vs budget, token consumption),
+matching `CanViewAICosts`'s own role set.
+
+This closes Phase 7 — anomaly detection (7b), factor recommendation
+(7c), validation assistance (7d), ESG assistant (7e), report narration
+(7f), and now observability/governance/ops hardening (7g) are all
+implemented, evaluated, and documented.
+
+---
+
+## 20. Related documents
 
 - [`ROADMAP.md`](ROADMAP.md) — Phase 7 milestone breakdown (7a–7g).
 - [`AI_EVALUATION.md`](AI_EVALUATION.md) — Phase 7a.5's evaluation/
@@ -531,3 +614,4 @@ tests_invariants.py`.
 - [`docs/adr/0011-validation-assistance-reuses-aiannotation.md`](adr/0011-validation-assistance-reuses-aiannotation.md)
 - [`docs/adr/0012-esg-assistant-synchronous-structured-retrieval.md`](adr/0012-esg-assistant-synchronous-structured-retrieval.md)
 - [`docs/adr/0013-report-narration-approved-only-context-and-async-api-dispatch.md`](adr/0013-report-narration-approved-only-context-and-async-api-dispatch.md)
+- [`docs/adr/0014-ai-observability-cost-governance-and-ops-health-reuse-not-duplicate.md`](adr/0014-ai-observability-cost-governance-and-ops-health-reuse-not-duplicate.md)

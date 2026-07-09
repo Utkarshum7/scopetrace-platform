@@ -327,6 +327,14 @@ Booleans accept `True`/`False` (case-insensitive); lists are comma-separated.
 | `ANTHROPIC_API_KEY` | *(empty)* | Required when `AI_PROVIDER=anthropic` and a tenant has AI enabled. |
 | `OPENAI_API_KEY` | *(empty)* | Required when `AI_PROVIDER=openai` and a tenant has AI enabled. |
 
+**Phase 7g (observability/cost governance/ops health)** introduced no new
+environment variables — `apps.ai.services.ops_health.ai_queue_depth()`
+reuses the same `CELERY_BROKER_URL`/`REDIS_URL` already documented in
+§4.4. Three new read-only endpoints (`/api/ai/ops/observability/`,
+`/api/ai/ops/health/`, `/api/ai/costs/`) — see
+[`OPERATIONS_RUNBOOK.md`](OPERATIONS_RUNBOOK.md) §5a for usage and
+[`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md) §19 / ADR 0014 for design.
+
 ### 4.7 Email notifications
 
 | Variable | Default | Notes |
@@ -414,6 +422,11 @@ Before pushing a release-bound commit / opening a release PR:
 - [ ] `CHANGELOG`/commit messages describe *why*, not just *what* (this repo's established convention throughout Phase 5).
 - [ ] No secrets committed (`.env`, real `SECRET_KEY`/`AWS_*`/`EMAIL_HOST_PASSWORD` values) — `.gitignore`/`.dockerignore` both exclude `.env`.
 - [ ] Never merge into `main` without explicit approval; push milestone branches only (this repo's standing workflow rule).
+- [ ] If any AI capability/observability endpoint changed: `/healthz/ai/`,
+      `/api/ai/ops/observability/`, `/api/ai/ops/health/`, `/api/ai/costs/`
+      all verified against a real Docker Compose stack (Platform
+      Admin/Org Admin JWTs), not just eager-mode unit tests — see
+      [`OPERATIONS_RUNBOOK.md`](OPERATIONS_RUNBOOK.md) §5a.
 
 **Before actually deploying to Render** (separately from the above — a
 distinct, higher-stakes action): confirm §3.3's gap has been addressed for

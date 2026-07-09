@@ -249,7 +249,45 @@ just another test file.
 
 ---
 
-## 9. Running an evaluation
+## 9. Evaluation monitoring (Phase 7g)
+
+`apps.ai.services.observability.evaluation_summary()` (also folded into
+`platform_ai_summary()` and `apps.ai.services.ops_health.ai_ops_health()`,
+surfaced via `GET /api/ai/ops/observability/` and
+`GET /api/ai/ops/health/`, Platform Admin only) reports, from data this
+package already writes — no second implementation, no new model:
+
+- **Latest run per tier** — `EvaluationRun` fields directly (status,
+  trigger, total/passed/failed cases, timestamps).
+- **`recent_runs`** — a real per-run pass/fail trend, oldest-first,
+  capped at the last 10 `EvaluationRun` rows. Each point is an actually-
+  persisted run, never interpolated or bucketed.
+- **`regressions` / `schema_failures` / `replay_failures`** — counts from
+  the last 10 runs' `EvaluationResult.Outcome` breakdown, reusing the
+  same four-value classification table in §4 above
+  (`REGRESSION`/`SCHEMA_INVALID`/`PROVIDER_ERROR` — a `PROVIDER_ERROR`
+  during an evaluation run *is* a replay failure, since `ReplayProvider`
+  is the harness's own default provider per §5).
+- **`invariant_suite`** — a static, documented pointer to §8's merge gate,
+  explicitly NOT a runtime metric. The I1–I6 suite (and every capability's
+  own `InvariantI2/I3*ConcreteProofTests`) is a regular Django `TestCase`
+  file with no persistence layer of its own — there is nothing to query a
+  historical pass/fail trend from. Its "trend" is GitHub Actions' own CI
+  history for `apps/ai/evaluation/tests_invariants.py`, not a dashboard
+  field. See ADR 0014 for why this line wasn't fabricated.
+
+**Replay provider health** (`apps.ai.services.ops_health.
+replay_provider_health()`, part of `GET /api/ai/ops/health/`) is a
+distinct, complementary signal: can `ReplayProvider` be constructed, and
+does `apps/ai/providers/replay_fixtures/` exist with fixtures on disk
+(`apps.ai.providers.replay.fixture_stats()`) — the on-disk dependency
+the standalone `case_id` lookup mode (§5, mode 2) needs, which evaluation
+runs themselves don't exercise (they pass `canned_response` in memory,
+mode 1).
+
+---
+
+## 10. Running an evaluation
 
 ```python
 from apps.ai.evaluation.service import run_tier1_evaluation
@@ -263,7 +301,7 @@ CLI command — Django's test runner already is the harness's entry point).
 
 ---
 
-## 10. Adding a real capability (the steps Phase 7b actually followed)
+## 11. Adding a real capability (the steps Phase 7b actually followed)
 
 1. Reuse the existing `CAPABILITY_REGISTRY` entry (or add a new one) —
    the prompt template and schema may be kept as-is, version-bumped, or
@@ -286,7 +324,7 @@ CLI command — Django's test runner already is the harness's entry point).
    proof that the real capability's service function never mutates the
    governed record it reads.
 
-## 11. Related documents
+## 12. Related documents
 
 - [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md) — the Phase 7a/7b foundation.
 - [`CI_CD.md`](CI_CD.md) — overall CI philosophy (blocking vs. advisory).
@@ -296,3 +334,4 @@ CLI command — Django's test runner already is the harness's entry point).
 - [`docs/adr/0011-validation-assistance-reuses-aiannotation.md`](adr/0011-validation-assistance-reuses-aiannotation.md)
 - [`docs/adr/0012-esg-assistant-synchronous-structured-retrieval.md`](adr/0012-esg-assistant-synchronous-structured-retrieval.md)
 - [`docs/adr/0013-report-narration-approved-only-context-and-async-api-dispatch.md`](adr/0013-report-narration-approved-only-context-and-async-api-dispatch.md)
+- [`docs/adr/0014-ai-observability-cost-governance-and-ops-health-reuse-not-duplicate.md`](adr/0014-ai-observability-cost-governance-and-ops-health-reuse-not-duplicate.md)
