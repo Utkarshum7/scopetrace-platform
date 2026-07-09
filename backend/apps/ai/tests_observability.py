@@ -79,6 +79,34 @@ class PlatformAiSummaryTests(TestCase):
         summary = platform_ai_summary()
         self.assertEqual(summary["latency"]["avg_ms"], 150.0)
 
+    def test_latency_trend_buckets_by_day(self):
+        import datetime
+
+        first = _make_interaction(self.org, latency_ms=100)
+        AIInteraction.objects.filter(pk=first.pk).update(
+            created_at=datetime.datetime(2026, 1, 1, 10, tzinfo=datetime.timezone.utc)
+        )
+        second = _make_interaction(self.org, latency_ms=300)
+        AIInteraction.objects.filter(pk=second.pk).update(
+            created_at=datetime.datetime(2026, 1, 1, 14, tzinfo=datetime.timezone.utc)
+        )
+        third = _make_interaction(self.org, latency_ms=50)
+        AIInteraction.objects.filter(pk=third.pk).update(
+            created_at=datetime.datetime(2026, 1, 2, 9, tzinfo=datetime.timezone.utc)
+        )
+
+        summary = platform_ai_summary()
+        trend = summary["latency"]["trend"]
+        self.assertEqual(trend, [
+            {"date": "2026-01-01", "avg_ms": 200.0},
+            {"date": "2026-01-02", "avg_ms": 50.0},
+        ])
+
+    def test_latency_trend_excludes_interactions_without_latency(self):
+        _make_interaction(self.org, latency_ms=None)
+        summary = platform_ai_summary()
+        self.assertEqual(summary["latency"]["trend"], [])
+
     def test_cache_hits_reflected(self):
         record_cache_hit()
         record_cache_hit()

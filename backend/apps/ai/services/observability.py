@@ -15,6 +15,7 @@ accounting, no duplicate bookkeeping. See ADR 0014.
 from decimal import Decimal
 
 from django.db.models import Avg, Count, Sum
+from django.db.models.functions import TruncDate
 
 from apps.ai.evaluation.models import EvaluationResult, EvaluationRun
 from apps.ai.models import AIInteraction
@@ -31,8 +32,23 @@ def _requests_summary(qs) -> dict:
 
 
 def _latency_summary(qs) -> dict:
-    agg = qs.filter(latency_ms__isnull=False).aggregate(avg=Avg("latency_ms"))
-    return {"avg_ms": round(agg["avg"], 1) if agg["avg"] is not None else None}
+    with_latency = qs.filter(latency_ms__isnull=False)
+    agg = with_latency.aggregate(avg=Avg("latency_ms"))
+    # Daily-bucketed trend (TruncDate, mirroring apps.carbon.services.metrics'
+    # own TruncMonth/Quarter/Year pattern for the calc-metrics timeseries) --
+    # real per-day averages from AIInteraction.latency_ms, not interpolated.
+    trend = (
+        with_latency.annotate(day=TruncDate("created_at"))
+        .values("day")
+        .annotate(avg_ms=Avg("latency_ms"))
+        .order_by("day")
+    )
+    return {
+        "avg_ms": round(agg["avg"], 1) if agg["avg"] is not None else None,
+        "trend": [
+            {"date": row["day"].isoformat(), "avg_ms": round(row["avg_ms"], 1)} for row in trend
+        ],
+    }
 
 
 def _provider_usage(qs) -> dict:
