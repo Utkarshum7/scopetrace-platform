@@ -59,7 +59,7 @@ def _token_and_cost_summary(qs) -> dict:
     }
 
 
-def _evaluation_summary() -> dict:
+def evaluation_summary() -> dict:
     """Latest run per tier, plus a recent-regression breakdown -- reuses
     EvaluationRun/EvaluationResult's own persisted fields directly, no
     second implementation of "did the suite pass." "Invariant failures"
@@ -86,14 +86,28 @@ def _evaluation_summary() -> dict:
             "finished_at": run.finished_at,
         }
 
-    recent_run_ids = EvaluationRun.objects.order_by("-started_at").values_list("id", flat=True)[:10]
-    recent_results = EvaluationResult.objects.filter(run_id__in=list(recent_run_ids))
+    recent_runs_list = list(EvaluationRun.objects.order_by("-started_at")[:10])
+    recent_run_ids = [run.id for run in recent_runs_list]
+    recent_results = EvaluationResult.objects.filter(run_id__in=recent_run_ids)
     outcome_breakdown = {
         row["outcome"]: row["n"] for row in recent_results.values("outcome").annotate(n=Count("id"))
     }
 
+    # Real per-run pass/fail trend (oldest-first, so a chart can plot it
+    # left-to-right) -- not fabricated: each entry is one actually-persisted
+    # EvaluationRun, not an interpolated/bucketed synthetic point.
+    recent_runs = [
+        {
+            "id": str(run.id), "tier": run.tier, "status": run.status,
+            "passed_cases": run.passed_cases, "failed_cases": run.failed_cases,
+            "started_at": run.started_at,
+        }
+        for run in reversed(recent_runs_list)
+    ]
+
     return {
         "latest_by_tier": latest_by_tier,
+        "recent_runs": recent_runs,
         "recent_outcome_breakdown": outcome_breakdown,
         "regressions": outcome_breakdown.get(EvaluationResult.Outcome.REGRESSION, 0),
         "schema_failures": outcome_breakdown.get(EvaluationResult.Outcome.SCHEMA_INVALID, 0),
@@ -129,5 +143,5 @@ def platform_ai_summary(filters=None) -> dict:
         "capability_usage": _capability_usage(qs),
         "tokens_and_cost": _token_and_cost_summary(qs),
         "cache_hits": get_cache_hit_count(),
-        "evaluation": _evaluation_summary(),
+        "evaluation": evaluation_summary(),
     }

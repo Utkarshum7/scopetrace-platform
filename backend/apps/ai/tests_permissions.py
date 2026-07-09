@@ -1,14 +1,14 @@
 """
 Phase 7a -- CanUseAI / CanManageAIPolicy / CanViewAICosts RBAC tests.
 
-No AI-specific DRF endpoint exists yet in 7a (only /healthz/ai, which is
-unauthenticated infra, not gated by these classes) -- these are unit tests
-against the permission classes directly via a bare request object, matching
-how apps.accounts.tenancy.resolve_tenant_context only needs `.user` and
-`.META`, not a real view. A feature milestone (7b+) that adds the first
-real AI endpoint wires these in and gets real end-to-end API-level RBAC
-tests for free at that point, exactly like every existing CanUpload/
-CanApprove test in apps.ingestion.
+These are unit tests against the permission classes directly via a bare
+request object, matching how apps.accounts.tenancy.resolve_tenant_context
+only needs `.user` and `.META`, not a real view -- CanUseAI got its first
+real endpoint in 7e (AIConversationViewSet) and CanViewAICosts got its
+first real endpoint in 7g (apps.ai.ops_views.AICostGovernanceView, see
+apps.ai.tests_ops_views for the end-to-end API-level RBAC coverage);
+CanManageAIPolicy still has no endpoint of its own (TenantAIPolicy is
+admin/fixture-managed only, no HTTP surface exists to gate).
 """
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase

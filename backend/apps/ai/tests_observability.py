@@ -124,6 +124,40 @@ class PlatformAiSummaryTests(TestCase):
         self.assertEqual(summary["evaluation"]["regressions"], 1)
         self.assertEqual(summary["evaluation"]["schema_failures"], 1)
 
+    def test_evaluation_summary_counts_replay_failures(self):
+        run = EvaluationRun.objects.create(tier=EvaluationRun.Tier.TIER_1_DETERMINISTIC, total_cases=1)
+        EvaluationResult.objects.create(
+            run=run, capability="anomaly_detection", case_id="c1", prompt_name="anomaly_detection",
+            outcome=EvaluationResult.Outcome.PROVIDER_ERROR,
+        )
+        summary = platform_ai_summary()
+        self.assertEqual(summary["evaluation"]["replay_failures"], 1)
+
+    def test_evaluation_summary_reports_recent_runs_oldest_first(self):
+        import time
+
+        first = EvaluationRun.objects.create(
+            tier=EvaluationRun.Tier.TIER_1_DETERMINISTIC, status=EvaluationRun.Status.COMPLETED,
+            total_cases=3, passed_cases=3, failed_cases=0,
+        )
+        time.sleep(0.01)
+        second = EvaluationRun.objects.create(
+            tier=EvaluationRun.Tier.TIER_2_ADVISORY, status=EvaluationRun.Status.COMPLETED,
+            total_cases=2, passed_cases=1, failed_cases=1,
+        )
+        summary = platform_ai_summary()
+        recent_runs = summary["evaluation"]["recent_runs"]
+        self.assertEqual(len(recent_runs), 2)
+        self.assertEqual(recent_runs[0]["id"], str(first.id))
+        self.assertEqual(recent_runs[1]["id"], str(second.id))
+        self.assertEqual(recent_runs[1]["failed_cases"], 1)
+
+    def test_evaluation_summary_recent_runs_capped_at_ten(self):
+        for _ in range(12):
+            EvaluationRun.objects.create(tier=EvaluationRun.Tier.TIER_1_DETERMINISTIC, total_cases=1)
+        summary = platform_ai_summary()
+        self.assertEqual(len(summary["evaluation"]["recent_runs"]), 10)
+
     def test_never_mutates_any_ai_interaction_or_evaluation_row(self):
         interaction = _make_interaction(self.org)
         run = EvaluationRun.objects.create(tier=EvaluationRun.Tier.TIER_1_DETERMINISTIC, total_cases=1)

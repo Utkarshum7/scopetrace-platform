@@ -164,23 +164,14 @@ def healthz_ai(request):
 
 
 def _ai_heartbeat() -> dict:
-    """Reads apps.ai.tasks.ai_heartbeat_task's last cache write. Mirrors
-    _beat_heartbeat()'s exact shape/semantics -- see that function."""
-    from apps.ai.tasks import AI_HEARTBEAT_CACHE_KEY
+    """Mirrors _beat_heartbeat()'s exact shape/semantics -- see that
+    function. Phase 7g moved the actual cache-read/age-computation logic
+    to apps.ai.services.ops_health.ai_heartbeat_status(), since apps.ai
+    (not apps.core) owns AI_HEARTBEAT_CACHE_KEY; this stays a thin
+    wrapper so /healthz/ai's response shape is unchanged."""
+    from apps.ai.services.ops_health import ai_heartbeat_status
 
-    payload = cache.get(AI_HEARTBEAT_CACHE_KEY)
-    if not payload:
-        return {"ai_heartbeat": {"status": "stale"}}
-
-    last_seen = parse_datetime(payload["timestamp"])
-    age_seconds = (timezone.now() - last_seen).total_seconds()
-    return {
-        "ai_heartbeat": {
-            "status": payload.get("status", "unknown"),
-            "worker_id": payload.get("worker_id"),
-            "age_seconds": round(age_seconds, 1),
-        }
-    }
+    return {"ai_heartbeat": ai_heartbeat_status()}
 
 
 def _beat_heartbeat() -> dict:

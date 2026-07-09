@@ -68,3 +68,16 @@ class ReplayProvider(LLMProvider):
         if not path.exists():
             raise LLMProviderError(f"No replay fixture found for case_id={case_id!r} at {path}")
         return path.read_text(encoding="utf-8")
+
+
+def fixture_stats() -> dict:
+    """Phase 7g -- on-disk health of the standalone case_id lookup mode
+    (mode 2 above): does apps/ai/providers/replay_fixtures/ exist, and how
+    many fixtures does it hold. This module owns its own file-layout
+    knowledge, so callers (apps.ai.services.ops_health) ask here rather
+    than reaching into _FIXTURES_DIR directly."""
+    exists = _FIXTURES_DIR.exists()
+    return {
+        "fixtures_dir_exists": exists,
+        "fixture_count": len(list(_FIXTURES_DIR.glob("*.json"))) if exists else 0,
+    }
