@@ -19,12 +19,19 @@ real business-data change must go through the EXISTING governed workflow
 (apps.ingestion.services.workflow / the calculation recalculation path),
 never through this gateway.
 
-Idempotency note (Phase 7.5 H2): idempotency_key makes a redelivered/
-duplicate call safe under Celery's at-least-once (ACKS_LATE) redelivery.
-  - No duplicate OK row (Finding 1): a partial UniqueConstraint on
+Concurrency + idempotency note (Phase 7.5 H2): the budget-check ->
+provider-call -> write critical section runs while holding a per-organization
+lock (select_for_update on the tenant's TenantAIPolicy row), so concurrent AI
+calls for one org serialize; different orgs never contend. This gives:
+  - No budget overspend (Finding 2): two calls can't both read "under budget"
+    and both spend, because the second waits for the first's cost to commit.
+  - No duplicate paid provider call (Finding 1): the second call, once it has
+    the lock, re-checks the short-circuit and finds the first's committed OK
+    row -- so it replays instead of calling the provider again.
+  - No duplicate OK row (Finding 1, backstop): a partial UniqueConstraint on
     (organization, idempotency_key) WHERE outcome=OK makes a second OK row
-    structurally impossible; if a concurrent duplicate wins the race, this
-    call catches the IntegrityError and replays the winner instead.
+    structurally impossible even if the lock is ever bypassed; a lost race is
+    caught (IntegrityError) and replayed.
   - Identical replay (Finding 3): a replayed call returns the SAME parsed
     body and interaction_id as the original, reconstructed from the persisted
     raw response (AIInteraction.response_text, stored only for idempotent
@@ -39,9 +46,9 @@ import hashlib
 import time
 from dataclasses import dataclass
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 
-from apps.ai.models import AIInteraction
+from apps.ai.models import AIInteraction, TenantAIPolicy
 from apps.ai.prompts.registry import render_prompt
 from apps.ai.providers.base import LLMProviderError, LLMRequest
 from apps.ai.providers.factory import get_llm_provider
@@ -110,7 +117,51 @@ def invoke_ai(
             error_detail="AI is disabled (globally or for this organization).",
         )
 
-    # 3. Budget check -- before any provider call, so a refused call never costs anything.
+    # 3. Per-organization critical section (Phase 7.5 H2, Findings 1 & 2).
+    # Everything that can spend budget or write the OK row runs while holding
+    # the tenant's policy row lock, so concurrent AI calls for THIS org
+    # serialize across budget-check -> provider-call -> write. Different orgs
+    # never contend. This makes the budget check race-free (no two calls both
+    # read "under budget" and both spend) and closes the duplicate-provider-
+    # call window: a concurrent duplicate waits for the lock, then the in-lock
+    # re-check finds the committed OK row instead of calling the provider again.
+    with transaction.atomic():
+        _lock_org_policy(organization)
+
+        if idempotency_key:
+            prior = _prior_ok_interaction(organization, idempotency_key)
+            if prior is not None:
+                return _replay_result(prior)
+
+        return _invoke_reaching_provider(
+            organization=organization, actor=actor, capability=capability,
+            policy=policy, parameters=parameters, prompt_name=prompt_name,
+            template_vars=template_vars, response_schema_id=response_schema_id,
+            response_schema_version=response_schema_version,
+            context_provenance=context_provenance, temperature=temperature,
+            top_p=top_p, max_tokens=max_tokens, seed=seed, stop=stop,
+            idempotency_key=idempotency_key,
+        )
+
+
+def _lock_org_policy(organization):
+    """Acquire the per-organization AI serialization lock: a select_for_update
+    on the tenant's TenantAIPolicy row (guaranteed to exist for an enabled
+    org). Must be called inside a transaction.atomic(). On SQLite this is a
+    no-op (no row-level locking) -- the concurrency guarantees hold only on
+    PostgreSQL, which is what production and CI use."""
+    TenantAIPolicy.objects.select_for_update().get(organization=organization)
+
+
+def _invoke_reaching_provider(
+    *, organization, actor, capability, policy, parameters, prompt_name,
+    template_vars, response_schema_id, response_schema_version, context_provenance,
+    temperature, top_p, max_tokens, seed, stop, idempotency_key,
+) -> AIGatewayResult:
+    """Budget check through provider call and the final write -- the body of
+    invoke_ai()'s per-org locked critical section (see its step 3). Split out
+    only so the lock/atomic wrapper stays readable; not a public entry point."""
+    # 3a. Budget check -- before any provider call, so a refused call never costs anything.
     budget = check_budget(organization, policy.monthly_budget_usd)
     if not budget.ok:
         return _write_and_return(
@@ -195,30 +246,35 @@ def invoke_ai(
     cost_usd = estimate_cost_usd(policy.provider, response.model_id, response.input_tokens, response.output_tokens)
 
     try:
-        interaction = _write_and_return(
-            organization=organization, actor=actor, capability=capability,
-            provider=policy.provider, model_id=response.model_id, model_snapshot=response.model_snapshot,
-            provider_request_id=response.provider_request_id, parameters=parameters,
-            context_provenance=context_provenance, egress_tier=policy.egress_tier,
-            idempotency_key=idempotency_key, outcome=outcome,
-            error_detail="" if schema_valid else "Response failed schema validation.",
-            prompt_version=rendered.prompt_version, prompt_template_hash=rendered.template_hash,
-            rendered_input_hash=rendered.rendered_input_hash, redaction_applied=redaction.redacted,
-            response_hash=hashlib.sha256(response.text.encode("utf-8")).hexdigest(),
-            # Persist the raw response ONLY for idempotent calls, so a redelivery
-            # can replay the identical result (Finding 3). Non-idempotent calls
-            # stay hashes-only. Empty string (not the text) when there's no key.
-            response_text=response.text if idempotency_key else "",
-            schema_valid=schema_valid, input_tokens=response.input_tokens,
-            output_tokens=response.output_tokens, cost_usd=cost_usd, latency_ms=response.latency_ms,
-            return_result=False,
-        )
+        # Savepoint (nested atomic) around the OK write: with the per-org lock
+        # in place this IntegrityError is unreachable, but if the constraint
+        # ever DOES fire, the savepoint contains the rollback so the enclosing
+        # transaction stays usable for the replay query below (on Postgres an
+        # unhandled IntegrityError would otherwise poison it).
+        with transaction.atomic():
+            interaction = _write_and_return(
+                organization=organization, actor=actor, capability=capability,
+                provider=policy.provider, model_id=response.model_id, model_snapshot=response.model_snapshot,
+                provider_request_id=response.provider_request_id, parameters=parameters,
+                context_provenance=context_provenance, egress_tier=policy.egress_tier,
+                idempotency_key=idempotency_key, outcome=outcome,
+                error_detail="" if schema_valid else "Response failed schema validation.",
+                prompt_version=rendered.prompt_version, prompt_template_hash=rendered.template_hash,
+                rendered_input_hash=rendered.rendered_input_hash, redaction_applied=redaction.redacted,
+                response_hash=hashlib.sha256(response.text.encode("utf-8")).hexdigest(),
+                # Persist the raw response ONLY for idempotent calls, so a redelivery
+                # can replay the identical result (Finding 3). Non-idempotent calls
+                # stay hashes-only. Empty string (not the text) when there's no key.
+                response_text=response.text if idempotency_key else "",
+                schema_valid=schema_valid, input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens, cost_usd=cost_usd, latency_ms=response.latency_ms,
+                return_result=False,
+            )
     except IntegrityError:
         # Phase 7.5 (H2, Finding 1): a concurrent duplicate won the race and
         # already wrote the OK row for this (org, idempotency_key) -- the
-        # partial UniqueConstraint refused this second one. Both paid the
-        # provider (that waste is what the Finding 2 lock removes), but the
-        # caller must still get a single consistent result: replay the winner.
+        # partial UniqueConstraint refused this second one. The caller must
+        # still get a single consistent result: replay the winner.
         winner = _prior_ok_interaction(organization, idempotency_key)
         if winner is not None:
             return _replay_result(winner)
