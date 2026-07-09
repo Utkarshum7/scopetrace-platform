@@ -3,6 +3,7 @@ from django.db import models
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from apps.core.models import Organization
+from apps.core.querysets import SetNullCascadeSafeQuerySet
 
 # Sentinel prev_hash for the first entry in an organization's chain — a real
 # constant rather than None, so hash computation and verification never need
@@ -11,20 +12,27 @@ from apps.core.models import Organization
 GENESIS_HASH = "0" * 64
 
 
-class AuditTrailQuerySet(models.QuerySet):
+class AuditTrailQuerySet(SetNullCascadeSafeQuerySet):
     """Blocks bulk delete/update at the QuerySet level — the gap instance-level
     `delete()`/`clean()` overrides don't cover. `AuditTrail.objects.filter(...)
     .delete()` (or `.update(...)`) bypasses Model.delete()/Model.clean()
     entirely, the exact same Django gotcha already hit twice this session
     (QuerySet.update() bypassing signals in Phase 5f/5g's maintenance sweeps).
     Without this override, "append-only" was only ever true by convention for
-    single-instance operations."""
+    single-instance operations.
+
+    update() is inherited from SetNullCascadeSafeQuerySet: it still blocks
+    real bulk edits, but lets through the deletion Collector's own
+    `.update(changed_by=None)` / `.update(record=None)` calls (both
+    SET_NULL) -- without that carve-out, deleting a User who had ever
+    performed an audited action, or deleting any user at all (the
+    cascade's guard call fires even when it matches zero rows), raised
+    ValidationError instead of succeeding."""
 
     def delete(self):
         raise ValidationError("Audit logs are append-only and cannot be bulk-deleted.")
 
-    def update(self, **kwargs):
-        raise ValidationError("Audit logs are append-only and cannot be bulk-updated.")
+    update_blocked_message = "Audit logs are append-only and cannot be bulk-updated."
 
 
 class AuditTrail(models.Model):

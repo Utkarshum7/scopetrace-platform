@@ -3,6 +3,7 @@ from django.db import models
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from apps.core.models import Organization, DataSource
+from apps.core.querysets import SetNullCascadeSafeQuerySet
 
 
 def generate_workflow_id():
@@ -262,7 +263,7 @@ class UploadBatch(models.Model):
         return f"{self.file_name} ({self.status}) - {self.created_at.strftime('%Y-%m-%d %H:%M')}"
 
 
-class EmissionRecordQuerySet(models.QuerySet):
+class EmissionRecordQuerySet(SetNullCascadeSafeQuerySet):
     """Phase 6d — blocks bulk delete/update, the same QuerySet-level gap
     Phase 6a/6b already found and fixed for AuditTrail/EmissionRecordVersion
     (instance-level delete()/clean() overrides don't cover
@@ -272,7 +273,15 @@ class EmissionRecordQuerySet(models.QuerySet):
     is_deleted -- or even status, dating back to 6c -- with no AuditTrail
     entry and no EmissionRecordVersion snapshot at all. Confirmed via grep
     that nothing in this codebase relies on bulk update/delete on
-    EmissionRecord today."""
+    EmissionRecord today.
+
+    update() itself is inherited from SetNullCascadeSafeQuerySet: it still
+    blocks any real bulk edit, but lets through the exact
+    `.update(approved_by=None)` Django's deletion Collector issues when the
+    User referenced by `approved_by` (SET_NULL) is deleted -- without that
+    carve-out, User.delete() raised ValidationError for every user, not
+    just ones with approved records, because the cascade's own zero-row-
+    matching call still went through this override."""
 
     def delete(self):
         raise ValidationError(
@@ -280,12 +289,11 @@ class EmissionRecordQuerySet(models.QuerySet):
             "service (apps.ingestion.services.soft_delete) on each record."
         )
 
-    def update(self, **kwargs):
-        raise ValidationError(
-            "Emission records cannot be bulk-updated -- this would bypass "
-            "audit-trail and version-history creation. Save each record "
-            "individually through the appropriate service."
-        )
+    update_blocked_message = (
+        "Emission records cannot be bulk-updated -- this would bypass "
+        "audit-trail and version-history creation. Save each record "
+        "individually through the appropriate service."
+    )
 
 
 class _ActiveEmissionRecordManager(models.Manager):
@@ -576,17 +584,24 @@ class EmissionRecord(models.Model):
         return f"Record {self.row_index} in batch {self.batch.file_name} ({self.status})"
 
 
-class EmissionRecordVersionQuerySet(models.QuerySet):
+class EmissionRecordVersionQuerySet(SetNullCascadeSafeQuerySet):
     """Blocks bulk delete/update — the same QuerySet-level gap Phase 6a
     found and fixed for AuditTrail (instance-level delete()/clean()
     overrides don't cover QuerySet.delete()/.update(), which operate at the
-    SQL level and bypass model methods entirely)."""
+    SQL level and bypass model methods entirely).
+
+    update() is inherited from SetNullCascadeSafeQuerySet, which still
+    blocks bulk edits but lets through the deletion Collector's own
+    `.update(approved_by=None)` / `.update(created_by=None)` calls (both
+    SET_NULL to User) -- without that carve-out, deleting any user who had
+    ever approved or changed a record, or simply any user at all (the
+    cascade's guard call fires regardless of row count), raised
+    ValidationError instead of succeeding."""
 
     def delete(self):
         raise ValidationError("Record versions are immutable and cannot be bulk-deleted.")
 
-    def update(self, **kwargs):
-        raise ValidationError("Record versions are immutable and cannot be bulk-updated.")
+    update_blocked_message = "Record versions are immutable and cannot be bulk-updated."
 
 
 class EmissionRecordVersion(models.Model):

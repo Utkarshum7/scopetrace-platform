@@ -96,14 +96,27 @@ class AIInteractionTests(TestCase):
         self.assertEqual(interaction.outcome, "OK")
 
     def test_actor_field_is_set_null_on_delete(self):
-        # Actual cascading User.delete() is exercised at the framework level
-        # elsewhere; a pre-existing, unrelated EmissionRecord bulk-update
-        # guard currently blocks User.delete() entirely (tracked
-        # separately, not a Phase 7a concern). This asserts the FK's own
-        # on_delete policy directly instead.
         field = AIInteraction._meta.get_field("actor")
         self.assertEqual(field.remote_field.on_delete.__name__, "SET_NULL")
         self.assertTrue(field.null)
+
+    def test_actor_becomes_null_when_user_is_deleted(self):
+        # Previously, deleting ANY user raised ValidationError -- a
+        # pre-existing, unrelated EmissionRecordQuerySet.update() guard
+        # (apps.ingestion.models) blocked Django's own SET_NULL cascade
+        # unconditionally, not just when it would have affected a row. See
+        # apps.core.querysets.SetNullCascadeSafeQuerySet and
+        # apps.ingestion.tests_user_deletion for the fix and full regression
+        # coverage; this test just confirms the cascade actually reaches
+        # AIInteraction.actor now that it's unblocked.
+        interaction = AIInteraction.objects.create(
+            organization=self.org, actor=self.user, capability="x", provider="echo",
+            model_id="echo-1", outcome=AIInteraction.Outcome.OK,
+            egress_tier_applied=TenantAIPolicy.EgressTier.REDACTED,
+        )
+        self.user.delete()
+        interaction.refresh_from_db()
+        self.assertIsNone(interaction.actor_id)
 
     def test_organization_protected_from_deletion_once_it_has_ai_history(self):
         AIInteraction.objects.create(
