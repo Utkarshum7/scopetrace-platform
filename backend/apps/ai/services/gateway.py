@@ -19,20 +19,27 @@ real business-data change must go through the EXISTING governed workflow
 (apps.ingestion.services.workflow / the calculation recalculation path),
 never through this gateway.
 
-Idempotency note (Phase 7.5 H2, Finding 3): idempotency_key makes a
-redelivered/duplicate call safe under Celery's at-least-once (ACKS_LATE)
-redelivery. A replayed call returns the SAME parsed body and interaction_id
-as the original, reconstructed from the persisted raw response
-(AIInteraction.response_text, stored only for idempotent calls) re-validated
-against the original schema. This is what lets a capability service (e.g.
-anomaly_detection -> AIAnnotation) recover after a crash BETWEEN the gateway's
-OK write and its own downstream persistence -- the failure mode the pre-7.5
-"returns no parsed body" contract lost silently. Calls WITHOUT an
-idempotency_key keep the hashes-only privacy contract and never short-circuit.
+Idempotency note (Phase 7.5 H2): idempotency_key makes a redelivered/
+duplicate call safe under Celery's at-least-once (ACKS_LATE) redelivery.
+  - No duplicate OK row (Finding 1): a partial UniqueConstraint on
+    (organization, idempotency_key) WHERE outcome=OK makes a second OK row
+    structurally impossible; if a concurrent duplicate wins the race, this
+    call catches the IntegrityError and replays the winner instead.
+  - Identical replay (Finding 3): a replayed call returns the SAME parsed
+    body and interaction_id as the original, reconstructed from the persisted
+    raw response (AIInteraction.response_text, stored only for idempotent
+    calls) re-validated against the original schema. This lets a capability
+    service (e.g. anomaly_detection -> AIAnnotation) recover after a crash
+    BETWEEN the gateway's OK write and its own downstream persistence -- the
+    failure mode the pre-7.5 "returns no parsed body" contract lost silently.
+Calls WITHOUT an idempotency_key keep the hashes-only privacy contract and
+never short-circuit.
 """
 import hashlib
 import time
 from dataclasses import dataclass
+
+from django.db import IntegrityError
 
 from apps.ai.models import AIInteraction
 from apps.ai.prompts.registry import render_prompt
@@ -187,24 +194,35 @@ def invoke_ai(
     outcome = AIInteraction.Outcome.OK if schema_valid else AIInteraction.Outcome.SCHEMA_INVALID
     cost_usd = estimate_cost_usd(policy.provider, response.model_id, response.input_tokens, response.output_tokens)
 
-    interaction = _write_and_return(
-        organization=organization, actor=actor, capability=capability,
-        provider=policy.provider, model_id=response.model_id, model_snapshot=response.model_snapshot,
-        provider_request_id=response.provider_request_id, parameters=parameters,
-        context_provenance=context_provenance, egress_tier=policy.egress_tier,
-        idempotency_key=idempotency_key, outcome=outcome,
-        error_detail="" if schema_valid else "Response failed schema validation.",
-        prompt_version=rendered.prompt_version, prompt_template_hash=rendered.template_hash,
-        rendered_input_hash=rendered.rendered_input_hash, redaction_applied=redaction.redacted,
-        response_hash=hashlib.sha256(response.text.encode("utf-8")).hexdigest(),
-        # Persist the raw response ONLY for idempotent calls, so a redelivery
-        # can replay the identical result (Finding 3). Non-idempotent calls
-        # stay hashes-only. Empty string (not the text) when there's no key.
-        response_text=response.text if idempotency_key else "",
-        schema_valid=schema_valid, input_tokens=response.input_tokens,
-        output_tokens=response.output_tokens, cost_usd=cost_usd, latency_ms=response.latency_ms,
-        return_result=False,
-    )
+    try:
+        interaction = _write_and_return(
+            organization=organization, actor=actor, capability=capability,
+            provider=policy.provider, model_id=response.model_id, model_snapshot=response.model_snapshot,
+            provider_request_id=response.provider_request_id, parameters=parameters,
+            context_provenance=context_provenance, egress_tier=policy.egress_tier,
+            idempotency_key=idempotency_key, outcome=outcome,
+            error_detail="" if schema_valid else "Response failed schema validation.",
+            prompt_version=rendered.prompt_version, prompt_template_hash=rendered.template_hash,
+            rendered_input_hash=rendered.rendered_input_hash, redaction_applied=redaction.redacted,
+            response_hash=hashlib.sha256(response.text.encode("utf-8")).hexdigest(),
+            # Persist the raw response ONLY for idempotent calls, so a redelivery
+            # can replay the identical result (Finding 3). Non-idempotent calls
+            # stay hashes-only. Empty string (not the text) when there's no key.
+            response_text=response.text if idempotency_key else "",
+            schema_valid=schema_valid, input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens, cost_usd=cost_usd, latency_ms=response.latency_ms,
+            return_result=False,
+        )
+    except IntegrityError:
+        # Phase 7.5 (H2, Finding 1): a concurrent duplicate won the race and
+        # already wrote the OK row for this (org, idempotency_key) -- the
+        # partial UniqueConstraint refused this second one. Both paid the
+        # provider (that waste is what the Finding 2 lock removes), but the
+        # caller must still get a single consistent result: replay the winner.
+        winner = _prior_ok_interaction(organization, idempotency_key)
+        if winner is not None:
+            return _replay_result(winner)
+        raise
 
     return AIGatewayResult(
         outcome=outcome,

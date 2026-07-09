@@ -263,6 +263,20 @@ class AIInteraction(models.Model):
             models.Index(fields=["organization", "-created_at"]),
             models.Index(fields=["organization", "idempotency_key"]),
         ]
+        constraints = [
+            # Phase 7.5 (H2, Finding 1): at most ONE successful interaction per
+            # (organization, idempotency_key). The DB-level backstop that makes
+            # a duplicate OK row structurally impossible even if application
+            # serialization is ever bypassed. Partial: only OK rows with a
+            # non-empty key are constrained -- failed attempts may repeat (a
+            # retry after an ERROR must be allowed), and non-idempotent calls
+            # (key="") are unconstrained by design.
+            models.UniqueConstraint(
+                fields=["organization", "idempotency_key"],
+                condition=Q(outcome="OK") & ~Q(idempotency_key=""),
+                name="uniq_ai_interaction_ok_per_idempotency_key",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.capability} [{self.outcome}] {self.created_at:%Y-%m-%d %H:%M}"
