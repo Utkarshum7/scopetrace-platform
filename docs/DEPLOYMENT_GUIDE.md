@@ -165,8 +165,18 @@ npm run lint
 ```
 buildCommand:   pip install -r requirements.txt && collectstatic
 releaseCommand: migrate && bootstrap_data && seed_carbon   (idempotent — safe on every deploy)
-startCommand:   gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+startCommand:   gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --worker-class gthread --threads 4 --timeout 120
 ```
+
+`--worker-class gthread --threads 4` (Phase 7.5 H3): the default `sync`
+worker class handles exactly one request per worker at a time, so 2 workers
+meant only 2 concurrent requests platform-wide — two simultaneously slow
+requests (e.g. the synchronous ESG-assistant chat endpoint's LLM round trip)
+could starve every other request. `gthread` serves up to `--threads`
+requests per worker concurrently via OS threads, raising capacity to 8 with
+no application code change — Django/WSGI request handling is thread-safe,
+and this workload (LLM calls, DB queries, S3/MinIO calls) is exactly the
+I/O-bound case threads help with.
 
 `bootstrap_data`/`seed_carbon` are both idempotent (checked in their own
 management commands — `bootstrap_data` only creates what's missing;

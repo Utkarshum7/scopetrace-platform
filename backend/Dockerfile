@@ -78,4 +78,17 @@ USER appuser
 EXPOSE 8000
 
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120"]
+# Phase 7.5 (H3-3): --worker-class gthread + --threads 4 (workers unchanged
+# at 2) raises concurrent-request capacity from 2 to 8. Default gunicorn
+# `sync` workers handle exactly ONE request at a time each -- with only 2
+# workers, ANY 2 simultaneously slow requests (e.g. the synchronous
+# ESG-assistant chat endpoint waiting on an LLM round trip, or -- after
+# Phase 7.5 H2 -- one of those two slots also holding a per-org DB lock for
+# that same duration) exhausted the entire API's capacity for every other
+# request platform-wide. gthread lets each worker serve up to `--threads`
+# requests concurrently via OS threads; Django/WSGI request handling is
+# thread-safe, and this workload is exactly what threads are for --
+# I/O-bound waits (LLM calls, DB queries, S3/MinIO calls) release the GIL.
+# See docs/OPERATIONS_RUNBOOK.md's capacity-planning table for the tradeoff
+# analysis (worker-count bump vs. threads vs. a full async/ASGI rewrite).
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2", "--worker-class", "gthread", "--threads", "4", "--timeout", "120"]

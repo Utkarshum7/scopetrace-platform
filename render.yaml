@@ -106,7 +106,12 @@ services:
     # RUN_MIGRATIONS=false pattern: exactly one migration owner, so scaling
     # worker replicas never races migrations against each other).
     releaseCommand: python manage.py migrate && python manage.py bootstrap_data && python manage.py seed_carbon
-    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    # Phase 7.5 (H3-3): --worker-class gthread + --threads 4 raises
+    # concurrent-request capacity from 2 to 8 -- see backend/Dockerfile's
+    # matching CMD for the full rationale (the default sync worker class
+    # meant 2 simultaneously slow requests, e.g. two ESG-assistant chat
+    # calls, could starve the entire API).
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --worker-class gthread --threads 4 --timeout 120
     # Database-aware health check — Render stops routing to the instance if the
     # DB is unreachable, instead of the old always-200 /api/ router root.
     healthCheckPath: /healthz
