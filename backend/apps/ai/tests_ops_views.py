@@ -3,8 +3,6 @@ Phase 7g -- apps.ai.ops_views API tests. First real end-to-end API-level
 coverage for CanViewAICosts (previously a unit-tested-only inert seam --
 see apps.ai.tests_permissions).
 """
-from unittest.mock import patch
-
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework import status as drf_status
