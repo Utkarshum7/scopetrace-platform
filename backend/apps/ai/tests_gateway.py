@@ -258,6 +258,29 @@ class InvokeAIIdempotencyTests(TestCase):
         self.assertEqual(first.interaction_id, second.interaction_id)
         self.assertEqual(AIInteraction.objects.filter(idempotency_key="job-42").count(), 1)
 
+    def test_short_circuited_call_records_a_cache_hit(self):
+        # Phase 7g: a short-circuited call writes no new AIInteraction row,
+        # so the observability cache-hit counter is its only trace.
+        from django.core.cache import cache
+
+        from apps.ai.services.cache_metrics import get_cache_hit_count
+
+        cache.clear()
+        invoke_ai(
+            organization=self.org, capability="foundation.selftest",
+            prompt_name="foundation.selftest", template_vars={"echo_value": _valid_echo_value()},
+            response_schema_id="foundation.selftest", response_schema_version=1,
+            idempotency_key="job-cache-hit",
+        )
+        self.assertEqual(get_cache_hit_count(), 0)  # the FIRST call is a real provider call, not a cache hit
+        invoke_ai(
+            organization=self.org, capability="foundation.selftest",
+            prompt_name="foundation.selftest", template_vars={"echo_value": _valid_echo_value()},
+            response_schema_id="foundation.selftest", response_schema_version=1,
+            idempotency_key="job-cache-hit",
+        )
+        self.assertEqual(get_cache_hit_count(), 1)
+
     def test_different_idempotency_keys_both_call_provider(self):
         invoke_ai(
             organization=self.org, capability="foundation.selftest",

@@ -85,6 +85,13 @@ def invoke_ai(
             .first()
         )
         if prior is not None:
+            # Phase 7g: a short-circuited call writes no new AIInteraction
+            # row (see this module's own docstring), so it's otherwise
+            # invisible to any AIInteraction-based metric -- this counter
+            # is the only trace it leaves.
+            from apps.ai.services.cache_metrics import record_cache_hit
+
+            record_cache_hit()
             return AIGatewayResult(outcome=prior.outcome, interaction_id=str(prior.id))
 
     # 2. Policy resolution -- global kill switch + per-tenant opt-in.
