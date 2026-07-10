@@ -8,6 +8,7 @@
 import { apiService } from '../../../services/api';
 import { useWidgetData } from '../useWidgetData';
 import { WidgetFrame } from '../WidgetFrame';
+import { EmptyState } from '../../ui/EmptyState';
 import { TrendChart, DonutChart } from '../../charts';
 
 const num = (v, d = 1) => Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: d });
@@ -44,13 +45,21 @@ export const AIUsageWidget = ({ filters }) => {
 export const AIProviderMixWidget = ({ filters }) => {
   const { status, data, refetch } = useAIObservability(filters);
   const chartData = Object.entries(data?.provider_usage || {}).map(([label, value]) => ({ label, value }));
+  const isEmpty = status === 'success' && chartData.length === 0;
   return (
-    <WidgetFrame title="Provider Mix" subtitle="Requests by provider" status={status} onRetry={refetch}>
-      {chartData.length > 0 ? (
-        <DonutChart data={chartData} height={220} formatValue={(v) => num(v, 0)} />
-      ) : (
-        <div className="text-xs text-slate-500 flex items-center justify-center h-full">No AI requests yet.</div>
-      )}
+    <WidgetFrame
+      title="Provider Mix"
+      subtitle="Requests by provider"
+      status={isEmpty ? 'empty' : status}
+      onRetry={refetch}
+      empty={<EmptyState title="No AI requests yet" message="Provider usage will appear here once the gateway is used." />}
+    >
+      <DonutChart
+        data={chartData}
+        height={220}
+        formatValue={(v) => num(v, 0)}
+        ariaLabel={`AI gateway requests by provider: ${chartData.map((c) => `${c.label} ${num(c.value, 0)}`).join(', ') || 'no data'}`}
+      />
     </WidgetFrame>
   );
 };
@@ -98,18 +107,23 @@ export const AIEvaluationWidget = ({ filters }) => {
 export const AILatencyTrendWidget = ({ filters }) => {
   const { status, data, refetch } = useAIObservability(filters);
   const trend = data?.latency?.trend || [];
+  const isEmpty = status === 'success' && trend.length === 0;
   return (
     <WidgetFrame
       title="Latency Trend"
       subtitle={`Avg ${num(data?.latency?.avg_ms)} ms overall`}
-      status={status}
+      status={isEmpty ? 'empty' : status}
       onRetry={refetch}
+      empty={<EmptyState title="No latency data yet" message="AI gateway latency will appear here once requests are made." />}
     >
-      {trend.length > 0 ? (
-        <TrendChart data={trend} xKey="date" valueKey="avg_ms" height={220} formatValue={(v) => `${num(v, 0)}ms`} />
-      ) : (
-        <div className="text-xs text-slate-500 flex items-center justify-center h-full">No latency data yet.</div>
-      )}
+      <TrendChart
+        data={trend}
+        xKey="date"
+        valueKey="avg_ms"
+        height={220}
+        formatValue={(v) => `${num(v, 0)}ms`}
+        ariaLabel="AI gateway average latency trend, in milliseconds"
+      />
     </WidgetFrame>
   );
 };

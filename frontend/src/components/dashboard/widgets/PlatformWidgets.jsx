@@ -55,8 +55,14 @@ export const SystemHealthWidget = () => {
   );
 };
 
-export const ActiveOrganizationsWidget = () => {
+const usePlatformOrganizations = () => {
   const { status, data, refetch } = usePlatform();
+  const isEmpty = status === 'success' && (!data?.organizations || data.organizations.length === 0);
+  return { status: isEmpty ? 'empty' : status, data, refetch };
+};
+
+export const ActiveOrganizationsWidget = () => {
+  const { status, data, refetch } = usePlatformOrganizations();
   return (
     <WidgetFrame
       title="Active Organizations"
@@ -64,6 +70,7 @@ export const ActiveOrganizationsWidget = () => {
       status={status}
       onRetry={refetch}
       skeleton={<ListSkeleton rows={5} />}
+      empty={<EmptyState title="No organizations yet" message="Active organizations will appear here." />}
     >
       <div className="flex flex-col divide-y divide-slate-800/50">
         {(data?.organizations || []).slice(0, 7).map((o) => (

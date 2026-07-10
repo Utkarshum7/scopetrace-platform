@@ -60,13 +60,13 @@ describe('AI observability widgets', () => {
   it('AIProviderMixWidget renders the provider chart when data exists', async () => {
     renderWithQueryClient(<AIProviderMixWidget filters={{}} />);
     await screen.findByText('Provider Mix');
-    expect(screen.queryByText('No AI requests yet.')).not.toBeInTheDocument();
+    expect(screen.queryByText('No AI requests yet')).not.toBeInTheDocument();
   });
 
   it('AIProviderMixWidget shows an empty message when there is no provider usage', async () => {
     apiService.getAIObservability.mockResolvedValue({ ...summary, provider_usage: {} });
     renderWithQueryClient(<AIProviderMixWidget filters={{}} />);
-    expect(await screen.findByText('No AI requests yet.')).toBeInTheDocument();
+    expect(await screen.findByText('No AI requests yet')).toBeInTheDocument();
   });
 
   it('AIEvaluationWidget shows regression/schema/replay failure counts and tier status', async () => {
@@ -78,12 +78,12 @@ describe('AI observability widgets', () => {
   it('AILatencyTrendWidget renders the trend chart when data exists', async () => {
     renderWithQueryClient(<AILatencyTrendWidget filters={{}} />);
     await screen.findByText('Latency Trend');
-    expect(screen.queryByText('No latency data yet.')).not.toBeInTheDocument();
+    expect(screen.queryByText('No latency data yet')).not.toBeInTheDocument();
   });
 
   it('AILatencyTrendWidget shows an empty message when there is no trend data', async () => {
     apiService.getAIObservability.mockResolvedValue({ ...summary, latency: { avg_ms: null, trend: [] } });
     renderWithQueryClient(<AILatencyTrendWidget filters={{}} />);
-    expect(await screen.findByText('No latency data yet.')).toBeInTheDocument();
+    expect(await screen.findByText('No latency data yet')).toBeInTheDocument();
   });
 });

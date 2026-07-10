@@ -1,5 +1,6 @@
 import React from 'react';
 import { ErrorState } from '../ui/ErrorState';
+import { Card } from '../ui/Card';
 
 /**
  * Isolates a widget's render errors so one broken widget never takes down the
@@ -22,9 +23,9 @@ export class WidgetErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-5 h-full">
+        <Card className="p-5 h-full">
           <ErrorState message="This widget failed to render." onRetry={() => this.setState({ hasError: false })} />
-        </div>
+        </Card>
       );
     }
     return this.props.children;

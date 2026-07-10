@@ -75,7 +75,14 @@ export const ValidationSummaryWidget = ({ filters }) => {
   return (
     <WidgetFrame title="Validation Summary" subtitle="Record health" status={status} onRetry={refetch}>
       <div className="flex flex-col gap-3">
-        <BarChart data={chart} xKey="label" valueKey="value" height={180} formatValue={(v) => num(v)} />
+        <BarChart
+          data={chart}
+          xKey="label"
+          valueKey="value"
+          height={180}
+          formatValue={(v) => num(v)}
+          ariaLabel={`Record validation status: ${chart.map((c) => `${c.label} ${num(c.value)}`).join(', ') || 'no data'}`}
+        />
       </div>
     </WidgetFrame>
   );

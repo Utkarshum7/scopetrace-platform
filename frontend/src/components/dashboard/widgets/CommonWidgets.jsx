@@ -7,6 +7,7 @@ import { KpiSkeleton, ChartSkeleton } from '../../ui/Skeleton';
 import { EmptyState } from '../../ui/EmptyState';
 import { ErrorState } from '../../ui/ErrorState';
 import { ConfidenceBadge } from '../../ui/ConfidenceBadge';
+import { Card } from '../../ui/Card';
 import { TrendChart, DonutChart, scopeColor } from '../../charts';
 
 const num = (v, d = 1) =>
@@ -25,15 +26,15 @@ export const KpiSummaryWidget = ({ filters }) => {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-5">
+          <Card key={i} className="p-5">
             <KpiSkeleton />
-          </div>
+          </Card>
         ))}
       </div>
     );
   }
   if (status === 'error') {
-    return <div className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-5"><ErrorState onRetry={refetch} /></div>;
+    return <Card className="p-5"><ErrorState onRetry={refetch} /></Card>;
   }
 
   const coveragePct = Math.round((data.coverage ?? 1) * 100);
@@ -78,7 +79,14 @@ export const EmissionsTrendWidget = ({ filters }) => {
       skeleton={<ChartSkeleton height={240} />}
       empty={<EmptyState title="No emissions yet" message="Upload and calculate data to see the trend." />}
     >
-      <TrendChart data={series} xKey="period" valueKey="value" height={240} formatValue={(v) => num(v)} />
+      <TrendChart
+        data={series}
+        xKey="period"
+        valueKey="value"
+        height={240}
+        formatValue={(v) => num(v)}
+        ariaLabel="Emissions over time, in tonnes of CO2 equivalent per month"
+      />
     </WidgetFrame>
   );
 };
@@ -232,7 +240,9 @@ export const ScopeBreakdownWidget = ({ filters }) => {
       empty={<EmptyState title="No emissions yet" />}
     >
       <DonutChart data={slices} height={240} formatValue={(v) => `${num(v)} tCO₂e`}
-        colorFor={(label) => scopeColor(Object.keys(SCOPE_LABEL).find((k) => SCOPE_LABEL[k] === label) || label)} />
+        colorFor={(label) => scopeColor(Object.keys(SCOPE_LABEL).find((k) => SCOPE_LABEL[k] === label) || label)}
+        ariaLabel={`Emissions by GHG Protocol scope: ${slices.map((s) => `${s.label} ${num(s.value)} tonnes CO2 equivalent`).join(', ') || 'no data'}`}
+      />
     </WidgetFrame>
   );
 };

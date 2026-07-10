@@ -104,7 +104,7 @@ export const AIBudgetWidget = ({ filters }) => {
   return (
     <WidgetFrame title="AI Budget" subtitle="This month" status={status} onRetry={refetch}>
       {!data?.ai_enabled ? (
-        <div className="text-xs text-slate-500 flex items-center justify-center h-full">AI is not enabled for this organization.</div>
+        <EmptyState title="AI is not enabled for this organization." />
       ) : (
         <div className="flex flex-col gap-3 h-full justify-center">
           <div className="flex items-baseline gap-2">

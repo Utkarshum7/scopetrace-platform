@@ -14,9 +14,13 @@ export const Trend = ({ current, previous }) => {
   const flat = Math.abs(deltaPct) < 0.05;
   const color = flat ? 'text-slate-400' : up ? 'text-rose-400' : 'text-emerald-400';
   const arrow = flat ? '→' : up ? '▲' : '▼';
+  const direction = flat ? 'Unchanged' : up ? 'Increased' : 'Decreased';
   return (
-    <span className={`inline-flex items-center gap-1 text-[10px] font-bold ${color}`}>
-      {arrow} {Math.abs(deltaPct).toFixed(1)}%
+    <span
+      className={`inline-flex items-center gap-1 text-[10px] font-bold ${color}`}
+      aria-label={`${direction} ${Math.abs(deltaPct).toFixed(1)}% versus previous period`}
+    >
+      <span aria-hidden="true">{arrow} {Math.abs(deltaPct).toFixed(1)}%</span>
     </span>
   );
 };
