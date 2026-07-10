@@ -252,6 +252,13 @@ if not DEBUG:
 # See docs/ARCHITECTURE_INTEGRATION.md for the full integration map.
 # ---------------------------------------------------------------------------
 REST_FRAMEWORK = {
+    # Phase 7.5 (H4-8): a minimal, additive handler -- only takes over for
+    # exceptions DRF's OWN default handler can't already map to a Response
+    # (i.e. a genuinely unexpected exception that propagated out of a view
+    # uncaught). Every existing explicit Response({"detail": ...}, ...)
+    # return elsewhere in this codebase is unaffected -- see
+    # apps.core.exception_handlers's module docstring.
+    'EXCEPTION_HANDLER': 'apps.core.exception_handlers.unhandled_exception_handler',
     # JWT is the primary API authentication. SessionAuthentication is kept so the
     # DRF browsable API and Django admin remain usable during development.
     'DEFAULT_AUTHENTICATION_CLASSES': [
@@ -282,6 +289,18 @@ REST_FRAMEWORK = {
         'anon': None if _TESTING else config('THROTTLE_ANON', default='100/hour'),
         'user': None if _TESTING else config('THROTTLE_USER', default='2000/hour'),
         'login': None if _TESTING else config('THROTTLE_LOGIN', default='10/min'),
+        # Phase 7.5 (H4-7): the generic 'user' rate (2000/hour) is shared by
+        # every endpoint regardless of cost -- a burst of AI calls (each a
+        # real, billable provider round trip) was throttled no differently
+        # from a cheap read. check_budget() (apps.ai.services.cost) is a
+        # separate, complementary $-based control enforced inside the
+        # gateway itself; this is a request-RATE control at the API layer,
+        # applied only to the actually cost-incurring AI endpoints
+        # (AIConversationViewSet.ask, ReportNarrationRegenerateView) via
+        # ScopedRateThrottle -- see those views for where this scope is
+        # attached. Conservative starting point, not a modeled capacity
+        # figure; tune via THROTTLE_AI once real usage data exists.
+        'ai': None if _TESTING else config('THROTTLE_AI', default='60/hour'),
     },
 }
 

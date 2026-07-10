@@ -147,3 +147,62 @@ class AIConversationAPITests(TestCase):
             with self.subTest(method=method, url=url):
                 response = method(url, data={}, format="json")
                 self.assertEqual(response.status_code, drf_status.HTTP_405_METHOD_NOT_ALLOWED)
+
+
+class AskThrottleScopeTests(TestCase):
+    """Phase 7.5 (H4-7): `ask` -- the one action that actually calls a
+    provider -- is throttled under its own 'ai' scope, distinct from the
+    generic 'user' rate every other action here uses.
+
+    DRF's ScopedRateThrottle reads its rate from a class attribute
+    (THROTTLE_RATES) captured from api_settings at IMPORT time, not
+    re-derived per-request -- so overriding settings.REST_FRAMEWORK alone
+    does not reach it; patching the class attribute directly is the
+    standard, reliable way to make a specific scope trip deterministically
+    in a test (also sidesteps needing to reconstruct the entire
+    REST_FRAMEWORK dict just to change one rate).
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.org = Organization.objects.create(name="Throttle Scope Org")
+        self.analyst = User.objects.create_user("throttle_analyst", password="pw")
+        Membership.objects.create(user=self.analyst, organization=self.org, role=Role.ANALYST, active=True)
+        self.conversation = AIConversation.objects.create(organization=self.org, user=self.analyst)
+        self.client.force_authenticate(self.analyst)
+
+    def test_ask_is_throttled_under_the_ai_scope_once_exhausted(self):
+        from django.core.cache import cache
+        from rest_framework.throttling import ScopedRateThrottle
+
+        # Throttle counters live in Django's cache, which -- unlike the DB
+        # -- is NOT reset between tests automatically.
+        cache.clear()
+        with patch.object(ScopedRateThrottle, "THROTTLE_RATES", {"ai": "1/hour"}):
+            first = self.client.post(
+                f"/api/esg-assistant/conversations/{self.conversation.id}/ask/",
+                {"question": "q1"}, format="json",
+            )
+            second = self.client.post(
+                f"/api/esg-assistant/conversations/{self.conversation.id}/ask/",
+                {"question": "q2"}, format="json",
+            )
+        self.assertNotEqual(first.status_code, drf_status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(second.status_code, drf_status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_list_and_messages_are_not_throttled_under_the_ai_scope(self):
+        # A tiny 'ai' rate must never affect actions that don't call a
+        # provider -- confirms get_throttles() correctly scopes the
+        # ScopedRateThrottle to `ask` only, not the whole viewset.
+        from django.core.cache import cache
+        from rest_framework.throttling import ScopedRateThrottle
+
+        cache.clear()
+        with patch.object(ScopedRateThrottle, "THROTTLE_RATES", {"ai": "1/hour"}):
+            for _ in range(5):
+                list_response = self.client.get("/api/esg-assistant/conversations/")
+                self.assertNotEqual(list_response.status_code, drf_status.HTTP_429_TOO_MANY_REQUESTS)
+                messages_response = self.client.get(
+                    f"/api/esg-assistant/conversations/{self.conversation.id}/messages/"
+                )
+                self.assertNotEqual(messages_response.status_code, drf_status.HTTP_429_TOO_MANY_REQUESTS)

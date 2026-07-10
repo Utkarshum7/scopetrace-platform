@@ -32,6 +32,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.accounts.mixins import TenantScopedViewSetMixin
@@ -69,6 +70,16 @@ class AIConversationViewSet(
     queryset = AIConversation.objects.all().order_by("-created_at")
     serializer_class = AIConversationSerializer
     permission_classes = [CanUseAI]
+
+    def get_throttles(self):
+        # Phase 7.5 (H4-7): only `ask` actually calls a provider (a real,
+        # billable round trip) -- list/retrieve/create/messages are cheap
+        # reads or a bare row insert, so they stay on the generic 'user'
+        # rate rather than the tighter 'ai' scope.
+        if self.action == "ask":
+            self.throttle_scope = "ai"
+            return [ScopedRateThrottle()]
+        return super().get_throttles()
 
     def perform_create(self, serializer):
         ctx = resolve_tenant_context(self.request)
@@ -151,6 +162,11 @@ class ReportNarrationRegenerateView(APIView):
     AIReportNarration rows. Same CanViewActivity gate as the list view
     and the compliance report itself."""
     permission_classes = [CanViewActivity]
+    # Phase 7.5 (H4-7): dispatches a real generation task (a billable
+    # provider call, just async) -- same 'ai' throttle scope as
+    # AIConversationViewSet.ask, for the same reason.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "ai"
 
     def post(self, request):
         ctx = resolve_tenant_context(request)

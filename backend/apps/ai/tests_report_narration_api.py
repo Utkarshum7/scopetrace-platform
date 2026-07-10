@@ -210,3 +210,30 @@ class ReportNarrationRegenerateAPITests(ReportNarrationAPITestBase):
         self.assertEqual(EmissionRecord.objects.count(), before_records)
         self.assertEqual(EmissionCalculation.objects.count(), before_calcs)
         self.assertEqual(EmissionFactor.objects.count(), before_factors)
+
+    def test_regenerate_is_throttled_under_the_ai_scope_once_exhausted(self):
+        # Phase 7.5 (H4-7): dispatches a real generation task -- same 'ai'
+        # scope as AIConversationViewSet.ask. See that test class's
+        # docstring (tests_esg_assistant_api.AskThrottleScopeTests) for why
+        # the throttle class attribute is patched directly rather than via
+        # override_settings.
+        from django.core.cache import cache
+        from rest_framework.throttling import ScopedRateThrottle
+
+        # Throttle counters live in Django's cache, which -- unlike the
+        # DB -- is NOT reset between tests automatically; a prior throttle
+        # test's counter for this same 'ai' scope could otherwise leak in.
+        cache.clear()
+        self.client.force_authenticate(self.org_admin)
+        with patch.object(ScopedRateThrottle, "THROTTLE_RATES", {"ai": "1/hour"}), \
+                patch("apps.ai.tasks.generate_report_narration_task.delay"):
+            first = self.client.post(
+                "/api/report-narration/regenerate/",
+                {"date_from": "2026-01-01", "date_to": "2026-01-31"}, format="json",
+            )
+            second = self.client.post(
+                "/api/report-narration/regenerate/",
+                {"date_from": "2026-02-01", "date_to": "2026-02-28"}, format="json",
+            )
+        self.assertEqual(first.status_code, drf_status.HTTP_202_ACCEPTED)
+        self.assertEqual(second.status_code, drf_status.HTTP_429_TOO_MANY_REQUESTS)
