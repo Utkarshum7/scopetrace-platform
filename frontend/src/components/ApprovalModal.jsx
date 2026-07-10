@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { apiService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -16,6 +17,7 @@ const REVIEWABLE_STATUSES = ['SUBMITTED'];
  */
 export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => {
   const { canApprove } = useAuth();
+  const queryClient = useQueryClient();
   const [reason, setReason] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
@@ -26,8 +28,24 @@ export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => 
   const isSubmittable = SUBMITTABLE_STATUSES.includes(record.status);
   const isResubmit = record.status === 'REJECTED';
 
+  // Phase 7.5 (H4-6): submit/approve/reject change server state (record
+  // status, pending-approval counts, scope/KPI totals) that dashboard
+  // widgets cache via TanStack Query (60s staleTime, see useWidgetData) --
+  // without this, a widget on another page could show stale counts for up
+  // to a minute after an action taken here. RecordsPage's own list refresh
+  // (onActionComplete -> fetchRecords) is separate/unaffected; this only
+  // covers the TanStack-Query-cached dashboard surface. A global
+  // invalidateQueries() (no key filter) is the safe default here rather
+  // than enumerating exact keys -- this app's query keys are flat strings,
+  // not a hierarchy, so a broad invalidation risks a wasted refetch at
+  // worst, never a missed one.
+  const invalidateDashboardQueries = () => {
+    queryClient.invalidateQueries();
+  };
+
   const finish = () => {
     onActionComplete();
+    invalidateDashboardQueries();
     setReason('');
     setErrorMsg(null);
     onClose();
@@ -75,6 +93,7 @@ export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => 
         await apiService.approveRecord(record.id, reason.trim());
       } catch (approveError) {
         onActionComplete();
+        invalidateDashboardQueries();  // submit succeeded even though approve didn't
         setErrorMsg(
           approveError.response?.data?.detail ||
           'Record was submitted, but automatic approval failed. It is now awaiting approval.'

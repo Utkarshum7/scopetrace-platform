@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { apiService } from '../services/api';
 import { useBatchProgress } from '../hooks/useBatchProgress';
 
@@ -40,6 +41,18 @@ export const UploadPage = ({ setView }) => {
   // logic directly (see hooks/useBatchProgress.js).
   const [batchId, setBatchId] = useState(null);
   const { data: progress, isTerminal } = useBatchProgress(batchId);
+  const queryClient = useQueryClient();
+
+  // Phase 7.5 (H4-6): invalidate dashboard queries (TanStack Query, 60s
+  // staleTime, see useWidgetData) exactly when the batch reaches a terminal
+  // state -- NOT at upload-submit time, when the ingest/calculate chain
+  // hasn't run yet and nothing has actually changed server-side. Runs once
+  // per terminal transition (isTerminal flips false->true per batchId).
+  useEffect(() => {
+    if (isTerminal) {
+      queryClient.invalidateQueries();
+    }
+  }, [isTerminal, batchId, queryClient]);
 
   // Fetch registered master data sources
   useEffect(() => {
