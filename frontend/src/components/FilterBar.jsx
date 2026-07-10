@@ -38,10 +38,11 @@ export const FilterBar = ({
       
       {/* DataSource Selector */}
       <div className="flex-1 min-w-[200px] flex flex-col gap-1.5">
-        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+        <label htmlFor="filter-data-source" className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
           Data Feed Source
         </label>
         <select
+          id="filter-data-source"
           name="data_source"
           value={filters.data_source || 'ALL'}
           onChange={handleSelectChange}
@@ -58,10 +59,11 @@ export const FilterBar = ({
 
       {/* Batch Selector */}
       <div className="flex-1 min-w-[200px] flex flex-col gap-1.5">
-        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+        <label htmlFor="filter-batch" className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
           Ingestion Batch
         </label>
         <select
+          id="filter-batch"
           name="batch"
           value={filters.batch || 'ALL'}
           onChange={handleSelectChange}
@@ -78,10 +80,11 @@ export const FilterBar = ({
 
       {/* Status Selector */}
       <div className="w-[180px] flex flex-col gap-1.5">
-        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+        <label htmlFor="filter-status" className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
           Record Status
         </label>
         <select
+          id="filter-status"
           name="status"
           value={filters.status || 'ALL'}
           onChange={handleSelectChange}

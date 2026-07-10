@@ -52,31 +52,35 @@ export const LoginPage = () => {
           <h1 className="text-sm font-bold text-white tracking-tight">Sign in to your workspace</h1>
 
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Username</label>
+            <label htmlFor="login-username" className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Username</label>
             <input
+              id="login-username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
               required
+              aria-required="true"
               className="bg-slate-950 border border-slate-800 rounded-lg py-2.5 px-3 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all"
             />
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Password</label>
+            <label htmlFor="login-password" className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Password</label>
             <input
+              id="login-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
               required
+              aria-required="true"
               className="bg-slate-950 border border-slate-800 rounded-lg py-2.5 px-3 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all"
             />
           </div>
 
           {error && (
-            <div className="p-3 bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs rounded-lg animate-shake">
+            <div role="alert" className="p-3 bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs rounded-lg animate-shake">
               {error}
             </div>
           )}
@@ -84,7 +88,7 @@ export const LoginPage = () => {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="mt-1 px-5 py-2.5 bg-brand-600 hover:bg-brand-500 disabled:bg-slate-800 disabled:text-slate-600 text-white text-xs font-black uppercase tracking-wider rounded-lg transition-all shadow-md shadow-brand-600/10 flex items-center justify-center gap-2 focus:outline-none"
+            className="mt-1 px-5 py-2.5 bg-brand-600 hover:bg-brand-500 disabled:bg-slate-800 disabled:text-slate-600 text-white text-xs font-black uppercase tracking-wider rounded-lg transition-all shadow-md shadow-brand-600/10 flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
           >
             {isSubmitting && (
               <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

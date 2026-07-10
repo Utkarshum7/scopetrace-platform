@@ -82,7 +82,10 @@ export const UploadPage = ({ setView }) => {
     }
   };
 
-  // Adjust default selection when card is clicked
+  // Adjust default selection when card is clicked or activated via keyboard
+  // (Enter/Space) -- the 3 adapter cards behave exactly like a radio group
+  // (single selection among mutually exclusive options), so onClick and
+  // onKeyDown both funnel through this one handler.
   const handleTypeSelect = (type) => {
     setSelectedSourceType(type);
     setFile(null);
@@ -92,6 +95,16 @@ export const UploadPage = ({ setView }) => {
     const dbKey = getSourceTypeDBKey(type);
     const matched = dataSources.find(s => s.source_type === dbKey);
     setSelectedDataSourceId(matched ? matched.id : '');
+  };
+
+  // Enter/Space activates a card exactly like a click would -- the native
+  // browser behavior a real <button>/radio input gets for free, reproduced
+  // here since these are role="radio" elements on a <div>.
+  const handleCardKeyDown = (e, type) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleTypeSelect(type);
+    }
   };
 
   const handleFileChange = (e) => {
@@ -157,12 +170,21 @@ export const UploadPage = ({ setView }) => {
         </p>
       </div>
 
-      {/* Selector Tabs/Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Selector Tabs/Cards -- a radio group: exactly one adapter strategy
+          is selected at a time. Each card is individually Tab-reachable
+          (not roving tabindex) with Enter/Space to activate; simpler than
+          the full WAI-ARIA radiogroup arrow-key pattern while still
+          announcing correctly ("radio button, N of 3, selected/not
+          selected") to screen readers -- a deliberate scope trade-off. */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4" role="radiogroup" aria-label="Ingestion adapter strategy">
         {/* SAP Fuel */}
         <div
           onClick={() => handleTypeSelect('sap')}
-          className={`cursor-pointer bg-slate-800/40 backdrop-blur-xl border rounded-xl p-5 shadow-lg flex flex-col gap-3 transition-all duration-300 ${
+          onKeyDown={(e) => handleCardKeyDown(e, 'sap')}
+          role="radio"
+          aria-checked={selectedSourceType === 'sap'}
+          tabIndex={0}
+          className={`cursor-pointer bg-slate-800/40 backdrop-blur-xl border rounded-xl p-5 shadow-lg flex flex-col gap-3 transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
             selectedSourceType === 'sap'
               ? 'border-brand-500 bg-slate-800/80 shadow-brand-500/5'
               : 'border-slate-700/50 hover:border-slate-600 hover:bg-slate-800/20'
@@ -185,7 +207,11 @@ export const UploadPage = ({ setView }) => {
         {/* Utility Electricity */}
         <div
           onClick={() => handleTypeSelect('utility')}
-          className={`cursor-pointer bg-slate-800/40 backdrop-blur-xl border rounded-xl p-5 shadow-lg flex flex-col gap-3 transition-all duration-300 ${
+          onKeyDown={(e) => handleCardKeyDown(e, 'utility')}
+          role="radio"
+          aria-checked={selectedSourceType === 'utility'}
+          tabIndex={0}
+          className={`cursor-pointer bg-slate-800/40 backdrop-blur-xl border rounded-xl p-5 shadow-lg flex flex-col gap-3 transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
             selectedSourceType === 'utility'
               ? 'border-brand-500 bg-slate-800/80 shadow-brand-500/5'
               : 'border-slate-700/50 hover:border-slate-600 hover:bg-slate-800/20'
@@ -208,7 +234,11 @@ export const UploadPage = ({ setView }) => {
         {/* Corporate Travel */}
         <div
           onClick={() => handleTypeSelect('travel')}
-          className={`cursor-pointer bg-slate-800/40 backdrop-blur-xl border rounded-xl p-5 shadow-lg flex flex-col gap-3 transition-all duration-300 ${
+          onKeyDown={(e) => handleCardKeyDown(e, 'travel')}
+          role="radio"
+          aria-checked={selectedSourceType === 'travel'}
+          tabIndex={0}
+          className={`cursor-pointer bg-slate-800/40 backdrop-blur-xl border rounded-xl p-5 shadow-lg flex flex-col gap-3 transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
             selectedSourceType === 'travel'
               ? 'border-brand-500 bg-slate-800/80 shadow-brand-500/5'
               : 'border-slate-700/50 hover:border-slate-600 hover:bg-slate-800/20'
@@ -238,11 +268,12 @@ export const UploadPage = ({ setView }) => {
         <form onSubmit={handleUploadSubmit} className="flex flex-col gap-5">
           {/* DataSource Dropdown */}
           <div className="flex flex-col gap-1.5 max-w-md">
-            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+            <label htmlFor="upload-data-source" className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
               Associated Tenant DataSource
             </label>
             {filteredDataSources.length > 0 ? (
               <select
+                id="upload-data-source"
                 value={selectedDataSourceId}
                 onChange={(e) => setSelectedDataSourceId(e.target.value)}
                 className="bg-slate-900 border border-slate-700 rounded-lg py-2.5 px-3 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 cursor-pointer"
@@ -264,12 +295,13 @@ export const UploadPage = ({ setView }) => {
 
           {/* Custom File Selector */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+            <label htmlFor="upload-file-input" className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
               Upload Report Document
             </label>
-            
-            <div className="border-2 border-dashed border-slate-700 rounded-xl p-8 bg-slate-900/30 hover:bg-slate-900/50 text-center transition-all cursor-pointer relative group flex flex-col items-center justify-center gap-3">
+
+            <div className="border-2 border-dashed border-slate-700 rounded-xl p-8 bg-slate-900/30 hover:bg-slate-900/50 text-center transition-all cursor-pointer relative group flex flex-col items-center justify-center gap-3 focus-within:ring-2 focus-within:ring-brand-500">
               <input
+                id="upload-file-input"
                 type="file"
                 onChange={handleFileChange}
                 accept={selectedSourceType === 'travel' ? '.json' : '.csv'}
@@ -296,7 +328,7 @@ export const UploadPage = ({ setView }) => {
 
           {/* Progress Indicator */}
           {isLoading && (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2" role="status" aria-live="polite">
               <div className="flex justify-between text-xs font-semibold text-slate-400">
                 <span>Processing ingestion…</span>
                 <span>{uploadProgress}%</span>
@@ -312,7 +344,7 @@ export const UploadPage = ({ setView }) => {
 
           {/* Feedback Blocks */}
           {errorMsg && (
-            <div className="p-4 bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs rounded-xl flex items-start gap-2.5 animate-shake">
+            <div role="alert" className="p-4 bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs rounded-xl flex items-start gap-2.5 animate-shake">
               <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
@@ -332,7 +364,7 @@ export const UploadPage = ({ setView }) => {
             <button
               type="submit"
               disabled={isLoading || (batchId && !isTerminal) || filteredDataSources.length === 0}
-              className="px-6 py-2.5 bg-brand-600 hover:bg-brand-500 disabled:bg-slate-800 disabled:text-slate-600 text-white text-xs font-black uppercase tracking-wider rounded-lg transition-all shadow-md shadow-brand-600/10 flex items-center gap-1.5 focus:outline-none"
+              className="px-6 py-2.5 bg-brand-600 hover:bg-brand-500 disabled:bg-slate-800 disabled:text-slate-600 text-white text-xs font-black uppercase tracking-wider rounded-lg transition-all shadow-md shadow-brand-600/10 flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
             >
               {isLoading && (
                 <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -359,7 +391,7 @@ const BatchProgressCard = ({ batchId, progress, isTerminal, setView }) => {
 
   return (
     <div className="p-4 bg-slate-900/60 border border-slate-800/80 rounded-xl flex flex-col gap-3 animate-fadeIn">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between" role="status" aria-live="polite">
         <span className="text-sm font-black text-white">{presentation.label}</span>
         <span className="font-mono text-[11px] text-slate-500">{batchId.slice(0, 8)}...</span>
       </div>
@@ -423,7 +455,7 @@ const BatchProgressCard = ({ batchId, progress, isTerminal, setView }) => {
           <button
             type="button"
             onClick={() => setView({ name: 'records', params: { batch: batchId } })}
-            className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg transition-all shadow-md focus:outline-none"
+            className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg transition-all shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
           >
             Review Ingested Data &rarr;
           </button>

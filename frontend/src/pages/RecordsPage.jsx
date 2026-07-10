@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { apiService } from '../services/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { FilterBar } from '../components/FilterBar';
@@ -28,6 +28,17 @@ export const RecordsPage = ({ initialFilters = {} }) => {
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [recordToApprove, setRecordToApprove] = useState(null);
   const [isApprovalOpen, setIsApprovalOpen] = useState(false);
+  const drawerCloseButtonRef = useRef(null);
+
+  // Focus management: when a record is selected (via mouse or keyboard),
+  // move focus into the drawer's close button -- otherwise a keyboard user
+  // who just activated a table row has no indication the drawer opened at
+  // all, and focus stays "lost" on a row that may have scrolled away.
+  useEffect(() => {
+    if (selectedRecord) {
+      drawerCloseButtonRef.current?.focus();
+    }
+  }, [selectedRecord]);
 
   // Fetch static dropdowns
   useEffect(() => {
@@ -79,6 +90,18 @@ export const RecordsPage = ({ initialFilters = {} }) => {
     setSelectedRecord(null); // Clear selected drawer details
   };
 
+  // Enter/Space selects a row exactly like a click -- the native behavior a
+  // real <button>/<a> gets for free, reproduced here since table rows can't
+  // become <button> elements without breaking table semantics/layout (a
+  // <button> isn't valid content in a <tr>) -- role="button" + this handler
+  // is the correct alternative per WAI-ARIA's own guidance for this case.
+  const handleRowKeyDown = (e, record) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setSelectedRecord(record);
+    }
+  };
+
   const handleExport = () => {
     const cleanParams = {};
     Object.keys(filters).forEach((key) => {
@@ -108,7 +131,7 @@ export const RecordsPage = ({ initialFilters = {} }) => {
       />
 
       {errorMsg && (
-        <div className="p-4 bg-rose-950/30 border border-rose-500/30 text-rose-300 text-sm rounded-xl">
+        <div role="alert" className="p-4 bg-rose-950/30 border border-rose-500/30 text-rose-300 text-sm rounded-xl">
           {errorMsg}
         </div>
       )}
@@ -125,7 +148,7 @@ export const RecordsPage = ({ initialFilters = {} }) => {
             </span>
             <button
               onClick={handleExport}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white text-[11px] font-semibold uppercase tracking-wider transition-all focus:outline-none"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white text-[11px] font-semibold uppercase tracking-wider transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -169,10 +192,14 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                   return (
                     <tr
                       key={r.id}
-                      className={`cursor-pointer transition-all ${rowBg} ${
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`View details for row ${r.row_index}, ${r.scope_category}, status ${r.status}`}
+                      className={`cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${rowBg} ${
                         selectedRecord?.id === r.id ? 'bg-slate-700/20 border-l-2 border-brand-500' : ''
                       }`}
                       onClick={() => setSelectedRecord(r)}
+                      onKeyDown={(e) => handleRowKeyDown(e, r)}
                     >
                       <td className="py-3.5 pr-2 font-mono text-slate-400">
                         #{r.row_index}
@@ -218,7 +245,7 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                             setRecordToApprove(r);
                             setIsApprovalOpen(true);
                           }}
-                          className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all focus:outline-none ${
+                          className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 ${
                             isApproved
                               ? 'bg-emerald-950/20 border border-emerald-500/20 text-emerald-500/50 cursor-not-allowed'
                               : isFailed
@@ -260,14 +287,16 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={!pageInfo.previous || isLoading}
-                  className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-800 transition-all focus:outline-none"
+                  aria-label="Previous page"
+                  className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-800 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                 >
                   ← Prev
                 </button>
                 <button
                   onClick={() => setPage((p) => p + 1)}
                   disabled={!pageInfo.next || isLoading}
-                  className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-800 transition-all focus:outline-none"
+                  aria-label="Next page"
+                  className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-800 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                 >
                   Next →
                 </button>
@@ -278,8 +307,12 @@ export const RecordsPage = ({ initialFilters = {} }) => {
 
         {/* Dynamic Detail Drawer (Right Column) */}
         {selectedRecord && (
-          <div className="w-full lg:w-drawer bg-slate-800/40 backdrop-blur-xl border border-slate-700/50 rounded-xl p-5 shadow-lg flex flex-col gap-4 animate-slideIn">
-            
+          <div
+            className="w-full lg:w-drawer bg-slate-800/40 backdrop-blur-xl border border-slate-700/50 rounded-xl p-5 shadow-lg flex flex-col gap-4 animate-slideIn"
+            role="region"
+            aria-label="Record details"
+          >
+
             {/* Drawer Header */}
             <div className="flex justify-between items-start pb-2 border-b border-slate-800/60">
               <div className="flex flex-col gap-0.5">
@@ -291,8 +324,10 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                 </span>
               </div>
               <button
+                ref={drawerCloseButtonRef}
                 onClick={() => setSelectedRecord(null)}
-                className="text-slate-500 hover:text-slate-300 transition-all p-0.5"
+                aria-label="Close record details"
+                className="text-slate-500 hover:text-slate-300 transition-all p-0.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
               >
                 ✕
               </button>
