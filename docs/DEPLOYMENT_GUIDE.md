@@ -254,6 +254,38 @@ real values for whichever provider they've chosen once a bucket exists.
    the deploy verified — this project's own established practice
    throughout Phase 5 (a health check passing is necessary, not sufficient).
 
+### 3.5 Deploying the frontend to Vercel
+
+Phase 9a — this project's Render backend deployment had a detailed,
+step-by-step checklist (§3.4) while the Vercel frontend side had none
+beyond "static build deployed to Vercel" (§3.1). This closes that gap.
+
+1. Import the repo into a new Vercel project, **Root Directory set to
+   `frontend`** — `frontend/vercel.json` supplies the build/output/rewrite
+   settings (Vite framework preset, SPA fallback to `index.html`) but
+   Vercel still needs to be told the app lives in a subdirectory, not the
+   repo root.
+2. Set `VITE_API_URL` as a Vercel **Environment Variable** (Project
+   Settings → Environment Variables, not a file committed to the repo —
+   same `sync: false`-equivalent reasoning as every Render secret) to the
+   live Render API's URL, e.g. `https://scopetrace-api.onrender.com`.
+   This is baked into the JS bundle at build time (`frontend/.env.example`
+   documents the same variable for local use) — changing it after the
+   fact requires a new deploy, not just an env var update, to take effect.
+3. Note the domain Vercel actually assigns the project (visible in the
+   Vercel dashboard once the first deploy completes) — **it will not
+   necessarily be `scopetrace.vercel.app`**, the placeholder domain
+   `render.yaml`'s `CORS_ALLOWED_ORIGINS`/`CSRF_TRUSTED_ORIGINS` and
+   `backend/.env.example` both assume. If the real assigned domain
+   differs (a renamed project, a custom domain, a team-scoped project
+   URL, etc.), update those two `render.yaml` values — and redeploy the
+   `api` service — to match, or every request from the real frontend will
+   be rejected by CORS/CSRF before it reaches a view.
+4. Confirm the deployed frontend can actually reach the API: open the
+   Vercel deployment URL, sign in, and confirm the network tab shows
+   successful (not CORS-rejected) requests to the Render API host from
+   step 2.
+
 ---
 
 ## 4. Environment Variables Reference
