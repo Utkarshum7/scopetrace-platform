@@ -10,6 +10,7 @@ from apps.carbon.models import (
     ActivityMapping,
     EmissionFactor,
     EmissionFactorDataset,
+    Region,
 )
 
 GLOBAL = "GLOBAL"
@@ -62,6 +63,15 @@ class FactorIndex:
         self._by_type = defaultdict(list)
         for f in qs:
             self._by_type[f.activity_type_id].append(f)
+        # Phase 7.5 (H4-12): memoized per-org-region-code ancestor chains
+        # (e.g. "DE" -> ["DE", "EU", "GLOBAL"]) so Region.parent hierarchy
+        # is actually usable in resolution -- see _region_rank_chain's
+        # docstring. Memoized because org_region_code is the SAME value for
+        # every record in a batch (see CarbonCalculationService.
+        # build_resources, which resolves it once per organization), so
+        # this still costs at most one query per batch, preserving this
+        # class's stated "no per-row query" design goal.
+        self._chain_cache = {}
 
     @staticmethod
     def _region_code(factor):
@@ -71,8 +81,39 @@ class FactorIndex:
             return factor.dataset.region.code
         return GLOBAL
 
+    def _region_rank_chain(self, org_region_code):
+        """The ordered list of region codes acceptable for `org_region_code`,
+        most-specific first: itself, then each ancestor via Region.parent,
+        then GLOBAL. A factor's rank in this list IS its specificity rank --
+        0 (exact org region) beats 1 (immediate parent, e.g. a country
+        matching a factor scoped to its continent) beats 2 (grandparent),
+        etc., with GLOBAL always last. A region code with no matching Region
+        row (a stale/typo'd code) or no parent falls back to
+        [org_region_code, GLOBAL] -- identical to this class's pre-7.5
+        behavior, so exact-match and GLOBAL-fallback resolution for every
+        already-passing case (see test_resolution.py) is unchanged; this
+        only ADDS the ability to match an ancestor in between.
+        """
+        if org_region_code not in self._chain_cache:
+            chain = [org_region_code]
+            seen = {org_region_code}
+            current = Region.objects.filter(code=org_region_code).select_related("parent").first()
+            while current is not None and current.parent is not None:
+                parent_code = current.parent.code
+                if parent_code in seen:  # defensive: never loop on a data cycle
+                    break
+                chain.append(parent_code)
+                seen.add(parent_code)
+                current = current.parent
+            if GLOBAL not in seen:
+                chain.append(GLOBAL)
+            self._chain_cache[org_region_code] = chain
+        return self._chain_cache[org_region_code]
+
     def resolve(self, activity_type_id, activity_date=None,
                 org_region_code=None, preferred_publisher="", strict=False):
+        chain = self._region_rank_chain(org_region_code) if org_region_code else None
+
         matches = []
         for f in self._by_type.get(activity_type_id, []):
             ef_from = f.valid_from or f.dataset.valid_from
@@ -84,19 +125,25 @@ class FactorIndex:
                     continue
             region_code = self._region_code(f)
             is_global = region_code == GLOBAL
-            if org_region_code and region_code not in (org_region_code, GLOBAL):
-                continue
+            if chain is not None:
+                # GLOBAL is always appended to the chain (see
+                # _region_rank_chain), so this excludes only a factor
+                # scoped to a region genuinely unrelated to org_region_code.
+                if region_code not in chain:
+                    continue
+                region_rank = chain.index(region_code)
+            else:
+                region_rank = 1 if is_global else 0
             if strict and is_global and org_region_code:
                 continue
-            matches.append((f, is_global))
+            matches.append((f, region_rank))
 
         if not matches:
             return None
 
         def sort_key(item):
-            f, is_global = item
+            f, region_rank = item
             publisher_rank = 0 if (preferred_publisher and f.dataset.publisher == preferred_publisher) else 1
-            region_rank = 1 if is_global else 0  # specific before global
             return (
                 publisher_rank,
                 region_rank,

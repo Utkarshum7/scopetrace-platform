@@ -106,3 +106,83 @@ class FactorResolutionTests(TestCase):
         f.factor(ds_draft, self.diesel, "2.68")
         idx = FactorIndex()
         self.assertIsNone(idx.resolve(self.diesel.id, date(2024, 6, 1)))
+
+
+class RegionHierarchyResolutionTests(TestCase):
+    """Phase 7.5 (H4-12): a factor scoped to an ANCESTOR region (e.g. "EU")
+    must be matchable for an org in a descendant region (e.g. "DE") --
+    previously Region.parent was declared on the model but never consulted
+    during resolution, so only an exact region-code match or GLOBAL ever
+    matched; anything in between (continent/country-group factors) was
+    silently invisible no matter how the data was modeled."""
+
+    def setUp(self):
+        self.diesel = f.activity_type("DIESEL_STATIONARY")
+        self.glob = f.region("GLOBAL")
+        self.eu = f.region("EU", "European Union")
+        self.de = f.region("DE", "Germany")
+        self.de.parent = self.eu
+        self.de.save()
+        self.eu.parent = self.glob
+        self.eu.save()
+
+    def test_ancestor_region_factor_matches_a_descendant_org(self):
+        ds_eu = f.dataset(version="eu", region_obj=self.eu)
+        f_eu = f.factor(ds_eu, self.diesel, "2.30")
+        idx = FactorIndex()
+        self.assertEqual(
+            idx.resolve(self.diesel.id, date(2024, 6, 1), org_region_code="DE"), f_eu,
+        )
+
+    def test_exact_region_still_beats_ancestor_region(self):
+        ds_eu = f.dataset(version="eu", region_obj=self.eu)
+        ds_de = f.dataset(publisher=Publisher.DEFRA, version="de", region_obj=self.de)
+        f.factor(ds_eu, self.diesel, "2.30")
+        f_de = f.factor(ds_de, self.diesel, "2.68")
+        idx = FactorIndex()
+        self.assertEqual(
+            idx.resolve(self.diesel.id, date(2024, 6, 1), org_region_code="DE"), f_de,
+        )
+
+    def test_ancestor_region_beats_global(self):
+        ds_global = f.dataset(version="g", region_obj=self.glob)
+        ds_eu = f.dataset(publisher=Publisher.DEFRA, version="eu", region_obj=self.eu)
+        f.factor(ds_global, self.diesel, "2.00")
+        f_eu = f.factor(ds_eu, self.diesel, "2.30")
+        idx = FactorIndex()
+        self.assertEqual(
+            idx.resolve(self.diesel.id, date(2024, 6, 1), org_region_code="DE"), f_eu,
+        )
+
+    def test_closer_ancestor_beats_farther_ancestor(self):
+        # DE -> EU -> GLOBAL: a factor scoped to EU (rank 1) must beat one
+        # scoped to GLOBAL (rank 2) for an org in DE.
+        ds_global = f.dataset(version="g", region_obj=self.glob)
+        ds_eu = f.dataset(publisher=Publisher.DEFRA, version="eu", region_obj=self.eu)
+        f_global = f.factor(ds_global, self.diesel, "2.00")
+        f_eu = f.factor(ds_eu, self.diesel, "2.30")
+        idx = FactorIndex()
+        result = idx.resolve(self.diesel.id, date(2024, 6, 1), org_region_code="DE")
+        self.assertEqual(result, f_eu)
+        self.assertNotEqual(result, f_global)
+
+    def test_unrelated_region_never_matches(self):
+        # A factor scoped to GB (no ancestor relationship to DE) must never
+        # match a DE org -- confirms the ancestor-chain fix doesn't loosen
+        # matching into "any region is fine now".
+        gb = f.region("GB", "United Kingdom")
+        ds_gb = f.dataset(version="gb", region_obj=gb)
+        f.factor(ds_gb, self.diesel, "2.68")
+        idx = FactorIndex()
+        self.assertIsNone(idx.resolve(self.diesel.id, date(2024, 6, 1), org_region_code="DE"))
+
+    def test_unknown_org_region_code_falls_back_to_exact_or_global_only(self):
+        # A stale/typo'd org region code (no matching Region row) must
+        # behave exactly as before this fix: only an exact string match or
+        # GLOBAL, never silently matching an unrelated ancestor chain.
+        ds_global = f.dataset(version="g", region_obj=self.glob)
+        f_global = f.factor(ds_global, self.diesel, "2.00")
+        idx = FactorIndex()
+        self.assertEqual(
+            idx.resolve(self.diesel.id, date(2024, 6, 1), org_region_code="ZZ-NOPE"), f_global,
+        )
