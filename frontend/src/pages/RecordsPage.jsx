@@ -278,7 +278,7 @@ export const RecordsPage = ({ initialFilters = {} }) => {
 
         {/* Dynamic Detail Drawer (Right Column) */}
         {selectedRecord && (
-          <div className="w-full lg:w-[380px] bg-slate-800/40 backdrop-blur-xl border border-slate-700/50 rounded-xl p-5 shadow-lg flex flex-col gap-4 animate-slideIn">
+          <div className="w-full lg:w-drawer bg-slate-800/40 backdrop-blur-xl border border-slate-700/50 rounded-xl p-5 shadow-lg flex flex-col gap-4 animate-slideIn">
             
             {/* Drawer Header */}
             <div className="flex justify-between items-start pb-2 border-b border-slate-800/60">

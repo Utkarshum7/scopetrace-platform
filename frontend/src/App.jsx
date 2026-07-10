@@ -78,7 +78,7 @@ function App() {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex font-sans antialiased selection:bg-brand-500/30 selection:text-brand-300">
 
       {/* Sidebar Navigation */}
-      <aside className="w-[260px] bg-slate-900 border-r border-slate-800/80 flex flex-col justify-between p-6 select-none shrink-0">
+      <aside className="w-sidebar bg-slate-900 border-r border-slate-800/80 flex flex-col justify-between p-6 select-none shrink-0">
 
         {/* Brand Banner */}
         <div className="flex flex-col gap-8">
