@@ -1,11 +1,19 @@
-import { useEffect, useRef, useState } from 'react';
-import DashboardPage from './pages/DashboardPage';
-import UploadPage from './pages/UploadPage';
-import RecordsPage from './pages/RecordsPage';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import LoginPage from './pages/LoginPage';
-import ESGAssistantPage from './pages/ESGAssistantPage';
 import { Spinner } from './components/ui/Spinner';
 import { useAuth } from './context/AuthContext';
+
+// Phase 8 (8a.4): route-split the 4 authenticated-area pages. Measured via
+// rollup-plugin-visualizer that DashboardPage is the sole reachable path to
+// recharts + its dependency tree (redux/immer/d3-*/decimal.js) -- ~240KB
+// gzip of the ~458KB total dependency payload -- and that no other page
+// touches it. LoginPage stays a static import: it's the very first thing an
+// unauthenticated user sees, so it must not cost an extra network round
+// trip on the most latency-sensitive paint.
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const UploadPage = lazy(() => import('./pages/UploadPage'));
+const RecordsPage = lazy(() => import('./pages/RecordsPage'));
+const ESGAssistantPage = lazy(() => import('./pages/ESGAssistantPage'));
 
 const ROLE_LABELS = {
   ORG_ADMIN: 'Organization Admin',
@@ -220,7 +228,9 @@ function App() {
 
       {/* Main Core Content Panel */}
       <main className="flex-1 p-8 overflow-y-auto max-w-7xl mx-auto w-full">
-        {renderActiveView()}
+        <Suspense fallback={<div className="flex items-center justify-center h-64"><Spinner className="h-8 w-8 text-brand-500" /></div>}>
+          {renderActiveView()}
+        </Suspense>
       </main>
 
     </div>
