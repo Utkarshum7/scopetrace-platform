@@ -175,7 +175,20 @@ services:
     # a missing queue silently strands its tasks in Redis with no consumer.
     # apps.tasks.tests_queue_coverage enforces this in CI against both this
     # file and docker-compose.yml.
-    startCommand: celery -A config worker --loglevel=info -Q celery,ingestion,calculation,maintenance,notifications,ai
+    #
+    # Phase 7.5 (H4-10): `python manage.py migrate --check &&` gates the
+    # actual worker startup on the schema already being current. Render
+    # deploys api/worker/beat independently, with no built-in "wait for
+    # another service's release to finish" primitive -- on a first-ever
+    # deploy or any release adding a migration, worker/beat could otherwise
+    # start and hit the DB before api's releaseCommand (the sole migration
+    # owner) finishes `migrate`. `migrate --check` exits non-zero (without
+    # applying anything) whenever the schema isn't current yet; Render
+    # restarts a service that exits non-zero, so this naturally retries
+    # with backoff until api's release completes -- no unverified Render
+    # feature needed, just the same `&&` chaining already used in
+    # releaseCommand above.
+    startCommand: python manage.py migrate --check && celery -A config worker --loglevel=info -Q celery,ingestion,calculation,maintenance,notifications,ai
     envVarGroups:
       - scopetrace-shared
     envVars:
@@ -218,7 +231,9 @@ services:
     runtime: python
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: celery -A config beat --loglevel=info
+    # Phase 7.5 (H4-10): same migration-readiness gate as the worker
+    # service above -- see its comment for the full rationale.
+    startCommand: python manage.py migrate --check && celery -A config beat --loglevel=info
     envVarGroups:
       - scopetrace-shared
     envVars:
