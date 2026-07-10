@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiService } from '../services/api';
+import { PageHeader } from '../components/ui/PageHeader';
+import { ConfidenceBadge } from '../components/ui/ConfidenceBadge';
+import { ListSkeleton } from '../components/ui/Skeleton';
+import { EmptyState } from '../components/ui/EmptyState';
 
 /**
  * ESGAssistantPage — Phase 7e. A dedicated conversational page (not a
@@ -12,12 +16,6 @@ import { apiService } from '../services/api';
  * confidence — nothing here can approve, reject, edit, or otherwise
  * change any record.
  */
-const CONFIDENCE_STYLES = {
-  LOW: 'bg-slate-800/60 border-slate-700 text-slate-400',
-  MEDIUM: 'bg-amber-950/30 border-amber-500/30 text-amber-300',
-  HIGH: 'bg-rose-950/30 border-rose-500/30 text-rose-300',
-};
-
 export const ESGAssistantPage = () => {
   const [conversations, setConversations] = useState([]);
   const [activeConversationId, setActiveConversationId] = useState(null);
@@ -115,10 +113,7 @@ export const ESGAssistantPage = () => {
     <div className="flex gap-6 h-[calc(100vh-4rem)] animate-fadeIn">
       {/* Conversation list */}
       <aside className="w-64 shrink-0 flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-xl font-black text-white tracking-tight font-sans">ESG Assistant</h1>
-          <p className="text-xs text-slate-400">Advisory only — never changes your data</p>
-        </div>
+        <PageHeader title="ESG Assistant" description="Advisory only — never changes your data" size="md" />
         <button
           type="button"
           onClick={startNewConversation}
@@ -127,6 +122,7 @@ export const ESGAssistantPage = () => {
           + New conversation
         </button>
         <div className="flex flex-col gap-1 overflow-y-auto" role="list" aria-label="Conversations">
+          {isLoadingConversations && <ListSkeleton rows={3} />}
           {!isLoadingConversations && conversations.length === 0 && (
             <p className="text-[11px] text-slate-500 px-2">No conversations yet.</p>
           )}
@@ -154,9 +150,10 @@ export const ESGAssistantPage = () => {
       <section className="flex-1 flex flex-col rounded-lg border border-indigo-500/30 bg-indigo-950/20 overflow-hidden">
         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4" role="log" aria-label="Conversation messages">
           {messages.length === 0 && (
-            <p className="text-xs text-slate-500 italic m-auto">
-              Ask about uploaded datasets, emissions, calculations, scopes, factors, or platform usage.
-            </p>
+            <EmptyState
+              title="Start a conversation"
+              message="Ask about uploaded datasets, emissions, calculations, scopes, factors, or platform usage."
+            />
           )}
           {messages.map((m) => (
             <div key={m.id} className={`flex flex-col gap-1 max-w-2xl ${m.role === 'USER' ? 'self-end items-end' : 'self-start items-start'}`}>
@@ -177,15 +174,7 @@ export const ESGAssistantPage = () => {
 
               {m.role === 'ASSISTANT' && (
                 <div className="flex flex-col gap-1.5 w-full">
-                  {m.confidence && (
-                    <span
-                      className={`self-start px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wide ${
-                        CONFIDENCE_STYLES[m.confidence] || CONFIDENCE_STYLES.LOW
-                      }`}
-                    >
-                      {m.confidence} confidence
-                    </span>
-                  )}
+                  {m.confidence && <ConfidenceBadge confidence={m.confidence} className="self-start" />}
                   {m.unsupported_claim && (
                     <span className="self-start px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-950/30 text-amber-300 text-[9px] font-bold uppercase tracking-wide">
                       Not fully supported by retrieved context

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { apiService } from '../services/api';
+import { ConfidenceBadge } from './ui/ConfidenceBadge';
 
 /**
  * AIInsightsPanel — Phase 7b (anomaly explanations), extended in Phase 7c
@@ -19,12 +20,6 @@ import { apiService } from '../services/api';
  * across both capabilities -- see ADR 0011), split here client-side by
  * `capability` into two visually distinct sections.
  */
-const CONFIDENCE_STYLES = {
-  LOW: 'bg-slate-800/60 border-slate-700 text-slate-400',
-  MEDIUM: 'bg-amber-950/30 border-amber-500/30 text-amber-300',
-  HIGH: 'bg-rose-950/30 border-rose-500/30 text-rose-300',
-};
-
 export const AIInsightsPanel = ({ recordId }) => {
   const [annotations, setAnnotations] = useState([]);
   const [factorRecommendations, setFactorRecommendations] = useState([]);
@@ -93,13 +88,7 @@ export const AIInsightsPanel = ({ recordId }) => {
                 <span className="text-[10px] font-semibold text-indigo-300 uppercase tracking-wider">
                   {a.capability.replace(/_/g, ' ').toLowerCase()}
                 </span>
-                <span
-                  className={`px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wide ${
-                    CONFIDENCE_STYLES[a.confidence] || CONFIDENCE_STYLES.LOW
-                  }`}
-                >
-                  {a.confidence} confidence
-                </span>
+                <ConfidenceBadge confidence={a.confidence} />
               </div>
 
               <p className="text-[11px] text-slate-300 leading-relaxed">{a.explanation}</p>
@@ -145,13 +134,7 @@ export const AIInsightsPanel = ({ recordId }) => {
                 <span className="text-[10px] font-semibold text-indigo-300 uppercase tracking-wider">
                   factor recommendation
                 </span>
-                <span
-                  className={`px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wide ${
-                    CONFIDENCE_STYLES[r.confidence] || CONFIDENCE_STYLES.LOW
-                  }`}
-                >
-                  {r.confidence} confidence
-                </span>
+                <ConfidenceBadge confidence={r.confidence} />
               </div>
 
               <div className="flex flex-col gap-1">
@@ -206,13 +189,7 @@ export const AIInsightsPanel = ({ recordId }) => {
                 <span className="text-[10px] font-semibold text-indigo-300 uppercase tracking-wider">
                   validation assistance
                 </span>
-                <span
-                  className={`px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wide ${
-                    CONFIDENCE_STYLES[v.confidence] || CONFIDENCE_STYLES.LOW
-                  }`}
-                >
-                  {v.confidence} confidence
-                </span>
+                <ConfidenceBadge confidence={v.confidence} />
               </div>
 
               {v.contributing_factors?.length > 0 && (

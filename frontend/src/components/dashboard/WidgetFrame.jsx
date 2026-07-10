@@ -1,6 +1,7 @@
 import { ListSkeleton } from '../ui/Skeleton';
 import { EmptyState } from '../ui/EmptyState';
 import { ErrorState } from '../ui/ErrorState';
+import { Card } from '../ui/Card';
 
 /**
  * Shared widget shell. Maps a widget's status to the four canonical states.
@@ -17,9 +18,7 @@ export const WidgetFrame = ({
   children,
   className = '',
 }) => (
-  <div
-    className={`bg-slate-800/40 backdrop-blur-xl border border-slate-700/50 rounded-xl p-5 shadow-lg flex flex-col gap-4 h-full transition-all duration-300 ${className}`}
-  >
+  <Card className={`p-5 flex flex-col gap-4 h-full ${className}`}>
     {(title || actions) && (
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-col gap-0.5">
@@ -35,7 +34,7 @@ export const WidgetFrame = ({
       {status === 'empty' && (empty || <EmptyState />)}
       {status === 'success' && children}
     </div>
-  </div>
+  </Card>
 );
 
 export default WidgetFrame;

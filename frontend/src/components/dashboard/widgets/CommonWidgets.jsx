@@ -6,18 +6,13 @@ import { KpiCard } from '../KpiCard';
 import { KpiSkeleton, ChartSkeleton } from '../../ui/Skeleton';
 import { EmptyState } from '../../ui/EmptyState';
 import { ErrorState } from '../../ui/ErrorState';
+import { ConfidenceBadge } from '../../ui/ConfidenceBadge';
 import { TrendChart, DonutChart, scopeColor } from '../../charts';
 
 const num = (v, d = 1) =>
   Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: d });
 
 const SCOPE_LABEL = { SCOPE_1: 'Scope 1', SCOPE_2: 'Scope 2', SCOPE_3: 'Scope 3' };
-
-const NARRATION_CONFIDENCE_STYLES = {
-  LOW: 'bg-slate-800/60 border-slate-700 text-slate-400',
-  MEDIUM: 'bg-amber-950/30 border-amber-500/30 text-amber-300',
-  HIGH: 'bg-rose-950/30 border-rose-500/30 text-rose-300',
-};
 
 // --- KPI summary row (full width) ---
 export const KpiSummaryWidget = ({ filters }) => {
@@ -162,13 +157,7 @@ export const ReportsWidget = ({ filters = {} }) => {
                   <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
                     Executive summary
                   </span>
-                  <span
-                    className={`px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wide ${
-                      NARRATION_CONFIDENCE_STYLES[latest.confidence] || NARRATION_CONFIDENCE_STYLES.LOW
-                    }`}
-                  >
-                    {latest.confidence} confidence
-                  </span>
+                  <ConfidenceBadge confidence={latest.confidence} />
                 </div>
                 <p className="text-[11px] text-slate-300 leading-relaxed">{latest.executive_summary}</p>
 
