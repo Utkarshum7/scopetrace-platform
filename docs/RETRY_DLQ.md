@@ -200,10 +200,27 @@ valid option:
 
 Automatic reprocessing wasn't a requirement here, and this system's failure
 volume (currently: any batch, at most twice a chain) doesn't yet justify a
-second queue-based subsystem. If automatic DLQ replay becomes a real need
-later, `FailedTaskLog` already has every field (`args`, `kwargs`, `task_name`)
-needed to re-`.apply_async()` the original call — nothing about this design
-blocks adding that later.
+second queue-based subsystem.
+
+**Manual replay (Phase 7.5 H4-13):** `python manage.py replay_failed_task`
+gives an operator a real recovery path instead of a hand-written shell
+command. Read-only by default (lists what would be replayed):
+
+```
+python manage.py replay_failed_task --task-name apps.ingestion.tasks.ingest_task
+python manage.py replay_failed_task --id <FailedTaskLog id> --replay
+python manage.py replay_failed_task --id <FailedTaskLog id> --replay --delete-on-replay
+```
+
+Re-dispatches the original task by name/args/kwargs via `app.send_task()` --
+the exact same queue routing and target-task idempotency guard
+(`ingest_task`/`calculate_task` already tolerate redelivery by design) as a
+normal at-least-once redelivery. Deliberately opt-in and never automatic
+(the failed task's OWN retries were already exhausted by the time it landed
+here — blindly auto-replaying could loop forever on a genuinely broken
+input). The log row survives a replay by default (it's an observability
+record, not task state); `--delete-on-replay` clears it once an operator has
+confirmed the replay succeeded.
 
 ### 4.1 `FailedTaskLog`
 
