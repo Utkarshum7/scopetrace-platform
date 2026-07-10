@@ -7,6 +7,7 @@ import { KpiSkeleton, ChartSkeleton } from '../../ui/Skeleton';
 import { EmptyState } from '../../ui/EmptyState';
 import { ErrorState } from '../../ui/ErrorState';
 import { ConfidenceBadge } from '../../ui/ConfidenceBadge';
+import { AIAdvisoryBadge } from '../../ui/AIAdvisoryBadge';
 import { Card } from '../../ui/Card';
 import { TrendChart, DonutChart, scopeColor } from '../../charts';
 
@@ -143,9 +144,7 @@ export const ReportsWidget = ({ filters = {} }) => {
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-300 uppercase tracking-wider">
                 AI Narrative
-                <span className="px-1.5 py-0.5 rounded bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 text-[9px] tracking-wide">
-                  AI Advisory
-                </span>
+                <AIAdvisoryBadge />
               </span>
               <button
                 onClick={handleRegenerate}
