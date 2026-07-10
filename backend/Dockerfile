@@ -91,4 +91,9 @@ ENTRYPOINT ["/app/entrypoint.sh"]
 # I/O-bound waits (LLM calls, DB queries, S3/MinIO calls) release the GIL.
 # See docs/OPERATIONS_RUNBOOK.md's capacity-planning table for the tradeoff
 # analysis (worker-count bump vs. threads vs. a full async/ASGI rewrite).
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2", "--worker-class", "gthread", "--threads", "4", "--timeout", "120"]
+# Phase 9b: --access-logfile - --access-logformat ... enables gunicorn's
+# HTTP access log (off by default) to stdout, correlated via
+# rid=%({X-Request-ID}o)s with apps.core.middleware.RequestIDMiddleware's
+# per-request id -- see render.yaml's matching startCommand for the full
+# rationale (kept byte-for-byte identical, same as every other flag here).
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2", "--worker-class", "gthread", "--threads", "4", "--timeout", "120", "--access-logfile", "-", "--access-logformat", "%(h)s \"%(r)s\" %(s)s %(L)ss rid=%({X-Request-ID}o)s"]

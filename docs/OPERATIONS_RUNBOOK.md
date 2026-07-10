@@ -54,6 +54,40 @@ in order, regardless of which task emitted which line. See
 
 ---
 
+## 1a. API Request Logs & Correlation IDs (Phase 9b)
+
+Every HTTP request to the `api` service gets a fresh, server-generated
+correlation id (`apps.core.middleware.RequestIDMiddleware`), which is:
+
+- returned as the `X-Request-ID` response header (ask a user reporting an
+  issue to include it — it's the fastest way from "something broke" to the
+  exact server-side log lines);
+- attached to **every** application log line emitted while that request is
+  being handled (`[{request_id}]` in the log format — see
+  `config.settings.LOGGING`), including an unhandled exception logged by
+  `apps.core.exception_handlers.unhandled_exception_handler`;
+- attached to gunicorn's own access log line for that request
+  (`rid=<id>` — access logging was OFF by default before Phase 9b; now
+  every request/response is a stdout line: remote host, request line,
+  status, duration in seconds, then the correlating id).
+
+```bash
+docker compose logs -f api | grep <request_id>
+```
+reconstructs everything logged for one HTTP request — the gunicorn access
+line plus every `apps.*`/`django.request` line in between — the same way
+`grep <workflow_id>` does for one upload's Celery chain (§1.3 above).
+Not generated for Celery tasks (no HTTP request exists to correlate) — a
+task's own `workflow_id`/`batch_id` remains the correlation key there, per
+§1.3.
+
+Log timestamps (`{asctime}Z`) are always UTC regardless of the container's
+local timezone (`apps.core.logging_utils.UTCFormatter`), matching every
+other timestamp in this codebase (`settings.TIME_ZONE = 'UTC'`,
+`timezone.now().isoformat()` in every health/heartbeat payload).
+
+---
+
 ## 2. Queue Architecture
 
 Five queues, one worker pool consuming all of them today (a routing seam,

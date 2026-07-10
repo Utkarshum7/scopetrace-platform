@@ -111,7 +111,19 @@ services:
     # matching CMD for the full rationale (the default sync worker class
     # meant 2 simultaneously slow requests, e.g. two ESG-assistant chat
     # calls, could starve the entire API).
-    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --worker-class gthread --threads 4 --timeout 120
+    # Phase 9b: CONFIRMED gap -- gunicorn's access log is OFF by default
+    # unless --access-logfile is passed, so there was zero HTTP-level
+    # request/response trail (method, path, status, duration) in production
+    # logs, only whatever apps.core.exception_handlers/individual views
+    # happened to log themselves. --access-logfile - sends it to stdout
+    # (captured by Render like every other log line); the custom
+    # --access-logformat drops gunicorn's default Apache-combined fields
+    # that add no value for a JSON API (referrer, user-agent) and instead
+    # includes rid=%({X-Request-ID}o)s -- the SAME id
+    # apps.core.middleware.RequestIDMiddleware attaches to the response and
+    # to every application log line for this request, so one id greps
+    # straight from an access-log line to the matching app-log lines.
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --worker-class gthread --threads 4 --timeout 120 --access-logfile - --access-logformat '%(h)s "%(r)s" %(s)s %(L)ss rid=%({X-Request-ID}o)s'
     # Database-aware health check — Render stops routing to the instance if the
     # DB is unreachable, instead of the old always-200 /api/ router root.
     healthCheckPath: /healthz

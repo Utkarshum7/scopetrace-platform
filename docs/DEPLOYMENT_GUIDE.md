@@ -165,8 +165,14 @@ npm run lint
 ```
 buildCommand:   pip install -r requirements.txt && collectstatic
 releaseCommand: migrate && bootstrap_data && seed_carbon   (idempotent — safe on every deploy)
-startCommand:   gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --worker-class gthread --threads 4 --timeout 120
+startCommand:   gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --worker-class gthread --threads 4 --timeout 120 --access-logfile - --access-logformat '...'
 ```
+
+(`--access-logfile - --access-logformat '...'` — Phase 9b: gunicorn's access
+log to stdout, correlated with `apps.core.middleware.RequestIDMiddleware`'s
+per-request id. See `render.yaml`'s own comment and
+`docs/OPERATIONS_RUNBOOK.md` §1a for the exact format and full rationale —
+abbreviated here to keep this summary readable.)
 
 `--worker-class gthread --threads 4` (Phase 7.5 H3): the default `sync`
 worker class handles exactly one request per worker at a time, so 2 workers
