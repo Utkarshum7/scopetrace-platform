@@ -55,6 +55,7 @@ Calls WITHOUT an idempotency_key keep the hashes-only privacy contract and
 never short-circuit.
 """
 import hashlib
+import logging
 import time
 from dataclasses import dataclass
 
@@ -69,7 +70,37 @@ from apps.ai.services.cost import check_budget, estimate_cost_usd
 from apps.ai.services.egress import AIEgressBlocked, enforce_provider_allowed, redact_template_vars
 from apps.ai.services.policy import resolve_policy
 
+logger = logging.getLogger(__name__)
+
 GATEWAY_VERSION = "1"
+
+# Phase 9b (observability audit): this module is invoke_ai()'s SOLE
+# enforcement point (see the module docstring above) yet emitted zero log
+# lines -- every outcome landed only in AIInteraction (queried on demand via
+# apps.ai.services.observability / the ops API), with no trace on
+# stdout/Render logs for an operator tailing live output or wiring
+# log-based alerting. The additions below log every GOVERNANCE-RELEVANT
+# refusal or failure (budget/egress refusals, schema/provider errors,
+# schema-invalid responses) at WARNING/ERROR, matching every other
+# pipeline's logging (apps.ingestion.tasks, apps.carbon.tasks) which logs
+# noteworthy state, not routine success.
+#
+# Deliberately NOT logged, to avoid exactly the noise this milestone warns
+# against:
+#   - AI_DISABLED: the platform-wide default (AI_ENABLED=False) is checked
+#     by EVERY capability call regardless of whether AI is on for that org
+#     (apps.ai.services.anomaly_detection etc. call invoke_ai()
+#     unconditionally and rely on this short-circuit) -- logging this would
+#     mean one WARNING-ish line per suspicious/failed record in every
+#     upload batch, platform-wide, for the common default-off case.
+#   - OK: the routine/expected outcome; every other pipeline in this
+#     codebase logs per-BATCH summaries (e.g. ingest_task's "N generated, M
+#     errored"), never per-item successes -- an OK log line per invoke_ai()
+#     call would be far more granular than that established convention.
+#   - The idempotency short-circuit (step 1): already has a dedicated
+#     metric (apps.ai.services.cache_metrics.record_cache_hit(), queryable
+#     via the ops API) -- a duplicate log line adds no new information and
+#     fires on every legitimate client retry.
 
 
 @dataclass
@@ -176,6 +207,10 @@ def _invoke_reaching_provider(
     # 3a. Budget check -- before any provider call, so a refused call never costs anything.
     budget = check_budget(organization, policy.monthly_budget_usd)
     if not budget.ok:
+        logger.warning(
+            "AI call refused (BUDGET_EXCEEDED): org=%s capability=%s spent=$%s budget=$%s",
+            organization.id, capability, budget.spent_usd, budget.budget_usd,
+        )
         return _write_and_return(
             organization=organization, actor=actor, capability=capability,
             provider=policy.provider, model_id=policy.model, parameters=parameters,
@@ -188,6 +223,10 @@ def _invoke_reaching_provider(
     try:
         enforce_provider_allowed(policy.provider, policy.egress_tier)
     except AIEgressBlocked as exc:
+        logger.warning(
+            "AI call refused (EGRESS_BLOCKED): org=%s capability=%s provider=%s tier=%s: %s",
+            organization.id, capability, policy.provider, policy.egress_tier, exc,
+        )
         return _write_and_return(
             organization=organization, actor=actor, capability=capability,
             provider=policy.provider, model_id=policy.model, parameters=parameters,
@@ -201,6 +240,10 @@ def _invoke_reaching_provider(
     try:
         schema = get_schema(response_schema_id, response_schema_version)
     except KeyError as exc:
+        logger.error(
+            "AI call failed (schema not found): org=%s capability=%s schema=%s v%s: %s",
+            organization.id, capability, response_schema_id, response_schema_version, exc,
+        )
         return _write_and_return(
             organization=organization, actor=actor, capability=capability,
             provider=policy.provider, model_id=policy.model, parameters=parameters,
@@ -222,6 +265,10 @@ def _invoke_reaching_provider(
     try:
         provider = get_llm_provider(provider_name=policy.provider)
     except Exception as exc:  # noqa: BLE001 - ImproperlyConfigured or similar, reported uniformly
+        logger.error(
+            "AI call failed (provider construction): org=%s capability=%s provider=%s: %s",
+            organization.id, capability, policy.provider, exc,
+        )
         return _write_and_return(
             organization=organization, actor=actor, capability=capability,
             provider=policy.provider, model_id=policy.model, parameters=parameters,
@@ -241,6 +288,11 @@ def _invoke_reaching_provider(
     try:
         response = provider.complete(request)
     except LLMProviderError as exc:
+        logger.warning(
+            "AI call failed (provider error): org=%s capability=%s provider=%s model=%s: %s",
+            organization.id, capability, policy.provider, policy.model, exc,
+            exc_info=True,
+        )
         return _write_and_return(
             organization=organization, actor=actor, capability=capability,
             provider=policy.provider, model_id=policy.model, parameters=parameters,
@@ -255,6 +307,12 @@ def _invoke_reaching_provider(
     # ever usable for anything.
     parsed, schema_valid = validate_response(response.text, schema)
     outcome = AIInteraction.Outcome.OK if schema_valid else AIInteraction.Outcome.SCHEMA_INVALID
+    if not schema_valid:
+        logger.warning(
+            "AI response failed schema validation: org=%s capability=%s provider=%s model=%s schema=%s v%s",
+            organization.id, capability, policy.provider, response.model_id,
+            response_schema_id, response_schema_version,
+        )
     cost_usd = estimate_cost_usd(policy.provider, response.model_id, response.input_tokens, response.output_tokens)
 
     try:
