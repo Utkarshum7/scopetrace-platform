@@ -24,9 +24,9 @@ const STATUS_PRESENTATION = {
 
 const BAR_COLOR_BY_TONE = {
   neutral: 'bg-brand-500 shadow-[0_0_8px_#10b981]',
-  success: 'bg-emerald-500 shadow-[0_0_8px_#10b981]',
-  warning: 'bg-amber-500 shadow-[0_0_8px_#f59e0b]',
-  error: 'bg-rose-500 shadow-[0_0_8px_#f43f5e]',
+  success: 'bg-success-500 shadow-[0_0_8px_#10b981]',
+  warning: 'bg-warning-500 shadow-[0_0_8px_#f59e0b]',
+  error: 'bg-danger-500 shadow-[0_0_8px_#f43f5e]',
 };
 
 export const UploadPage = ({ setView }) => {
@@ -216,8 +216,8 @@ export const UploadPage = ({ setView }) => {
                 ))}
               </select>
             ) : (
-              <div className="p-3 bg-amber-950/20 border border-amber-500/20 text-amber-300 text-xs rounded-lg">
-                No active backend DataSource registered for category <span className="font-semibold">{activeDBKey}</span>. 
+              <div className="p-3 bg-warning-950/20 border border-warning-500/20 text-warning-300 text-xs rounded-lg">
+                No active backend DataSource registered for category <span className="font-semibold">{activeDBKey}</span>.
                 Please create one in Django Admin first.
               </div>
             )}
@@ -274,7 +274,7 @@ export const UploadPage = ({ setView }) => {
 
           {/* Feedback Blocks */}
           {errorMsg && (
-            <div role="alert" className="p-4 bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs rounded-xl flex items-start gap-2.5 animate-shake">
+            <div role="alert" className="p-4 bg-danger-950/30 border border-danger-500/30 text-danger-300 text-xs rounded-xl flex items-start gap-2.5 animate-shake">
               <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
@@ -303,7 +303,7 @@ export const UploadPage = ({ setView }) => {
             </div>
           )}
           {batchId && !progress && progressError && (
-            <div role="alert" className="p-3 bg-amber-950/20 border border-amber-500/20 text-amber-300 text-xs rounded-lg">
+            <div role="alert" className="p-3 bg-warning-950/20 border border-warning-500/20 text-warning-300 text-xs rounded-lg">
               Couldn&apos;t check the ingestion job&apos;s status. The upload was accepted and may still be
               processing — check the Review Ledger shortly, or refresh this page to try checking again.
             </div>
@@ -355,11 +355,11 @@ const BatchProgressCard = ({ batchId, progress, isTerminal, setView }) => {
         </div>
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] text-slate-500 uppercase tracking-wide">Successful</span>
-          <span className="font-mono text-emerald-400 font-bold">{progress.successful_records}</span>
+          <span className="font-mono text-success-400 font-bold">{progress.successful_records}</span>
         </div>
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] text-slate-500 uppercase tracking-wide">Failed</span>
-          <span className="font-mono text-rose-400 font-bold">{progress.failed_rows}</span>
+          <span className="font-mono text-danger-400 font-bold">{progress.failed_rows}</span>
         </div>
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] text-slate-500 uppercase tracking-wide">
@@ -372,7 +372,7 @@ const BatchProgressCard = ({ batchId, progress, isTerminal, setView }) => {
       </div>
 
       {presentation.tone === 'error' && (
-        <div className="text-xs text-rose-300 leading-relaxed border-t border-slate-800/60 pt-2.5 flex flex-col gap-1">
+        <div className="text-xs text-danger-300 leading-relaxed border-t border-slate-800/60 pt-2.5 flex flex-col gap-1">
           {progress.error_message && <span>{progress.error_message}</span>}
           <span className="text-slate-500">Select a new file above and try again.</span>
         </div>
@@ -381,7 +381,7 @@ const BatchProgressCard = ({ batchId, progress, isTerminal, setView }) => {
       {parseErrors.length > 0 && (
         <div className="flex flex-col gap-1.5 border-t border-slate-800/60 pt-2.5">
           <span className="font-bold text-slate-300 text-xs">Parser Ingestion Errors Trace:</span>
-          <ul className="list-disc list-inside space-y-1 text-rose-300 font-mono text-[11px]">
+          <ul className="list-disc list-inside space-y-1 text-danger-300 font-mono text-[11px]">
             {parseErrors.slice(0, 5).map((err, idx) => (
               <li key={idx} className="leading-relaxed">
                 Row #{err.row_index}: {err.error}

@@ -50,9 +50,9 @@ export const KpiSummaryWidget = ({ filters }) => {
         previous={data.previous_total_co2e_tonnes}
         sub="vs previous period"
       />
-      <KpiCard label="Data Coverage" value={`${coveragePct}%`} accent="text-emerald-400"
+      <KpiCard label="Data Coverage" value={`${coveragePct}%`} accent="text-success-400"
         sub={`${data.calculated_count} calculated · ${data.unresolved_count} unresolved`} />
-      <KpiCard label="Pending Approval" value={num(data.pending_approval, 0)} accent="text-amber-400"
+      <KpiCard label="Pending Approval" value={num(data.pending_approval, 0)} accent="text-warning-400"
         sub="records awaiting review" />
       <KpiCard label="Ingestion Batches" value={num(data.batch_count, 0)} accent="text-brand-400"
         sub="files processed" />

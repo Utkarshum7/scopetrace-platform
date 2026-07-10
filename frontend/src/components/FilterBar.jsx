@@ -117,7 +117,7 @@ export const FilterBar = ({
         />
         <label
           htmlFor="suspicious-toggle"
-          className="text-xs font-medium text-amber-300 cursor-pointer"
+          className="text-xs font-medium text-warning-300 cursor-pointer"
         >
           Show Anomalies Only
         </label>
@@ -138,7 +138,7 @@ export const FilterBar = ({
           />
           <label
             htmlFor="deleted-toggle"
-            className="text-xs font-medium text-rose-300 cursor-pointer"
+            className="text-xs font-medium text-danger-300 cursor-pointer"
           >
             Show Deleted Records
           </label>

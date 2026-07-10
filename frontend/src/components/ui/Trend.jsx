@@ -12,7 +12,7 @@ export const Trend = ({ current, previous }) => {
   const deltaPct = ((cur - prev) / prev) * 100;
   const up = deltaPct > 0;
   const flat = Math.abs(deltaPct) < 0.05;
-  const color = flat ? 'text-slate-400' : up ? 'text-rose-400' : 'text-emerald-400';
+  const color = flat ? 'text-slate-400' : up ? 'text-danger-400' : 'text-success-400';
   const arrow = flat ? '→' : up ? '▲' : '▼';
   const direction = flat ? 'Unchanged' : up ? 'Increased' : 'Decreased';
   return (

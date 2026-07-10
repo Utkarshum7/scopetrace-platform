@@ -174,7 +174,7 @@ export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => 
           <span className="font-semibold text-brand-400">{record.scope_category}</span>
         </div>
         {record.is_suspicious && (
-          <div className="mt-1 flex items-center gap-1.5 p-2 bg-amber-950/20 border border-amber-500/20 rounded text-amber-300 text-[11px] font-medium leading-relaxed animate-pulse">
+          <div className="mt-1 flex items-center gap-1.5 p-2 bg-warning-950/20 border border-warning-500/20 rounded text-warning-300 text-[11px] font-medium leading-relaxed animate-pulse">
             <svg
               className="w-3.5 h-3.5 flex-shrink-0"
               fill="currentColor"
@@ -197,7 +197,7 @@ export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => 
         <div className="flex flex-col gap-1.5">
           <label htmlFor="approval-reason" className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
             {isReviewable ? 'Review Rationale / Reason' : 'Submission Note (optional)'}
-            {isReviewable && <span className="text-rose-400 normal-case"> — required to reject</span>}
+            {isReviewable && <span className="text-danger-400 normal-case"> — required to reject</span>}
           </label>
           <textarea
             id="approval-reason"
@@ -213,7 +213,7 @@ export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => 
         </div>
 
         {errorMsg && (
-          <div role="alert" className="p-3 bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs rounded-lg flex items-center gap-2 animate-shake">
+          <div role="alert" className="p-3 bg-danger-950/30 border border-danger-500/30 text-danger-300 text-xs rounded-lg flex items-center gap-2 animate-shake">
             <svg
               className="w-4 h-4 flex-shrink-0"
               fill="none"
@@ -249,7 +249,7 @@ export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => 
               onClick={handleReject}
               disabled={isLoading || !reasonTrimmed}
               title={!reasonTrimmed ? 'A reason is required to reject a record.' : undefined}
-              className="px-4 py-2 bg-rose-950/40 hover:bg-rose-900/50 disabled:bg-slate-800 disabled:text-slate-600 border border-rose-500/30 text-rose-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+              className="px-4 py-2 bg-danger-950/40 hover:bg-danger-900/50 disabled:bg-slate-800 disabled:text-slate-600 border border-danger-500/30 text-danger-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger-500"
             >
               Reject
             </button>
@@ -260,7 +260,7 @@ export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => 
               type="button"
               onClick={handleSubmitAndApprove}
               disabled={isLoading}
-              className="px-4 py-2 bg-emerald-950/40 hover:bg-emerald-900/50 disabled:bg-slate-800 disabled:text-slate-600 border border-emerald-500/30 text-emerald-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+              className="px-4 py-2 bg-success-950/40 hover:bg-success-900/50 disabled:bg-slate-800 disabled:text-slate-600 border border-success-500/30 text-success-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-success-500"
             >
               Submit & Approve
             </button>

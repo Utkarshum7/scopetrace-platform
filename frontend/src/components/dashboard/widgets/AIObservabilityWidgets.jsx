@@ -27,7 +27,7 @@ export const AIUsageWidget = ({ filters }) => {
         </div>
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] uppercase tracking-wider text-slate-500">Failed</span>
-          <span className="text-xl font-black text-rose-400">{num(data?.requests?.failed, 0)}</span>
+          <span className="text-xl font-black text-danger-400">{num(data?.requests?.failed, 0)}</span>
         </div>
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] uppercase tracking-wider text-slate-500">Cache hits</span>
@@ -73,15 +73,15 @@ export const AIEvaluationWidget = ({ filters }) => {
         <div className="grid grid-cols-3 gap-3">
           <div className="flex flex-col gap-0.5">
             <span className="text-[10px] uppercase tracking-wider text-slate-500">Regressions</span>
-            <span className="text-lg font-black text-rose-400">{num(evaluation?.regressions, 0)}</span>
+            <span className="text-lg font-black text-danger-400">{num(evaluation?.regressions, 0)}</span>
           </div>
           <div className="flex flex-col gap-0.5">
             <span className="text-[10px] uppercase tracking-wider text-slate-500">Schema fails</span>
-            <span className="text-lg font-black text-amber-400">{num(evaluation?.schema_failures, 0)}</span>
+            <span className="text-lg font-black text-warning-400">{num(evaluation?.schema_failures, 0)}</span>
           </div>
           <div className="flex flex-col gap-0.5">
             <span className="text-[10px] uppercase tracking-wider text-slate-500">Replay fails</span>
-            <span className="text-lg font-black text-amber-400">{num(evaluation?.replay_failures, 0)}</span>
+            <span className="text-lg font-black text-warning-400">{num(evaluation?.replay_failures, 0)}</span>
           </div>
         </div>
         <div className="flex flex-col gap-1.5 pt-1 border-t border-slate-800/50">
@@ -90,8 +90,8 @@ export const AIEvaluationWidget = ({ filters }) => {
               <span className="text-[11px] text-slate-400 truncate">{tier.replace(/_/g, ' ')}</span>
               {run ? (
                 <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border ${
-                  run.failed_cases === 0 ? 'bg-emerald-950/30 border-emerald-500/20 text-emerald-400'
-                    : 'bg-rose-950/30 border-rose-500/20 text-rose-400'
+                  run.failed_cases === 0 ? 'bg-success-950/30 border-success-500/20 text-success-400'
+                    : 'bg-danger-950/30 border-danger-500/20 text-danger-400'
                 }`}>{run.passed_cases}/{run.total_cases} passed</span>
               ) : (
                 <span className="text-[10px] text-slate-600">never run</span>

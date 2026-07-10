@@ -21,8 +21,8 @@ export const StatusBadge = ({ status }) => {
       break;
     case 'SUSPICIOUS':
       styles = {
-        bg: 'bg-amber-950/40 border-amber-500/30 text-amber-300 animate-pulse',
-        dot: 'bg-amber-400 shadow-[0_0_8px_#f59e0b]',
+        bg: 'bg-warning-950/40 border-warning-500/30 text-warning-300 animate-pulse',
+        dot: 'bg-warning-400 shadow-[0_0_8px_#f59e0b]',
         label: 'Suspicious / Flagged',
       };
       break;
@@ -42,8 +42,8 @@ export const StatusBadge = ({ status }) => {
       break;
     case 'APPROVED':
       styles = {
-        bg: 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300',
-        dot: 'bg-emerald-400 shadow-[0_0_8px_#10b981]',
+        bg: 'bg-success-950/40 border-success-500/30 text-success-300',
+        dot: 'bg-success-400 shadow-[0_0_8px_#10b981]',
         label: 'Approved & Locked',
       };
       break;
@@ -56,15 +56,15 @@ export const StatusBadge = ({ status }) => {
       break;
     case 'FAILED':
       styles = {
-        bg: 'bg-rose-950/40 border-rose-500/30 text-rose-300',
-        dot: 'bg-rose-500 shadow-[0_0_8px_#ef4444]',
+        bg: 'bg-danger-950/40 border-danger-500/30 text-danger-300',
+        dot: 'bg-danger-500 shadow-[0_0_8px_#ef4444]',
         label: 'Failed Ingest',
       };
       break;
     case 'COMPLETED':
       styles = {
-        bg: 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300',
-        dot: 'bg-emerald-400 shadow-[0_0_8px_#10b981]',
+        bg: 'bg-success-950/40 border-success-500/30 text-success-300',
+        dot: 'bg-success-400 shadow-[0_0_8px_#10b981]',
         label: 'Completed',
       };
       break;

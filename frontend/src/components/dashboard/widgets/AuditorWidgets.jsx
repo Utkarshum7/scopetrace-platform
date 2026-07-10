@@ -27,7 +27,7 @@ export const PendingApprovalsWidget = ({ filters, setView }) => {
   return (
     <WidgetFrame title="Pending Approvals" subtitle="Awaiting analyst review" status={status} onRetry={refetch}>
       <div className="flex flex-col items-start gap-2 h-full justify-center">
-        <span className="text-4xl font-black text-amber-400 font-sans">{data?.pending_approval ?? 0}</span>
+        <span className="text-4xl font-black text-warning-400 font-sans">{data?.pending_approval ?? 0}</span>
         <span className="text-xs text-slate-500">records need review before they can be audit-locked.</span>
         <button onClick={() => setView?.({ name: 'records', params: { status: 'SUSPICIOUS' } })}
           className="mt-1 text-[11px] font-semibold text-brand-400 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded">Open audit queue →</button>
@@ -67,7 +67,7 @@ export const LockedRecordsWidget = ({ setView }) => {
   return (
     <WidgetFrame title="Locked Records" subtitle="Audit-secured" status={status} onRetry={refetch}>
       <div className="flex flex-col items-start gap-2 h-full justify-center">
-        <span className="text-4xl font-black text-emerald-400 font-sans">{data?.count ?? 0}</span>
+        <span className="text-4xl font-black text-success-400 font-sans">{data?.count ?? 0}</span>
         <span className="text-xs text-slate-500">approved records sealed on the immutable ledger.</span>
         <button onClick={() => setView?.({ name: 'records', params: { status: 'APPROVED' } })}
           className="mt-1 text-[11px] font-semibold text-brand-400 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded">View locked records →</button>

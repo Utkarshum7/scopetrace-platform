@@ -29,7 +29,7 @@ export const OrgKpisWidget = ({ filters }) => {
         </div>
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] uppercase tracking-wider text-slate-500">Pending</span>
-          <span className="text-xl font-black text-amber-400">{num(data?.pending_approval, 0)}</span>
+          <span className="text-xl font-black text-warning-400">{num(data?.pending_approval, 0)}</span>
         </div>
       </div>
     </WidgetFrame>
@@ -46,11 +46,11 @@ export const CoverageWidget = ({ filters }) => {
     <WidgetFrame title="Data Coverage" subtitle="Calculated vs unresolved" status={status} onRetry={refetch}>
       <div className="flex flex-col gap-3 h-full justify-center">
         <div className="flex items-baseline gap-2">
-          <span className="text-3xl font-black text-emerald-400">{pct}%</span>
+          <span className="text-3xl font-black text-success-400">{pct}%</span>
           <span className="text-xs text-slate-500">of records have CO₂e</span>
         </div>
         <div className="w-full bg-slate-800 rounded-full h-2.5">
-          <div className="bg-emerald-500 h-2.5 rounded-full transition-all duration-500 shadow-[0_0_8px_#10b981]" style={{ width: `${pct}%` }} />
+          <div className="bg-success-500 h-2.5 rounded-full transition-all duration-500 shadow-[0_0_8px_#10b981]" style={{ width: `${pct}%` }} />
         </div>
         <span className="text-[10px] text-slate-500">{data?.calculated_count ?? 0} calculated · {data?.unresolved_count ?? 0} unresolved</span>
       </div>
@@ -108,14 +108,14 @@ export const AIBudgetWidget = ({ filters }) => {
       ) : (
         <div className="flex flex-col gap-3 h-full justify-center">
           <div className="flex items-baseline gap-2">
-            <span className={`text-3xl font-black ${data?.budget?.over_budget ? 'text-rose-400' : 'text-emerald-400'}`}>
+            <span className={`text-3xl font-black ${data?.budget?.over_budget ? 'text-danger-400' : 'text-success-400'}`}>
               {pct != null ? `${pct}%` : '—'}
             </span>
             <span className="text-xs text-slate-500">of monthly budget used</span>
           </div>
           <div className="w-full bg-slate-800 rounded-full h-2.5">
             <div
-              className={`h-2.5 rounded-full transition-all duration-500 ${data?.budget?.over_budget ? 'bg-rose-500 shadow-[0_0_8px_#f43f5e]' : 'bg-emerald-500 shadow-[0_0_8px_#10b981]'}`}
+              className={`h-2.5 rounded-full transition-all duration-500 ${data?.budget?.over_budget ? 'bg-danger-500 shadow-[0_0_8px_#f43f5e]' : 'bg-success-500 shadow-[0_0_8px_#10b981]'}`}
               style={{ width: `${barPct}%` }}
             />
           </div>

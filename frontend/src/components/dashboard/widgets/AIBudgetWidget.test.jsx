@@ -45,7 +45,7 @@ describe('AIBudgetWidget', () => {
     });
     renderWithQueryClient(<AIBudgetWidget filters={{}} />);
     const value = await screen.findByText('200%');
-    expect(value.className).toContain('text-rose-400');
+    expect(value.className).toContain('text-danger-400');
   });
 
   it('shows a disabled message when AI is not enabled for the organization', async () => {
