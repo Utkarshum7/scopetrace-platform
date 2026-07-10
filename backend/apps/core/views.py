@@ -31,6 +31,12 @@ def healthz(request):
     except Exception as exc:  # noqa: BLE001 - report any connectivity failure
         database_ok = False
         detail = str(exc)
+        # Phase 9b: matches healthz_worker's existing logger.warning on its
+        # own failure branch below -- before this, a DB-down event was
+        # visible only in the health check's own JSON response body, which
+        # most uptime monitors/load balancers don't capture into searchable
+        # logs the way a WARNING line on stdout is.
+        logger.warning("Database health check failed: %s", exc)
 
     payload = {
         "status": "ok" if database_ok else "unhealthy",
@@ -139,6 +145,11 @@ def healthz_ai(request):
     try:
         get_llm_provider()
     except Exception as exc:  # noqa: BLE001 - report any configuration failure
+        # Phase 9b: same rationale as healthz's DB-failure log above -- an
+        # AI provider misconfiguration (AI_ENABLED=True but credentials
+        # missing/invalid) is a deploy-time bug that should show up in
+        # plain server logs, not only in this endpoint's JSON body.
+        logger.warning("AI health check failed: provider misconfigured: %s", exc)
         return JsonResponse(
             {
                 "status": "unhealthy",

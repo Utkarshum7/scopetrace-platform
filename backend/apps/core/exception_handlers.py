@@ -36,8 +36,17 @@ def unhandled_exception_handler(exc, context):
         return response
 
     view = context.get("view")
+    request = context.get("request")
+    # Phase 9b: request.request_id (apps.core.middleware.RequestIDMiddleware)
+    # is already attached to this line automatically, via the 'console'
+    # handler's request_id logging filter -- method/path are added directly
+    # here since the filter only has access to the LogRecord, not the DRF
+    # `request` this handler is closed over.
     logger.exception(
-        "Unhandled exception in %s", getattr(view, "__class__", type(view)).__name__,
+        "Unhandled exception in %s: %s %s",
+        getattr(view, "__class__", type(view)).__name__,
+        getattr(request, "method", "?"),
+        getattr(request, "path", "?"),
     )
     return Response(
         {"detail": "An unexpected error occurred."},
