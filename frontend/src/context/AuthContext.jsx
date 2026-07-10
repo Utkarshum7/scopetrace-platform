@@ -57,6 +57,10 @@ export const AuthProvider = ({ children }) => {
     canUpload: isPlatformAdmin || (role ? UPLOAD_ROLES.includes(role) : false),
     canApprove: isPlatformAdmin || (role ? APPROVE_ROLES.includes(role) : false),
     canUseAI: isPlatformAdmin || (role ? AI_ROLES.includes(role) : false),
+    // Mirrors backend IsOrgAdmin (apps.accounts.permissions) exactly --
+    // gates the ?deleted=true "trash" view on GET /api/records/, which is
+    // an administrative-oversight capability, not a routine read.
+    canViewDeletedRecords: isPlatformAdmin || role === 'ORG_ADMIN',
     login,
     logout,
     refreshUser: loadUser,
