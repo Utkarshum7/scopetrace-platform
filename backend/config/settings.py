@@ -96,6 +96,11 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Phase 9b: assigns a per-request correlation id (X-Request-ID response
+    # header + every log line emitted while this request is handled).
+    # Placed as early as possible so it wraps the rest of the chain,
+    # including WhiteNoise and DRF's own exception handler.
+    'apps.core.middleware.RequestIDMiddleware',
     # WhiteNoise serves static files efficiently in production (must be 2nd after SecurityMiddleware)
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
@@ -655,9 +660,26 @@ LOG_LEVEL = config('LOG_LEVEL', default='INFO')
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'filters': {
+        # Phase 9b: injects the active request's correlation id (or "-"
+        # outside a request) into every LogRecord -- see
+        # apps.core.logging_utils.RequestIDLogFilter and
+        # apps.core.middleware.RequestIDMiddleware.
+        'request_id': {
+            '()': 'apps.core.logging_utils.RequestIDLogFilter',
+        },
+    },
     'formatters': {
         'verbose': {
-            'format': '[{asctime}] {levelname} {name}: {message}',
+            # Phase 9b: UTCFormatter makes {asctime} explicitly UTC (plain
+            # logging.Formatter defaults to the container's local time,
+            # which Django's TIME_ZONE='UTC' setting does NOT govern) --
+            # matching every other timestamp in this codebase. {request_id}
+            # ties this line to the HTTP request that produced it (or "-"
+            # for Celery/management-command output, which already carries
+            # its own workflow_id/batch_id correlation inline).
+            '()': 'apps.core.logging_utils.UTCFormatter',
+            'format': '[{asctime}Z] {levelname} {name} [{request_id}]: {message}',
             'style': '{',
         },
     },
@@ -665,6 +687,7 @@ LOGGING = {
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
+            'filters': ['request_id'],
         },
     },
     'root': {
