@@ -265,6 +265,22 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
+    # Phase 9a: DRF's own default (JSONRenderer + BrowsableAPIRenderer) left
+    # the interactive HTML API explorer reachable in every environment,
+    # including production, even though the actual frontend only ever
+    # speaks JSON. BrowsableAPIRenderer doesn't bypass auth/permissions --
+    # nothing here was ever an access-control gap -- but it's unnecessary
+    # production surface (an HTML UI for interactively walking the entire
+    # API schema/shape) with no legitimate production consumer, and
+    # disabling it is the standard hardening step for exactly this reason.
+    # DEBUG=True keeps both renderers so the browsable API/admin stay
+    # usable locally, matching SessionAuthentication's own DEBUG-oriented
+    # rationale immediately above.
+    'DEFAULT_RENDERER_CLASSES': (
+        ['rest_framework.renderers.JSONRenderer', 'rest_framework.renderers.BrowsableAPIRenderer']
+        if DEBUG else
+        ['rest_framework.renderers.JSONRenderer']
+    ),
     # Secure default: every endpoint requires authentication unless it explicitly
     # opts out (the auth/login and health endpoints do).
     'DEFAULT_PERMISSION_CLASSES': [
