@@ -37,6 +37,8 @@ from apps.ingestion.serializers import (
     UploadInputSerializer,
     OrganizationSerializer,
     DataSourceSerializer,
+    EXTENSION_CONTENT_TYPES,
+    file_extension,
 )
 from apps.ingestion.tasks import ingest_task
 from apps.carbon.tasks import calculate_task
@@ -123,19 +125,39 @@ class BaseUploadView(APIView):
         storage_key = f"uploads/{data_source.organization_id}/{batch.id}/{uploaded_file.name}"
         try:
             storage = get_storage_service()
-            storage.save(storage_key, uploaded_file, content_type=uploaded_file.content_type)
+            # Phase 7.5 (H4-4): content_type is derived SERVER-SIDE from the
+            # already-validated file extension (UploadInputSerializer.
+            # validate_file only accepts .csv/.json) -- never the client-
+            # supplied `uploaded_file.content_type` header, which is fully
+            # attacker-controlled and was previously trusted verbatim. A
+            # crafted upload could otherwise claim e.g. text/html, and if a
+            # download URL were ever opened inline (not forced as an
+            # attachment), that stored content-type could produce reflected/
+            # stored XSS when served from the storage origin.
+            content_type = EXTENSION_CONTENT_TYPES[file_extension(uploaded_file.name)]
+            storage.save(storage_key, uploaded_file, content_type=content_type)
         except Exception as exc:
+            # Phase 7.5 (H4-5): the full exception (message included) is
+            # already captured here via logger.exception() for operators --
+            # neither the stored batch.error_message (itself a serialized,
+            # client-visible field via GET /api/batches/{id}/) nor the
+            # response body below include raw exception text, only the
+            # exception's CLASS name (a safe category, e.g. "StorageError"),
+            # since the underlying storage backend's error message can
+            # contain internal details (paths, hostnames, credentials
+            # fragments) that shouldn't reach an authenticated org member.
             logger.exception("Failed to persist durable upload for batch %s", batch.id)
             batch.status = UploadBatch.BatchStatus.FAILED
             batch.error_message = (
-                f"Failed to persist upload to durable storage: {type(exc).__name__}: {exc}"
+                f"Failed to persist upload to durable storage ({type(exc).__name__}). "
+                "See server logs for detail."
             )
             batch.finished_at = timezone.now()
             batch.save(update_fields=["status", "error_message", "finished_at"])
             return Response(
                 {
                     "error": "Upload storage unavailable",
-                    "detail": str(exc),
+                    "detail": "The file could not be persisted to durable storage. Please try again.",
                     # The batch record already exists (created PENDING above)
                     # even though the file never reached durable storage —
                     # a client should always have an id to look up, per the
@@ -407,10 +429,16 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
             raise
         except DjangoValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as exc:
+        except Exception:
+            # Phase 7.5 (H4-5): the full exception is already captured here
+            # for operators -- an unexpected (non-domain, non-validation)
+            # exception's raw message can contain internal details and
+            # shouldn't reach the client. InvalidTransitionError/
+            # DjangoValidationError above (the codebase's OWN deliberately
+            # user-safe exception messages) are unaffected by this change.
             logger.exception("Workflow transition to %s failed for record %s", target_status, pk)
             return Response(
-                {"detail": f"Transition failed: {str(exc)}"}, status=status.HTTP_400_BAD_REQUEST
+                {"detail": "Transition failed due to an unexpected error."}, status=status.HTTP_400_BAD_REQUEST
             )
 
     @action(detail=True, methods=["POST"], serializer_class=WorkflowActionSerializer)
@@ -512,10 +540,15 @@ class EmissionRecordViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelView
             raise
         except DjangoValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as exc:
+        except Exception:
+            # Phase 7.5 (H4-5): same reasoning as _apply_workflow_transition
+            # above -- the full exception is already captured here for
+            # operators; AlreadyDeletedError/NotDeletedError/
+            # DjangoValidationError (the codebase's own deliberately
+            # user-safe messages) are unaffected.
             logger.exception("Lifecycle action %s failed for record %s", kind, pk)
             return Response(
-                {"detail": f"{kind.capitalize()} failed: {str(exc)}"}, status=status.HTTP_400_BAD_REQUEST
+                {"detail": f"{kind.capitalize()} failed due to an unexpected error."}, status=status.HTTP_400_BAD_REQUEST
             )
 
     @action(detail=True, methods=["POST"])

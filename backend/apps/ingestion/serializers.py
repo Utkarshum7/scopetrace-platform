@@ -1,3 +1,4 @@
+import os
 from datetime import timedelta
 
 from django.db.models import DurationField, ExpressionWrapper, F
@@ -321,6 +322,20 @@ class DeletionSerializer(serializers.Serializer):
 # small structured files; anything larger is almost certainly a mistake.
 MAX_UPLOAD_SIZE_MB = 10
 
+# Phase 7.5 (H4-4): the only formats any parser in this codebase reads --
+# apps.ingestion.services.sap_parser/utility_parser use csv.DictReader,
+# travel_parser uses json.load. Not source-type-specific (that would need
+# object-level validation with access to the sibling `data_source` field,
+# a bigger restructure for marginal extra precision -- a mismatched
+# type/source is already caught by the parser itself); this closes the
+# actual gap: arbitrary file types were previously accepted and persisted
+# to durable storage with no check at all.
+ALLOWED_UPLOAD_EXTENSIONS = {".csv", ".json"}
+# Server-derived content-type per allowed extension -- used for storage,
+# NEVER the client-supplied `file.content_type` header (untrusted; see
+# EXTENSION_CONTENT_TYPES's use in views.py).
+EXTENSION_CONTENT_TYPES = {".csv": "text/csv", ".json": "application/json"}
+
 
 class UploadInputSerializer(serializers.Serializer):
     file = serializers.FileField(required=True, help_text="The source data file to upload")
@@ -338,7 +353,17 @@ class UploadInputSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 f"File exceeds the maximum allowed size of {MAX_UPLOAD_SIZE_MB} MB."
             )
+        ext = file_extension(value.name)
+        if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+            raise serializers.ValidationError(
+                f"Unsupported file type {ext or '(no extension)'!r}. "
+                f"Allowed: {sorted(ALLOWED_UPLOAD_EXTENSIONS)}."
+            )
         return value
+
+
+def file_extension(filename: str) -> str:
+    return os.path.splitext(filename or "")[1].lower()
 
 
 class EmissionRecordVersionSerializer(serializers.ModelSerializer):

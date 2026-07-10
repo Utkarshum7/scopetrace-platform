@@ -582,6 +582,61 @@ class APILayerTestCase(TestCase):
         self.assertEqual(response.status_code, drf_status.HTTP_400_BAD_REQUEST)
         self.assertIn('empty', str(response.json()).lower())
 
+    def test_sap_upload_rejects_an_unsupported_file_extension(self):
+        # Phase 7.5 (H4-4): parsers only ever read .csv (sap/utility) or
+        # .json (travel) -- confirmed via apps.ingestion.services.
+        # {sap,utility}_parser (csv.DictReader) / travel_parser (json.load).
+        # Before this fix, ANY file type was accepted and persisted to
+        # durable storage with no check at all.
+        from io import BytesIO
+        from django.core.files.uploadedfile import InMemoryUploadedFile
+        file_obj = InMemoryUploadedFile(
+            file=BytesIO(b"MZ\x90\x00fake-binary-content"), field_name='file',
+            name='payload.exe', content_type='application/octet-stream',
+            size=20, charset=None,
+        )
+        response = self.client.post(
+            '/api/upload/sap/',
+            data={'file': file_obj, 'data_source': str(self.sap_ds.id)},
+            format='multipart',
+        )
+        self.assertEqual(response.status_code, drf_status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Unsupported file type', str(response.json()))
+        # Nothing should have been persisted to durable storage or created a batch.
+        self.assertEqual(UploadBatch.objects.count(), 0)
+
+    def test_sap_upload_stores_a_server_derived_content_type_not_the_client_header(self):
+        # Phase 7.5 (H4-4): the client-supplied Content-Type header is fully
+        # attacker-controlled (e.g. could claim text/html) -- storage must
+        # receive the extension-derived type instead, regardless of what the
+        # client claims. Spies on the REAL storage service (wraps=, not a
+        # bare Mock) so the rest of the ingest/calculate chain still runs
+        # exactly as in test_sap_upload_success, and only the content_type
+        # argument passed to save() is inspected.
+        from io import BytesIO
+        from unittest.mock import patch
+        from django.core.files.uploadedfile import InMemoryUploadedFile
+        from apps.core.storage import get_storage_service as real_get_storage_service
+
+        file_obj = InMemoryUploadedFile(
+            file=BytesIO(self._sap_csv_bytes), field_name='file',
+            name='sap_test.csv', content_type='text/html',  # spoofed
+            size=len(self._sap_csv_bytes), charset='utf-8',
+        )
+        real_storage = real_get_storage_service()
+        with patch.object(real_storage, 'save', wraps=real_storage.save) as save_spy, \
+                patch('apps.ingestion.views.get_storage_service', return_value=real_storage):
+            response = self.client.post(
+                '/api/upload/sap/',
+                data={'file': file_obj, 'data_source': str(self.sap_ds.id)},
+                format='multipart',
+            )
+        self.assertEqual(response.status_code, drf_status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.json()['status'], UploadBatch.BatchStatus.COMPLETED)
+        self.assertEqual(save_spy.call_count, 1)
+        _, kwargs = save_spy.call_args
+        self.assertEqual(kwargs['content_type'], 'text/csv')  # NOT the spoofed 'text/html'
+
     def test_travel_upload_success(self):
         from io import BytesIO
         from django.core.files.uploadedfile import InMemoryUploadedFile
