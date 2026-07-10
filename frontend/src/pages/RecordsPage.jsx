@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { apiService } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { StatusBadge } from '../components/StatusBadge';
 import { FilterBar } from '../components/FilterBar';
 import { ApprovalModal } from '../components/ApprovalModal';
@@ -8,17 +9,20 @@ import { Card } from '../components/ui/Card';
 import { PageHeader } from '../components/ui/PageHeader';
 import { ListSkeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
+import { ErrorState } from '../components/ui/ErrorState';
 
 export const RecordsPage = ({ initialFilters = {} }) => {
+  const { canViewDeletedRecords } = useAuth();
   const [records, setRecords] = useState([]);
   const [dataSources, setDataSources] = useState([]);
   const [batches, setBatches] = useState([]);
-  
+
   const [filters, setFilters] = useState({
     data_source: initialFilters.data_source || '',
     batch: initialFilters.batch || '',
     status: initialFilters.status || '',
     suspicious: initialFilters.suspicious || '',
+    deleted: initialFilters.deleted || '',
   });
 
   const [isLoading, setIsLoading] = useState(true);
@@ -127,12 +131,13 @@ export const RecordsPage = ({ initialFilters = {} }) => {
         batches={batches}
         filters={filters}
         onFilterChange={(f) => { setPage(1); setFilters(f); }}
+        canViewDeleted={canViewDeletedRecords}
       />
 
       {errorMsg && (
-        <div role="alert" className="p-4 bg-rose-950/30 border border-rose-500/30 text-rose-300 text-sm rounded-xl">
-          {errorMsg}
-        </div>
+        <Card className="p-4">
+          <ErrorState message={errorMsg} onRetry={fetchRecords} />
+        </Card>
       )}
 
       {/* Main Ledger Grid & Details Panel */}
@@ -142,7 +147,7 @@ export const RecordsPage = ({ initialFilters = {} }) => {
         <Card className="flex-1 w-full p-5 flex flex-col gap-4">
 
           <div className="flex justify-between items-center pb-2 border-b border-slate-800/60">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider" role="status" aria-live="polite">
               Record Audit Stream ({pageInfo.count} total)
             </span>
             <button
@@ -157,9 +162,9 @@ export const RecordsPage = ({ initialFilters = {} }) => {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
+            <table className="w-full text-left text-xs border-collapse" aria-label="Emission records">
               <thead>
-                <tr className="border-b border-slate-800 text-slate-500 font-semibold uppercase tracking-wider pb-3">
+                <tr className="border-b border-slate-800 text-slate-500 font-semibold uppercase tracking-wider">
                   <th className="pb-3 pr-2">Row</th>
                   <th className="pb-3 px-2">Scope</th>
                   <th className="pb-3 px-2">Source Unit</th>
@@ -177,6 +182,12 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                   const isSubmitted = r.status === 'SUBMITTED';
                   const isRejected = r.status === 'REJECTED';
                   const isActionable = !isApproved && !isFailed;
+                  // Phase 8 (8c): is_suspicious is never cleared once set (see
+                  // apps.ingestion.services.workflow), so a record can be
+                  // e.g. status=SUBMITTED with is_suspicious still true --
+                  // the row tint alone (color-only) doesn't communicate that
+                  // once the badge itself no longer says "Suspicious".
+                  const showFlagged = isSuspicious && r.status !== 'SUSPICIOUS';
 
                   let actionLabel = 'Submit';
                   if (isApproved) actionLabel = 'Secured';
@@ -188,12 +199,17 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                   if (isSuspicious) rowBg = 'bg-amber-950/10 hover:bg-amber-950/20';
                   if (isFailed) rowBg = 'bg-rose-950/10 hover:bg-rose-950/20';
 
+                  const ariaLabelSuffix = [
+                    showFlagged ? 'flagged as suspicious' : null,
+                    r.is_deleted ? 'deleted' : null,
+                  ].filter(Boolean).join(', ');
+
                   return (
                     <tr
                       key={r.id}
                       role="button"
                       tabIndex={0}
-                      aria-label={`View details for row ${r.row_index}, ${r.scope_category}, status ${r.status}`}
+                      aria-label={`View details for row ${r.row_index}, ${r.scope_category}, status ${r.status}${ariaLabelSuffix ? `, ${ariaLabelSuffix}` : ''}`}
                       className={`cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${rowBg} ${
                         selectedRecord?.id === r.id ? 'bg-slate-700/20 border-l-2 border-brand-500' : ''
                       }`}
@@ -235,7 +251,19 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                         )}
                       </td>
                       <td className="py-3.5 px-2">
-                        <StatusBadge status={r.status} />
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <StatusBadge status={r.status} />
+                          {showFlagged && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-950/30 border border-amber-500/30 text-amber-400 text-[9px] font-bold uppercase tracking-wide">
+                              Flagged
+                            </span>
+                          )}
+                          {r.is_deleted && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800 border border-slate-600 text-slate-400 text-[9px] font-bold uppercase tracking-wide">
+                              Deleted
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3.5 pl-2 text-right" onClick={(e) => e.stopPropagation()}>
                         <button
@@ -335,10 +363,10 @@ export const RecordsPage = ({ initialFilters = {} }) => {
             {/* Validation & Error blocks */}
             {selectedRecord.is_suspicious && (
               <div className="p-3 bg-amber-950/30 border border-amber-500/30 text-amber-300 text-xs rounded-lg flex flex-col gap-1 animate-pulse">
-                <span className="font-bold flex items-center gap-1.5">
+                <h4 className="font-bold flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 bg-amber-400 rounded-full" />
                   Validation Warning Flags:
-                </span>
+                </h4>
                 <ul className="list-disc list-inside space-y-0.5 opacity-90 pl-1 font-mono text-[10px]">
                   {Object.entries(selectedRecord.validation_errors || {}).map(([key, val]) => (
                     <li key={key}>
@@ -352,10 +380,10 @@ export const RecordsPage = ({ initialFilters = {} }) => {
 
             {selectedRecord.status === 'FAILED' && (
               <div className="p-3 bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs rounded-lg flex flex-col gap-1">
-                <span className="font-bold flex items-center gap-1.5">
+                <h4 className="font-bold flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 bg-rose-500 rounded-full" />
                   Ingestion Validation Failures:
-                </span>
+                </h4>
                 <ul className="list-disc list-inside space-y-0.5 opacity-90 pl-1 font-mono text-[10px]">
                   {Object.entries(selectedRecord.validation_errors || {}).map(([key, val]) => (
                     <li key={key}>
@@ -387,12 +415,12 @@ export const RecordsPage = ({ initialFilters = {} }) => {
             {/* Approval Metadata */}
             {selectedRecord.status === 'APPROVED' && (
               <div className="p-3 bg-emerald-950/30 border border-emerald-500/30 text-emerald-300 text-xs rounded-lg flex flex-col gap-1.5">
-                <span className="font-bold flex items-center gap-1.5 text-white">
-                  <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <h4 className="font-bold flex items-center gap-1.5 text-white">
+                  <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                   </svg>
                   Secured Audit Lock Trail:
-                </span>
+                </h4>
                 <div className="flex flex-col gap-1 text-[11px] font-mono leading-relaxed pl-1 text-emerald-200">
                   <div>Approved By ID: {selectedRecord.approved_by || 'Anonymous'}</div>
                   <div>Timestamp: {new Date(selectedRecord.approved_at).toLocaleString()}</div>
@@ -403,9 +431,9 @@ export const RecordsPage = ({ initialFilters = {} }) => {
             {/* Carbon Calculation Breakdown (explainability) */}
             {selectedRecord.calculation_status === 'CALCULATED' && selectedRecord.calculation_trace?.steps ? (
               <div className="p-3 bg-emerald-950/20 border border-emerald-500/20 rounded-lg flex flex-col gap-2">
-                <span className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
+                <h4 className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
                   Carbon Calculation
-                </span>
+                </h4>
                 <div className="flex flex-col gap-1.5">
                   {selectedRecord.calculation_trace.steps.map((step, i) => (
                     <div key={i} className="flex justify-between items-baseline gap-3 text-[11px]">
@@ -431,17 +459,10 @@ export const RecordsPage = ({ initialFilters = {} }) => {
               </div>
             )}
 
-            {/* Raw JSON Payload Viewer */}
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Raw Source File Payload
-              </span>
-              <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-3 overflow-auto max-h-[250px] font-mono text-[10px] text-slate-400 leading-normal">
-                <pre>{JSON.stringify(selectedRecord.raw_data_payload, null, 2)}</pre>
-              </div>
-            </div>
-
-            {/* Extra Calculations Summary */}
+            {/* Extra Calculations Summary -- grouped with Carbon Calculation
+                Breakdown above (Phase 8, 8c: was previously separated from
+                it by the raw payload viewer, which now moves to the end as
+                the most technical/raw content in the drawer). */}
             <div className="bg-slate-900/60 rounded-lg p-3.5 border border-slate-800/80 flex flex-col gap-2 text-xs">
               <div className="flex justify-between">
                 <span className="text-slate-500">Normalizing Scale:</span>
@@ -454,6 +475,16 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                 <span className="font-semibold text-slate-300">
                   {new Date(selectedRecord.created_at).toLocaleDateString()}
                 </span>
+              </div>
+            </div>
+
+            {/* Raw JSON Payload Viewer */}
+            <div className="flex flex-col gap-1.5">
+              <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                Raw Source File Payload
+              </h4>
+              <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-3 overflow-auto max-h-[250px] font-mono text-[10px] text-slate-400 leading-normal">
+                <pre>{JSON.stringify(selectedRecord.raw_data_payload, null, 2)}</pre>
               </div>
             </div>
 
