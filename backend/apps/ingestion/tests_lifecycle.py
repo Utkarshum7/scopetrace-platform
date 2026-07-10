@@ -192,8 +192,14 @@ class BatchQueuedTransitionTests(TestCase):
 
         batch = UploadBatch.objects.get(id=data["batch_id"])
         self.assertEqual(batch.status, UploadBatch.BatchStatus.FAILED)
+        # Phase 7.5 (H4-5): error_message is a client-visible field (GET
+        # /api/batches/{id}/) -- keeps the exception's safe CLASS name for a
+        # little context, but the raw message ("MinIO unreachable", which
+        # could carry internal details in a real failure) is deliberately
+        # NOT included; the full exception is captured server-side via
+        # logger.exception() instead.
         self.assertIn("ConnectionError", batch.error_message)
-        self.assertIn("MinIO unreachable", batch.error_message)
+        self.assertNotIn("MinIO unreachable", batch.error_message)
         self.assertIsNotNone(batch.finished_at)
         self.assertIsNone(batch.started_at)  # processing never began
 
