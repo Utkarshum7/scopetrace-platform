@@ -2,6 +2,10 @@ import { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiService } from '../services/api';
 import { useBatchProgress } from '../hooks/useBatchProgress';
+import { Card } from '../components/ui/Card';
+import { PageHeader } from '../components/ui/PageHeader';
+import { SelectableCard } from '../components/ui/SelectableCard';
+import { Spinner } from '../components/ui/Spinner';
 
 // Presentation-only lookup for job-lifecycle statuses (apps.ingestion.models
 // UploadBatch.BatchStatus) — QUEUED/PROCESSING are real states a client will
@@ -82,10 +86,10 @@ export const UploadPage = ({ setView }) => {
     }
   };
 
-  // Adjust default selection when card is clicked or activated via keyboard
-  // (Enter/Space) -- the 3 adapter cards behave exactly like a radio group
-  // (single selection among mutually exclusive options), so onClick and
-  // onKeyDown both funnel through this one handler.
+  // Adjust default selection when a SelectableCard is activated (click or
+  // Enter/Space -- SelectableCard normalizes both to one onSelect call) --
+  // the 3 adapter cards behave exactly like a radio group (single selection
+  // among mutually exclusive options).
   const handleTypeSelect = (type) => {
     setSelectedSourceType(type);
     setFile(null);
@@ -95,16 +99,6 @@ export const UploadPage = ({ setView }) => {
     const dbKey = getSourceTypeDBKey(type);
     const matched = dataSources.find(s => s.source_type === dbKey);
     setSelectedDataSourceId(matched ? matched.id : '');
-  };
-
-  // Enter/Space activates a card exactly like a click would -- the native
-  // browser behavior a real <button>/radio input gets for free, reproduced
-  // here since these are role="radio" elements on a <div>.
-  const handleCardKeyDown = (e, type) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handleTypeSelect(type);
-    }
   };
 
   const handleFileChange = (e) => {
@@ -160,15 +154,10 @@ export const UploadPage = ({ setView }) => {
 
   return (
     <div className="flex flex-col gap-6 animate-fadeIn">
-      {/* Header */}
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-black text-white tracking-tight font-sans">
-          ESG Data Ingestion Center
-        </h1>
-        <p className="text-xs text-slate-400">
-          Upload unstructured enterprise reports. Our backend adapters will extract, validate, and secure the emission records.
-        </p>
-      </div>
+      <PageHeader
+        title="ESG Data Ingestion Center"
+        description="Upload unstructured enterprise reports. Our backend adapters will extract, validate, and secure the emission records."
+      />
 
       {/* Selector Tabs/Cards -- a radio group: exactly one adapter strategy
           is selected at a time. Each card is individually Tab-reachable
@@ -177,90 +166,31 @@ export const UploadPage = ({ setView }) => {
           announcing correctly ("radio button, N of 3, selected/not
           selected") to screen readers -- a deliberate scope trade-off. */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4" role="radiogroup" aria-label="Ingestion adapter strategy">
-        {/* SAP Fuel */}
-        <div
-          onClick={() => handleTypeSelect('sap')}
-          onKeyDown={(e) => handleCardKeyDown(e, 'sap')}
-          role="radio"
-          aria-checked={selectedSourceType === 'sap'}
-          tabIndex={0}
-          className={`cursor-pointer bg-slate-800/40 backdrop-blur-xl border rounded-xl p-5 shadow-lg flex flex-col gap-3 transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-            selectedSourceType === 'sap'
-              ? 'border-brand-500 bg-slate-800/80 shadow-brand-500/5'
-              : 'border-slate-700/50 hover:border-slate-600 hover:bg-slate-800/20'
-          }`}
-        >
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-              Adapter Strategy #1
-            </span>
-            <span className={`w-2.5 h-2.5 rounded-full ${selectedSourceType === 'sap' ? 'bg-brand-500 shadow-[0_0_8px_#10b981]' : 'bg-slate-600'}`} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <h3 className="text-sm font-bold text-white">SAP Fuel Ingestion</h3>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Accepts CSV exports with German header keys, semicolons, and European comma formatting.
-            </p>
-          </div>
-        </div>
-
-        {/* Utility Electricity */}
-        <div
-          onClick={() => handleTypeSelect('utility')}
-          onKeyDown={(e) => handleCardKeyDown(e, 'utility')}
-          role="radio"
-          aria-checked={selectedSourceType === 'utility'}
-          tabIndex={0}
-          className={`cursor-pointer bg-slate-800/40 backdrop-blur-xl border rounded-xl p-5 shadow-lg flex flex-col gap-3 transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-            selectedSourceType === 'utility'
-              ? 'border-brand-500 bg-slate-800/80 shadow-brand-500/5'
-              : 'border-slate-700/50 hover:border-slate-600 hover:bg-slate-800/20'
-          }`}
-        >
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-              Adapter Strategy #2
-            </span>
-            <span className={`w-2.5 h-2.5 rounded-full ${selectedSourceType === 'utility' ? 'bg-brand-500 shadow-[0_0_8px_#10b981]' : 'bg-slate-600'}`} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <h3 className="text-sm font-bold text-white">Utility Electricity Ingest</h3>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Accepts power billing files. Normalizes kWh or MWh scales, and maps billing start/end.
-            </p>
-          </div>
-        </div>
-
-        {/* Corporate Travel */}
-        <div
-          onClick={() => handleTypeSelect('travel')}
-          onKeyDown={(e) => handleCardKeyDown(e, 'travel')}
-          role="radio"
-          aria-checked={selectedSourceType === 'travel'}
-          tabIndex={0}
-          className={`cursor-pointer bg-slate-800/40 backdrop-blur-xl border rounded-xl p-5 shadow-lg flex flex-col gap-3 transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-            selectedSourceType === 'travel'
-              ? 'border-brand-500 bg-slate-800/80 shadow-brand-500/5'
-              : 'border-slate-700/50 hover:border-slate-600 hover:bg-slate-800/20'
-          }`}
-        >
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-              Adapter Strategy #3
-            </span>
-            <span className={`w-2.5 h-2.5 rounded-full ${selectedSourceType === 'travel' ? 'bg-brand-500 shadow-[0_0_8px_#10b981]' : 'bg-slate-600'}`} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <h3 className="text-sm font-bold text-white">TMC Corporate Travel</h3>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Accepts TMC JSON exports. Calculates Haversine flight arcs and applies seating class multipliers.
-            </p>
-          </div>
-        </div>
+        <SelectableCard
+          selected={selectedSourceType === 'sap'}
+          onSelect={() => handleTypeSelect('sap')}
+          eyebrow="Adapter Strategy #1"
+          title="SAP Fuel Ingestion"
+          description="Accepts CSV exports with German header keys, semicolons, and European comma formatting."
+        />
+        <SelectableCard
+          selected={selectedSourceType === 'utility'}
+          onSelect={() => handleTypeSelect('utility')}
+          eyebrow="Adapter Strategy #2"
+          title="Utility Electricity Ingest"
+          description="Accepts power billing files. Normalizes kWh or MWh scales, and maps billing start/end."
+        />
+        <SelectableCard
+          selected={selectedSourceType === 'travel'}
+          onSelect={() => handleTypeSelect('travel')}
+          eyebrow="Adapter Strategy #3"
+          title="TMC Corporate Travel"
+          description="Accepts TMC JSON exports. Calculates Haversine flight arcs and applies seating class multipliers."
+        />
       </div>
 
       {/* Main Upload Control Panel */}
-      <div className="bg-slate-800/40 backdrop-blur-xl border border-slate-700/50 rounded-xl p-6 shadow-lg flex flex-col gap-5">
+      <Card className="p-6 flex flex-col gap-5">
         <h2 className="text-base font-bold text-white font-sans tracking-tight uppercase tracking-wider text-xs text-slate-400">
           Inbound Ingestion Setup - {selectedSourceType.toUpperCase()}
         </h2>
@@ -366,17 +296,12 @@ export const UploadPage = ({ setView }) => {
               disabled={isLoading || (batchId && !isTerminal) || filteredDataSources.length === 0}
               className="px-6 py-2.5 bg-brand-600 hover:bg-brand-500 disabled:bg-slate-800 disabled:text-slate-600 text-white text-xs font-black uppercase tracking-wider rounded-lg transition-all shadow-md shadow-brand-600/10 flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
             >
-              {isLoading && (
-                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-              )}
+              {isLoading && <Spinner className="h-4 w-4 text-white" />}
               Execute Ingestion Adaptor
             </button>
           </div>
         </form>
-      </div>
+      </Card>
     </div>
   );
 };

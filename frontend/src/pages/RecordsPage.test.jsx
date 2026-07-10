@@ -64,8 +64,12 @@ describe('RecordsPage', () => {
   it('shows a loading indicator while records are being fetched', async () => {
     let resolveFn;
     apiService.getRecords.mockReturnValue(new Promise((res) => { resolveFn = res; }));
-    render(<RecordsPage />);
-    expect(await screen.findByText(/querying emissions ledger/i)).toBeInTheDocument();
+    const { container } = render(<RecordsPage />);
+    // Phase 8 (8a.3): the ledger's loading row now renders the shared
+    // ListSkeleton primitive (pulsing placeholder bars) instead of a plain
+    // "Querying..." text row, matching the loading treatment already used
+    // by every dashboard widget.
+    await waitFor(() => expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0));
     resolveFn({ items: [], count: 0, next: null, previous: null });
     // Let the resolution settle before the test tears down, so the state
     // update isn't left dangling outside of act().

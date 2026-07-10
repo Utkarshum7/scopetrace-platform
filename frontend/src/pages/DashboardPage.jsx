@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { widgetsForRole, SPAN_CLASS } from '../components/dashboard/registry';
 import { WidgetErrorBoundary } from '../components/dashboard/WidgetErrorBoundary';
 import { DashboardFilters, periodToFilters } from '../components/dashboard/DashboardFilters';
+import { PageHeader } from '../components/ui/PageHeader';
 
 /**
  * DashboardPage orchestrates LAYOUT only: it resolves the role's widget set from
@@ -20,17 +21,11 @@ export const DashboardPage = ({ setView }) => {
   return (
     <div className="flex flex-col gap-6 animate-fadeIn">
       {/* Header + filters */}
-      <div className="flex flex-wrap justify-between items-center gap-4">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-black text-white tracking-tight font-sans">
-            ESG Command Dashboard
-          </h1>
-          <p className="text-xs text-slate-400">
-            {orgName ? `${orgName} · ` : ''}carbon accounting overview
-          </p>
-        </div>
-        <DashboardFilters period={control.period} scope={control.scope} onChange={setControl} />
-      </div>
+      <PageHeader
+        title="ESG Command Dashboard"
+        description={`${orgName ? `${orgName} · ` : ''}carbon accounting overview`}
+        actions={<DashboardFilters period={control.period} scope={control.scope} onChange={setControl} />}
+      />
 
       {/* Role-aware, pluggable widget grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">

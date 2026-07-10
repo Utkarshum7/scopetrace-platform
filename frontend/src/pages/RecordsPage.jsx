@@ -4,6 +4,10 @@ import { StatusBadge } from '../components/StatusBadge';
 import { FilterBar } from '../components/FilterBar';
 import { ApprovalModal } from '../components/ApprovalModal';
 import { AIInsightsPanel } from '../components/AIInsightsPanel';
+import { Card } from '../components/ui/Card';
+import { PageHeader } from '../components/ui/PageHeader';
+import { ListSkeleton } from '../components/ui/Skeleton';
+import { EmptyState } from '../components/ui/EmptyState';
 
 export const RecordsPage = ({ initialFilters = {} }) => {
   const [records, setRecords] = useState([]);
@@ -112,15 +116,10 @@ export const RecordsPage = ({ initialFilters = {} }) => {
 
   return (
     <div className="flex flex-col gap-6 animate-fadeIn">
-      {/* Header */}
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-black text-white tracking-tight font-sans">
-          Analyst Ingestion Ledger
-        </h1>
-        <p className="text-xs text-slate-400">
-          Review, filter, inspect raw source payloads, and approve emission records. Approved records are locked for audit trail compliance.
-        </p>
-      </div>
+      <PageHeader
+        title="Analyst Ingestion Ledger"
+        description="Review, filter, inspect raw source payloads, and approve emission records. Approved records are locked for audit trail compliance."
+      />
 
       {/* Reusable FilterBar */}
       <FilterBar
@@ -140,8 +139,8 @@ export const RecordsPage = ({ initialFilters = {} }) => {
       <div className="flex flex-col lg:flex-row gap-6 items-start">
         
         {/* Records Table (Left Column) */}
-        <div className="flex-1 w-full bg-slate-800/40 backdrop-blur-xl border border-slate-700/50 rounded-xl p-5 shadow-lg flex flex-col gap-4">
-          
+        <Card className="flex-1 w-full p-5 flex flex-col gap-4">
+
           <div className="flex justify-between items-center pb-2 border-b border-slate-800/60">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
               Record Audit Stream ({pageInfo.count} total)
@@ -263,15 +262,15 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                 })}
                 {records.length === 0 && !isLoading && (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-slate-500 font-medium">
-                      No records match the active filter criteria.
+                    <td colSpan={7} className="py-4">
+                      <EmptyState title="No records match the active filter criteria." />
                     </td>
                   </tr>
                 )}
                 {isLoading && (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-slate-500 font-medium">
-                      Querying emissions ledger…
+                    <td colSpan={7} className="py-4">
+                      <ListSkeleton rows={5} />
                     </td>
                   </tr>
                 )}
@@ -303,12 +302,12 @@ export const RecordsPage = ({ initialFilters = {} }) => {
               </div>
             </div>
           )}
-        </div>
+        </Card>
 
         {/* Dynamic Detail Drawer (Right Column) */}
         {selectedRecord && (
-          <div
-            className="w-full lg:w-drawer bg-slate-800/40 backdrop-blur-xl border border-slate-700/50 rounded-xl p-5 shadow-lg flex flex-col gap-4 animate-slideIn"
+          <Card
+            className="w-full lg:w-drawer p-5 flex flex-col gap-4 animate-slideIn"
             role="region"
             aria-label="Record details"
           >
@@ -458,7 +457,7 @@ export const RecordsPage = ({ initialFilters = {} }) => {
               </div>
             </div>
 
-          </div>
+          </Card>
         )}
 
       </div>
