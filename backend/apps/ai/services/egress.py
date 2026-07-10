@@ -53,6 +53,44 @@ class RedactionResult:
     redacted: bool
 
 
+def _scrub_string(value: str) -> tuple[str, bool]:
+    scrubbed = _EMAIL_RE.sub("[REDACTED_EMAIL]", value)
+    scrubbed = _LONG_DIGIT_RE.sub("[REDACTED_NUMBER]", scrubbed)
+    return scrubbed, scrubbed != value
+
+
+def _scrub_value(value):
+    """Phase 7.5 (H4-3): recurse into dict/list/tuple values instead of only
+    scrubbing top-level strings. Before this fix, every CURRENT caller
+    happened to pass flat string-only template_vars, so the gap was latent
+    -- but nothing enforced that, and a future capability passing a nested
+    structure (e.g. a list of contributing factors, a dict of line items)
+    would have silently skipped redaction with no test catching it. Returns
+    (scrubbed_value, redacted_any) so the caller's overall `redacted` flag
+    stays accurate at any nesting depth."""
+    if isinstance(value, str):
+        return _scrub_string(value)
+    if isinstance(value, dict):
+        redacted_any = False
+        result = {}
+        for k, v in value.items():
+            scrubbed, changed = _scrub_value(v)
+            result[k] = scrubbed
+            redacted_any = redacted_any or changed
+        return result, redacted_any
+    if isinstance(value, (list, tuple)):
+        redacted_any = False
+        result = []
+        for item in value:
+            scrubbed, changed = _scrub_value(item)
+            result.append(scrubbed)
+            redacted_any = redacted_any or changed
+        return (type(value))(result), redacted_any
+    # Anything else (int, float, bool, None, ...) has no PII-shaped text to
+    # scrub -- passed through unchanged, same as the pre-7.5 behavior.
+    return value, False
+
+
 def redact_template_vars(template_vars: dict, egress_tier: str) -> RedactionResult:
     if egress_tier != "REDACTED":
         return RedactionResult(values=template_vars, redacted=False)
@@ -60,12 +98,7 @@ def redact_template_vars(template_vars: dict, egress_tier: str) -> RedactionResu
     redacted_any = False
     result = {}
     for key, value in template_vars.items():
-        if isinstance(value, str):
-            scrubbed = _EMAIL_RE.sub("[REDACTED_EMAIL]", value)
-            scrubbed = _LONG_DIGIT_RE.sub("[REDACTED_NUMBER]", scrubbed)
-            if scrubbed != value:
-                redacted_any = True
-            result[key] = scrubbed
-        else:
-            result[key] = value
+        scrubbed, changed = _scrub_value(value)
+        result[key] = scrubbed
+        redacted_any = redacted_any or changed
     return RedactionResult(values=result, redacted=redacted_any)

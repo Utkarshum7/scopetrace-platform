@@ -171,3 +171,43 @@ class RedactTemplateVarsTests(TestCase):
         result = redact_template_vars({"count": 42, "flag": True}, "REDACTED")
         self.assertEqual(result.values["count"], 42)
         self.assertEqual(result.values["flag"], True)
+
+    # Phase 7.5 (H4-3): before this fix, only TOP-LEVEL string values were
+    # scrubbed -- a nested dict/list value passed through completely
+    # unredacted. Latent (every current caller passes flat strings), but a
+    # structural gap. These pin the recursive fix.
+    def test_redacted_tier_scrubs_a_string_nested_in_a_dict(self):
+        result = redact_template_vars(
+            {"contact": {"email": "jane.doe@example.com", "note": "clean"}}, "REDACTED",
+        )
+        self.assertNotIn("jane.doe@example.com", result.values["contact"]["email"])
+        self.assertEqual(result.values["contact"]["note"], "clean")
+        self.assertTrue(result.redacted)
+
+    def test_redacted_tier_scrubs_a_string_nested_in_a_list(self):
+        result = redact_template_vars(
+            {"notes": ["clean entry", "contact jane.doe@example.com"]}, "REDACTED",
+        )
+        self.assertEqual(result.values["notes"][0], "clean entry")
+        self.assertNotIn("jane.doe@example.com", result.values["notes"][1])
+        self.assertTrue(result.redacted)
+
+    def test_redacted_tier_scrubs_a_string_nested_several_levels_deep(self):
+        result = redact_template_vars(
+            {"items": [{"contacts": ["jane.doe@example.com"]}]}, "REDACTED",
+        )
+        self.assertNotIn("jane.doe@example.com", result.values["items"][0]["contacts"][0])
+        self.assertTrue(result.redacted)
+
+    def test_redacted_tier_recursion_preserves_structure_and_non_string_leaves(self):
+        original = {"meta": {"count": 3, "tags": ["a", "b"]}, "flag": True}
+        result = redact_template_vars(original, "REDACTED")
+        self.assertEqual(result.values, original)
+        self.assertFalse(result.redacted)
+
+    def test_raw_tier_skips_redaction_for_nested_values_too(self):
+        result = redact_template_vars(
+            {"contact": {"email": "jane.doe@example.com"}}, "RAW",
+        )
+        self.assertIn("jane.doe@example.com", result.values["contact"]["email"])
+        self.assertFalse(result.redacted)
