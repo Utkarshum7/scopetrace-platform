@@ -46,6 +46,7 @@ from django.db import models, transaction
 from django.db.models import Q
 
 from apps.core.models import Organization
+from apps.core.querysets import SetNullCascadeSafeQuerySet
 
 
 class AIPromptVersion(models.Model):
@@ -159,6 +160,30 @@ class TenantAIPolicy(models.Model):
         return f"AI policy for {self.organization_id} (enabled={self.ai_enabled})"
 
 
+class AIInteractionQuerySet(SetNullCascadeSafeQuerySet):
+    """Phase 7.5 (H4): AIInteraction is apps.ai's single audit/reproducibility
+    record -- the one every observability/cost-governance/budget query in
+    this codebase reads from -- yet unlike every sibling AI model
+    (AIAnnotation, AIFactorRecommendation, AIConversationMessage,
+    AIReportNarration), it had no QuerySet-level guard against bulk
+    update()/delete(). This was not an oversight: `actor` is on_delete=
+    SET_NULL (see this module's own docstring, "AIConversation... can
+    safely stay on_delete=SET_NULL like AIInteraction.actor, without
+    reintroducing the SET_NULL-cascade-vs-blocked-update bug class ADR
+    0009 already worked around for AIAnnotation") -- copying AIAnnotation's
+    unconditional update() block here would have broken User.delete() for
+    any user who ever triggered an AI call, the exact bug apps.core.
+    querysets.SetNullCascadeSafeQuerySet was built to fix elsewhere. That
+    reusable base (whitelisting exactly the SET_NULL cascade shape) is the
+    correct fix now that it exists.
+    """
+
+    update_blocked_message = "AI interactions are immutable and cannot be bulk-updated."
+
+    def delete(self):
+        raise ValidationError("AI interactions are immutable and cannot be bulk-deleted.")
+
+
 class AIInteraction(models.Model):
     """One row per call through apps.ai.services.gateway.invoke_ai() --
     including calls that were refused before reaching a provider (disabled,
@@ -257,6 +282,8 @@ class AIInteraction(models.Model):
     gateway_version = models.CharField(max_length=20, default="1")
 
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    objects = AIInteractionQuerySet.as_manager()
 
     class Meta:
         indexes = [

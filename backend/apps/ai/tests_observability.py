@@ -21,6 +21,20 @@ def _make_interaction(org, **extra):
     return AIInteraction.objects.create(**defaults)
 
 
+def _make_interaction_at(org, created_at, **extra):
+    """Phase 7.5 (H4-2): AIInteraction.created_at is auto_now_add, and
+    AIInteraction is now immutable (AIInteractionQuerySet blocks bulk
+    .update()) -- backdating for a test fixture must happen AT CREATION by
+    patching timezone.now() (the standard way to test an auto_now_add
+    field), not via a post-creation .update(), which is correctly refused."""
+    from unittest import mock
+
+    from django.utils import timezone
+
+    with mock.patch.object(timezone, "now", return_value=created_at):
+        return _make_interaction(org, **extra)
+
+
 class CacheMetricsTests(TestCase):
     def setUp(self):
         cache.clear()
@@ -82,18 +96,9 @@ class PlatformAiSummaryTests(TestCase):
     def test_latency_trend_buckets_by_day(self):
         import datetime
 
-        first = _make_interaction(self.org, latency_ms=100)
-        AIInteraction.objects.filter(pk=first.pk).update(
-            created_at=datetime.datetime(2026, 1, 1, 10, tzinfo=datetime.timezone.utc)
-        )
-        second = _make_interaction(self.org, latency_ms=300)
-        AIInteraction.objects.filter(pk=second.pk).update(
-            created_at=datetime.datetime(2026, 1, 1, 14, tzinfo=datetime.timezone.utc)
-        )
-        third = _make_interaction(self.org, latency_ms=50)
-        AIInteraction.objects.filter(pk=third.pk).update(
-            created_at=datetime.datetime(2026, 1, 2, 9, tzinfo=datetime.timezone.utc)
-        )
+        _make_interaction_at(self.org, datetime.datetime(2026, 1, 1, 10, tzinfo=datetime.timezone.utc), latency_ms=100)
+        _make_interaction_at(self.org, datetime.datetime(2026, 1, 1, 14, tzinfo=datetime.timezone.utc), latency_ms=300)
+        _make_interaction_at(self.org, datetime.datetime(2026, 1, 2, 9, tzinfo=datetime.timezone.utc), latency_ms=50)
 
         summary = platform_ai_summary()
         trend = summary["latency"]["trend"]
@@ -116,8 +121,7 @@ class PlatformAiSummaryTests(TestCase):
     def test_date_range_filters_requests(self):
         import datetime
 
-        old = _make_interaction(self.org)
-        AIInteraction.objects.filter(pk=old.pk).update(created_at=datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc))
+        _make_interaction_at(self.org, datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc))
         _make_interaction(self.org)
 
         summary = platform_ai_summary({"date_from": "2025-01-01"})

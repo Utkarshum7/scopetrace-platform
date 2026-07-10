@@ -4,6 +4,7 @@ this only covers each model's own invariants."""
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 
@@ -134,3 +135,75 @@ class AIInteractionTests(TestCase):
             egress_tier_applied=TenantAIPolicy.EgressTier.REDACTED,
         )
         self.assertIsNone(interaction.actor)
+
+
+class AIInteractionImmutabilityTests(TestCase):
+    """Phase 7.5 (H4-2): AIInteraction is apps.ai's single audit/
+    reproducibility record, but was the one AI model with no QuerySet-level
+    guard against bulk update()/delete() -- unlike AIAnnotation,
+    AIFactorRecommendation, AIConversationMessage, AIReportNarration, all of
+    which block it. These tests pin the guard AND confirm it doesn't regress
+    the SET_NULL cascade covered by test_actor_becomes_null_when_user_is_
+    deleted above."""
+
+    def setUp(self):
+        self.org = Organization.objects.create(name="AI Immutability Org")
+        self.user = User.objects.create_user("ai_immutable_actor", password="pw")
+
+    def _interaction(self, **extra):
+        defaults = dict(
+            organization=self.org, actor=self.user, capability="foundation.selftest",
+            provider="echo", model_id="echo-1", outcome=AIInteraction.Outcome.OK,
+            egress_tier_applied=TenantAIPolicy.EgressTier.REDACTED,
+        )
+        defaults.update(extra)
+        return AIInteraction.objects.create(**defaults)
+
+    def test_bulk_update_of_a_business_field_is_blocked(self):
+        interaction = self._interaction()
+        with self.assertRaises(ValidationError):
+            AIInteraction.objects.filter(pk=interaction.pk).update(outcome=AIInteraction.Outcome.ERROR)
+        interaction.refresh_from_db()
+        self.assertEqual(interaction.outcome, AIInteraction.Outcome.OK)
+
+    def test_bulk_delete_is_blocked(self):
+        self._interaction()
+        with self.assertRaises(ValidationError):
+            AIInteraction.objects.all().delete()
+        self.assertEqual(AIInteraction.objects.count(), 1)
+
+    def test_single_instance_delete_is_not_covered_by_this_guard(self):
+        # Documents the guard's real, deliberate scope -- matching every
+        # sibling model's own docstring ("blocks bulk delete/update at the
+        # QuerySet level -- the gap instance-level delete()/clean()
+        # overrides don't cover"): Model.delete() for a single row with no
+        # related-object cascade does NOT route through the manager's
+        # QuerySet.delete() override anywhere in this codebase, so this
+        # guard -- like AIAnnotation's, AuditTrail's, and every other
+        # sibling -- only refuses the BULK form (.filter(...).delete() /
+        # .all().delete()), never a single instance.delete() call.
+        interaction = self._interaction()
+        interaction.delete()  # does not raise -- not this guard's scope
+        self.assertEqual(AIInteraction.objects.count(), 0)
+
+    def test_the_set_null_cascade_still_succeeds_through_the_guard(self):
+        # THE regression this guard must never reintroduce (ADR 0009's bug
+        # class): deleting a user must still succeed and null out actor_id,
+        # not raise. Mirrors test_actor_becomes_null_when_user_is_deleted,
+        # phrased explicitly against the new guard for this milestone.
+        interaction = self._interaction()
+        self.user.delete()  # must not raise
+        interaction.refresh_from_db()
+        self.assertIsNone(interaction.actor_id)
+
+    def test_bulk_setting_actor_to_a_real_user_is_still_blocked(self):
+        # The carve-out only allows the SET_NULL cascade's exact shape
+        # (actor=None) -- bulk-assigning actor to a REAL user must still be
+        # refused, matching apps.ingestion.tests_user_deletion's equivalent
+        # coverage for EmissionRecord.approved_by.
+        interaction = self._interaction(actor=None)
+        other_user = User.objects.create_user("other_actor", password="pw")
+        with self.assertRaises(ValidationError):
+            AIInteraction.objects.filter(pk=interaction.pk).update(actor=other_user)
+        interaction.refresh_from_db()
+        self.assertIsNone(interaction.actor_id)
