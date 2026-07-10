@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -21,6 +21,51 @@ export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => 
   const [reason, setReason] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
+  const dialogRef = useRef(null);
+  const initialFocusRef = useRef(null);
+  const previouslyFocusedRef = useRef(null);
+
+  // Initial focus + focus restoration: move focus into the dialog on open,
+  // and return it to whatever triggered the modal (e.g. the table row) on
+  // close, so keyboard users aren't dropped back at the top of the page.
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    previouslyFocusedRef.current = document.activeElement;
+    const focusTimer = window.setTimeout(() => initialFocusRef.current?.focus(), 0);
+    return () => {
+      window.clearTimeout(focusTimer);
+      previouslyFocusedRef.current?.focus?.();
+    };
+  }, [isOpen]);
+
+  // Escape-to-close and a Tab/Shift+Tab focus trap that cycles within the
+  // dialog, per the WAI-ARIA modal dialog pattern.
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const focusable = dialogRef.current?.querySelectorAll(
+        'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen || !record) return null;
 
@@ -119,12 +164,18 @@ export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => 
       />
 
       {/* Modal Dialog Body */}
-      <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl z-10 transition-all duration-300 transform scale-100 flex flex-col gap-4">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="approval-modal-title"
+        className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl z-10 transition-all duration-300 transform scale-100 flex flex-col gap-4"
+      >
 
         {/* Header */}
         <div className="flex justify-between items-start">
           <div className="flex flex-col gap-1">
-            <h3 className="text-lg font-bold text-white font-sans tracking-tight">
+            <h3 id="approval-modal-title" className="text-lg font-bold text-white font-sans tracking-tight">
               {isReviewable
                 ? 'Review Submitted Record'
                 : isResubmit
@@ -137,7 +188,8 @@ export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => 
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 hover:bg-slate-800/80 rounded transition-all focus:outline-none"
+            aria-label="Close dialog"
+            className="text-slate-400 hover:text-white p-1 hover:bg-slate-800/80 rounded transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
           >
             <svg
               className="w-5 h-5"
@@ -145,6 +197,7 @@ export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => 
               stroke="currentColor"
               viewBox="0 0 24 24"
               xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"
@@ -190,28 +243,32 @@ export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => 
         {/* Form */}
         <form onSubmit={(e) => e.preventDefault()} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+            <label htmlFor="approval-reason" className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
               {isReviewable ? 'Review Rationale / Reason' : 'Submission Note (optional)'}
               {isReviewable && <span className="text-rose-400 normal-case"> — required to reject</span>}
             </label>
             <textarea
+              id="approval-reason"
+              ref={initialFocusRef}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="e.g. Verified with supplier invoices; outlier due to seasonal Q1 production surge."
               rows={3}
+              aria-required={isReviewable ? 'true' : 'false'}
               className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all resize-none"
               disabled={isLoading}
             />
           </div>
 
           {errorMsg && (
-            <div className="p-3 bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs rounded-lg flex items-center gap-2 animate-shake">
+            <div role="alert" className="p-3 bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs rounded-lg flex items-center gap-2 animate-shake">
               <svg
                 className="w-4 h-4 flex-shrink-0"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
                 xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
               >
                 <path
                   strokeLinecap="round"
@@ -228,7 +285,7 @@ export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => 
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-slate-800 bg-slate-900 hover:bg-slate-800/80 text-slate-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all focus:outline-none"
+              className="px-4 py-2 border border-slate-800 bg-slate-900 hover:bg-slate-800/80 text-slate-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
               disabled={isLoading}
             >
               Cancel
@@ -240,7 +297,7 @@ export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => 
                 onClick={handleReject}
                 disabled={isLoading || !reasonTrimmed}
                 title={!reasonTrimmed ? 'A reason is required to reject a record.' : undefined}
-                className="px-4 py-2 bg-rose-950/40 hover:bg-rose-900/50 disabled:bg-slate-800 disabled:text-slate-600 border border-rose-500/30 text-rose-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all focus:outline-none"
+                className="px-4 py-2 bg-rose-950/40 hover:bg-rose-900/50 disabled:bg-slate-800 disabled:text-slate-600 border border-rose-500/30 text-rose-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
               >
                 Reject
               </button>
@@ -251,7 +308,7 @@ export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => 
                 type="button"
                 onClick={handleSubmitAndApprove}
                 disabled={isLoading}
-                className="px-4 py-2 bg-emerald-950/40 hover:bg-emerald-900/50 disabled:bg-slate-800 disabled:text-slate-600 border border-emerald-500/30 text-emerald-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all focus:outline-none"
+                className="px-4 py-2 bg-emerald-950/40 hover:bg-emerald-900/50 disabled:bg-slate-800 disabled:text-slate-600 border border-emerald-500/30 text-emerald-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
               >
                 Submit & Approve
               </button>
@@ -261,7 +318,7 @@ export const ApprovalModal = ({ isOpen, record, onClose, onActionComplete }) => 
               type="button"
               onClick={isReviewable ? handleApprove : handleSubmit}
               disabled={isLoading}
-              className="px-5 py-2 bg-brand-600 hover:bg-brand-500 disabled:bg-slate-800 disabled:text-slate-600 text-white text-xs font-bold uppercase tracking-wider rounded-lg transition-all shadow-md shadow-brand-600/10 flex items-center gap-1.5 focus:outline-none"
+              className="px-5 py-2 bg-brand-600 hover:bg-brand-500 disabled:bg-slate-800 disabled:text-slate-600 text-white text-xs font-bold uppercase tracking-wider rounded-lg transition-all shadow-md shadow-brand-600/10 flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
             >
               {isLoading && (
                 <svg
