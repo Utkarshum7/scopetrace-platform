@@ -1,13 +1,25 @@
 """
-invoke_ai() -- the SOLE enforcement point for every AI call in this codebase
-(Phase 7's I4/I5/I6 invariants, see docs/AI_ARCHITECTURE.md). Every call
-flows through, in order: idempotency short-circuit -> policy resolution ->
-budget check -> egress/provider-allowed check -> schema lookup -> redact +
-render prompt -> provider call -> response schema validation -> AIInteraction
-write. No caller constructs a provider, calls apps.ai.prompts.registry, or
-writes AIInteraction directly -- this module is the only code that composes
-those pieces, and apps.ai.tests_import_guard structurally prevents a caller
-from reaching a vendor SDK around it.
+invoke_ai() -- the SOLE enforcement point for every PRODUCTION-FACING AI
+call in this codebase (Phase 7's I4/I5/I6 invariants, see
+docs/AI_ARCHITECTURE.md). Every call flows through, in order: idempotency
+short-circuit -> policy resolution -> budget check -> egress/provider-allowed
+check -> schema lookup -> redact + render prompt -> provider call -> response
+schema validation -> AIInteraction write. No caller constructs a provider,
+calls apps.ai.prompts.registry, or writes AIInteraction directly -- this
+module is the only code that composes those pieces, and
+apps.ai.tests_import_guard structurally prevents a caller from reaching a
+vendor SDK around it.
+
+One deliberate, narrow exception (Phase 7.5 H4-11 -- documented here so this
+claim stays accurate rather than contradicted elsewhere): apps.ai.evaluation.
+judge's Tier 2 LLM-as-Judge framework calls get_llm_provider()/render_prompt()
+/validate_response() directly, bypassing this gateway. That is intentional --
+a judge call scores ANOTHER call's output, isn't itself a governed production
+capability, is gated off by settings.AI_JUDGE_ENABLED (default False), and is
+never a Tier 1 (blocking) CI gate -- see judge.py's own module docstring.
+Policy/budget/idempotency enforcement and the AIInteraction audit trail exist
+to govern real tenant-facing usage; a disabled-by-default internal scoring
+tool scoring golden-dataset fixtures isn't that.
 
 Phase 7's I1/I2 invariants (advisory-only, no governed-data mutation) are
 enforced by ABSENCE, not by a check here: this module has no import of, and
