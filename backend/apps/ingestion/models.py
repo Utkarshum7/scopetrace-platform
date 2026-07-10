@@ -258,6 +258,16 @@ class UploadBatch(models.Model):
         verbose_name = "Upload Batch"
         verbose_name_plural = "Upload Batches"
         ordering = ["-created_at"]
+        indexes = [
+            # Phase 7.5 (H4): cleanup_stale_batches_task (apps.ingestion.
+            # tasks) runs every 15 minutes platform-wide (no organization
+            # filter -- it's a maintenance sweep, not tenant-scoped):
+            # .exclude(status__in=TERMINAL_STATUSES).filter(updated_at__lt=
+            # cutoff), independently on each of the two status axes. Was a
+            # full-table scan on every tick with zero indexes declared.
+            models.Index(fields=["status", "updated_at"]),
+            models.Index(fields=["calculation_status", "updated_at"]),
+        ]
 
     def __str__(self):
         return f"{self.file_name} ({self.status}) - {self.created_at.strftime('%Y-%m-%d %H:%M')}"
@@ -485,6 +495,11 @@ class EmissionRecord(models.Model):
         base_manager_name = "all_objects"
         indexes = [
             models.Index(fields=["organization", "is_deleted"]),
+            # Phase 7.5 (H4): EmissionRecordViewSet.get_queryset() filters
+            # by status within an already-org-scoped queryset (e.g.
+            # ?status=FAILED, submit/approve/reject transitions) -- every
+            # such query was a full per-org scan without this composite.
+            models.Index(fields=["organization", "status"]),
         ]
 
     def clean(self):
