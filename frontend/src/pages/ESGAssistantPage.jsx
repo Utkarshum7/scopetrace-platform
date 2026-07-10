@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { apiService } from '../services/api';
 import { PageHeader } from '../components/ui/PageHeader';
 import { ConfidenceBadge } from '../components/ui/ConfidenceBadge';
+import { AIAdvisoryBadge } from '../components/ui/AIAdvisoryBadge';
 import { ListSkeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
+import { Spinner } from '../components/ui/Spinner';
 
 /**
  * ESGAssistantPage — Phase 7e. A dedicated conversational page (not a
@@ -44,7 +46,7 @@ export const ESGAssistantPage = () => {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView?.({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, isAsking]);
 
   // Explicit, not effect-driven: selecting a conversation from the
   // sidebar fetches its real history. Deliberately NOT a useEffect keyed
@@ -110,9 +112,9 @@ export const ESGAssistantPage = () => {
   };
 
   return (
-    <div className="flex gap-6 h-[calc(100vh-4rem)] animate-fadeIn">
+    <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-4rem)] animate-fadeIn">
       {/* Conversation list */}
-      <aside className="w-64 shrink-0 flex flex-col gap-3">
+      <aside className="w-full lg:w-64 shrink-0 flex flex-col gap-3 max-h-64 lg:max-h-none">
         <PageHeader title="ESG Assistant" description="Advisory only — never changes your data" size="md" />
         <button
           type="button"
@@ -148,7 +150,7 @@ export const ESGAssistantPage = () => {
 
       {/* Conversation panel */}
       <section className="flex-1 flex flex-col rounded-lg border border-indigo-500/30 bg-indigo-950/20 overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4" role="log" aria-label="Conversation messages">
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4" role="log" aria-live="polite" aria-label="Conversation messages">
           {messages.length === 0 && (
             <EmptyState
               title="Start a conversation"
@@ -157,11 +159,7 @@ export const ESGAssistantPage = () => {
           )}
           {messages.map((m) => (
             <div key={m.id} className={`flex flex-col gap-1 max-w-2xl ${m.role === 'USER' ? 'self-end items-end' : 'self-start items-start'}`}>
-              {m.role === 'ASSISTANT' && (
-                <span className="px-1.5 py-0.5 rounded bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 text-[9px] tracking-wide font-bold uppercase">
-                  AI Advisory
-                </span>
-              )}
+              {m.role === 'ASSISTANT' && <AIAdvisoryBadge className="font-bold uppercase" />}
               <div
                 className={`rounded-lg px-3 py-2 text-[12px] leading-relaxed ${
                   m.role === 'USER'
@@ -204,6 +202,15 @@ export const ESGAssistantPage = () => {
               )}
             </div>
           ))}
+          {isAsking && (
+            <div className="flex flex-col gap-1 max-w-2xl self-start items-start" aria-label="Assistant is thinking">
+              <AIAdvisoryBadge className="font-bold uppercase" />
+              <div className="rounded-lg px-3 py-2 text-[12px] leading-relaxed bg-slate-900/60 border border-slate-800 text-slate-400 flex items-center gap-2">
+                <Spinner className="h-3 w-3 text-indigo-400" />
+                Thinking…
+              </div>
+            </div>
+          )}
           <div ref={bottomRef} />
         </div>
 

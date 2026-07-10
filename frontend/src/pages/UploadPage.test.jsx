@@ -89,4 +89,31 @@ describe('UploadPage dashboard-query invalidation', () => {
 
     await waitFor(() => expect(invalidateSpy).toHaveBeenCalled());
   });
+
+  it('shows a waiting placeholder in the gap before the first progress poll resolves', async () => {
+    const user = userEvent.setup();
+    renderUploadPage();
+    await waitFor(() => expect(apiService.getDataSources).toHaveBeenCalled());
+
+    await submitAFile(user);
+    await waitFor(() => expect(apiService.uploadFile).toHaveBeenCalled());
+
+    expect(await screen.findByText(/waiting for job status/i)).toBeInTheDocument();
+  });
+
+  it('surfaces a progress-poll failure instead of showing nothing', async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderUploadPage();
+    await waitFor(() => expect(apiService.getDataSources).toHaveBeenCalled());
+
+    await submitAFile(user);
+    await waitFor(() => expect(apiService.uploadFile).toHaveBeenCalled());
+
+    mockUseBatchProgress.mockReturnValue({
+      data: null, isTerminal: false, error: new Error('network down'),
+    });
+    rerender();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/couldn.t check the ingestion job/i);
+  });
 });

@@ -44,7 +44,7 @@ export const UploadPage = ({ setView }) => {
   // reads { data, isTerminal } from this hook, never touches fetch/interval
   // logic directly (see hooks/useBatchProgress.js).
   const [batchId, setBatchId] = useState(null);
-  const { data: progress, isTerminal } = useBatchProgress(batchId);
+  const { data: progress, isTerminal, error: progressError } = useBatchProgress(batchId);
   const queryClient = useQueryClient();
 
   // Phase 7.5 (H4-6): invalidate dashboard queries (TanStack Query, 60s
@@ -289,6 +289,26 @@ export const UploadPage = ({ setView }) => {
             <BatchProgressCard batchId={batchId} progress={progress} isTerminal={isTerminal} setView={setView} />
           )}
 
+          {/* Phase 8 (8d): the gap between "upload accepted" and the first
+              batch-progress poll resolving (up to ~1.5s -- see
+              hooks/useBatchProgress's POLL_INTERVAL_MS) previously showed
+              nothing at all. Also surfaces a genuine progress-poll failure,
+              which was silently swallowed before (the hook's `error` was
+              never read) -- the ingestion job itself may well still be
+              running server-side even if we can't currently check on it. */}
+          {batchId && !progress && !progressError && (
+            <div className="flex items-center gap-2 text-xs text-slate-400" role="status" aria-live="polite">
+              <Spinner className="h-3.5 w-3.5 text-brand-500" />
+              Waiting for job status…
+            </div>
+          )}
+          {batchId && !progress && progressError && (
+            <div role="alert" className="p-3 bg-amber-950/20 border border-amber-500/20 text-amber-300 text-xs rounded-lg">
+              Couldn&apos;t check the ingestion job&apos;s status. The upload was accepted and may still be
+              processing — check the Review Ledger shortly, or refresh this page to try checking again.
+            </div>
+          )}
+
           {/* Submit Trigger */}
           <div className="flex justify-end pt-2">
             <button
@@ -351,9 +371,10 @@ const BatchProgressCard = ({ batchId, progress, isTerminal, setView }) => {
         </div>
       </div>
 
-      {presentation.tone === 'error' && progress.error_message && (
-        <div className="text-xs text-rose-300 leading-relaxed border-t border-slate-800/60 pt-2.5">
-          {progress.error_message}
+      {presentation.tone === 'error' && (
+        <div className="text-xs text-rose-300 leading-relaxed border-t border-slate-800/60 pt-2.5 flex flex-col gap-1">
+          {progress.error_message && <span>{progress.error_message}</span>}
+          <span className="text-slate-500">Select a new file above and try again.</span>
         </div>
       )}
 

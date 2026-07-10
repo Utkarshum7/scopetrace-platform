@@ -89,6 +89,24 @@ describe('ESGAssistantPage', () => {
     expect(apiService.askEsgAssistant).toHaveBeenCalledWith('conv-1', 'What was our total CO2e?');
   });
 
+  it('shows a "Thinking" indicator while waiting for the assistant, and clears it once the answer arrives', async () => {
+    apiService.createEsgConversation.mockResolvedValue(conversation);
+    apiService.getEsgConversationMessages.mockResolvedValue([]);
+    let resolveAsk;
+    apiService.askEsgAssistant.mockReturnValue(new Promise((res) => { resolveAsk = res; }));
+    const user = userEvent.setup();
+    render(<ESGAssistantPage />);
+
+    const input = screen.getByPlaceholderText(/ask about your emissions/i);
+    await user.type(input, 'What was our total CO2e?');
+    await user.click(screen.getByRole('button', { name: /^ask$/i }));
+
+    expect(await screen.findByLabelText(/assistant is thinking/i)).toBeInTheDocument();
+    resolveAsk({ assistant_message: assistantMessage });
+    await screen.findByText(assistantMessage.content);
+    expect(screen.queryByLabelText(/assistant is thinking/i)).not.toBeInTheDocument();
+  });
+
   it('shows an error message instead of a fabricated answer when the assistant is unavailable', async () => {
     apiService.createEsgConversation.mockResolvedValue(conversation);
     apiService.getEsgConversationMessages.mockResolvedValue([]);
