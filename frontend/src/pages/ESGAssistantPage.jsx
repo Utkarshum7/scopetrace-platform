@@ -114,7 +114,7 @@ export const ESGAssistantPage = () => {
   return (
     <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-4rem)] animate-fadeIn">
       {/* Conversation list */}
-      <aside className="w-full lg:w-64 shrink-0 flex flex-col gap-3 max-h-64 lg:max-h-none">
+      <aside aria-label="Conversation list" className="w-full lg:w-64 shrink-0 flex flex-col gap-3 max-h-64 lg:max-h-none">
         <PageHeader title="ESG Assistant" description="Advisory only — never changes your data" size="md" />
         <button
           type="button"
@@ -174,7 +174,7 @@ export const ESGAssistantPage = () => {
                 <div className="flex flex-col gap-1.5 w-full">
                   {m.confidence && <ConfidenceBadge confidence={m.confidence} className="self-start" />}
                   {m.unsupported_claim && (
-                    <span className="self-start px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-950/30 text-amber-300 text-[9px] font-bold uppercase tracking-wide">
+                    <span className="self-start px-1.5 py-0.5 rounded border border-warning-500/30 bg-warning-950/30 text-warning-300 text-[9px] font-bold uppercase tracking-wide">
                       Not fully supported by retrieved context
                     </span>
                   )}
@@ -214,7 +214,7 @@ export const ESGAssistantPage = () => {
           <div ref={bottomRef} />
         </div>
 
-        {error && <p role="alert" className="px-4 py-1 text-[11px] text-rose-400">{error}</p>}
+        {error && <p role="alert" className="px-4 py-1 text-[11px] text-danger-400">{error}</p>}
 
         <form onSubmit={handleAsk} className="flex items-center gap-2 p-3 border-t border-indigo-500/10">
           <label htmlFor="esg-assistant-question" className="sr-only">

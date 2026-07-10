@@ -110,7 +110,7 @@ function App() {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex font-sans antialiased selection:bg-brand-500/30 selection:text-brand-300">
 
       {/* Sidebar Navigation */}
-      <aside className="w-sidebar bg-slate-900 border-r border-slate-800/80 flex flex-col justify-between p-6 select-none shrink-0">
+      <aside aria-label="Sidebar" className="w-sidebar bg-slate-900 border-r border-slate-800/80 flex flex-col justify-between p-6 select-none shrink-0">
 
         {/* Brand Banner */}
         <div className="flex flex-col gap-8">
@@ -195,7 +195,7 @@ function App() {
               <button
                 role="menuitem"
                 onClick={async () => { setMenuOpen(false); await logout(); }}
-                className="text-left px-3 py-2 rounded-md text-xs font-semibold text-rose-300 hover:bg-rose-950/30 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                className="text-left px-3 py-2 rounded-lg text-xs font-semibold text-danger-300 hover:bg-danger-950/30 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger-500"
               >
                 Sign out
               </button>

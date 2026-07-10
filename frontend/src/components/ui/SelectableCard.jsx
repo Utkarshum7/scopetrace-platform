@@ -31,7 +31,11 @@ export const SelectableCard = ({ selected, onSelect, eyebrow, title, description
         <span className={`w-2.5 h-2.5 rounded-full ${selected ? 'bg-brand-500 shadow-[0_0_8px_#10b981]' : 'bg-slate-600'}`} />
       </div>
       <div className="flex flex-col gap-1">
-        <h3 className="text-sm font-bold text-white">{title}</h3>
+        {/* Phase 8 (8e): not a heading -- this is a radio option's own
+            label text, not a document section, and marking it as one
+            produced an out-of-order h1 -> h3 -> h2 outline on UploadPage
+            (the 3 cards render before the page's own h2). */}
+        <span className="text-sm font-bold text-white">{title}</span>
         <p className="text-xs text-slate-400 leading-relaxed">{description}</p>
       </div>
     </div>

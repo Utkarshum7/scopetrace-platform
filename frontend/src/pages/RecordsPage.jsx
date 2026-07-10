@@ -196,8 +196,8 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                   else if (isRejected) actionLabel = 'Resubmit';
 
                   let rowBg = 'hover:bg-slate-800/20';
-                  if (isSuspicious) rowBg = 'bg-amber-950/10 hover:bg-amber-950/20';
-                  if (isFailed) rowBg = 'bg-rose-950/10 hover:bg-rose-950/20';
+                  if (isSuspicious) rowBg = 'bg-warning-950/10 hover:bg-warning-950/20';
+                  if (isFailed) rowBg = 'bg-danger-950/10 hover:bg-danger-950/20';
 
                   const ariaLabelSuffix = [
                     showFlagged ? 'flagged as suspicious' : null,
@@ -238,14 +238,14 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                       </td>
                       <td className="py-3.5 px-2 text-right font-mono font-bold">
                         {r.co2e_tonnes != null ? (
-                          <span className="text-emerald-300">
+                          <span className="text-success-300">
                             {parseFloat(r.co2e_tonnes).toLocaleString(undefined, {
                               minimumFractionDigits: 3,
                               maximumFractionDigits: 3,
                             })}
                           </span>
                         ) : (
-                          <span className="px-1.5 py-0.5 rounded bg-amber-950/30 border border-amber-500/20 text-amber-400 text-[9px] uppercase tracking-wide">
+                          <span className="px-1.5 py-0.5 rounded bg-warning-950/30 border border-warning-500/20 text-warning-400 text-[9px] uppercase tracking-wide">
                             Unresolved
                           </span>
                         )}
@@ -254,7 +254,7 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                         <div className="flex flex-wrap items-center gap-1.5">
                           <StatusBadge status={r.status} />
                           {showFlagged && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-950/30 border border-amber-500/30 text-amber-400 text-[9px] font-bold uppercase tracking-wide">
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-warning-950/30 border border-warning-500/30 text-warning-400 text-[9px] font-bold uppercase tracking-wide">
                               Flagged
                             </span>
                           )}
@@ -274,9 +274,9 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                           }}
                           className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 ${
                             isApproved
-                              ? 'bg-emerald-950/20 border border-emerald-500/20 text-emerald-500/50 cursor-not-allowed'
+                              ? 'bg-success-950/20 border border-success-500/20 text-success-500/50 cursor-not-allowed'
                               : isFailed
-                              ? 'bg-rose-950/20 border border-rose-500/20 text-rose-500/50 cursor-not-allowed'
+                              ? 'bg-danger-950/20 border border-danger-500/20 text-danger-500/50 cursor-not-allowed'
                               : isSubmitted
                               ? 'bg-violet-600 hover:bg-violet-500 text-white shadow-md shadow-violet-600/10'
                               : 'bg-brand-600 hover:bg-brand-500 text-white shadow-md shadow-brand-600/10'
@@ -343,9 +343,9 @@ export const RecordsPage = ({ initialFilters = {} }) => {
             {/* Drawer Header */}
             <div className="flex justify-between items-start pb-2 border-b border-slate-800/60">
               <div className="flex flex-col gap-0.5">
-                <h3 className="text-sm font-bold text-white font-sans">
+                <h2 className="text-sm font-bold text-white font-sans">
                   Record Audit Metadata
-                </h3>
+                </h2>
                 <span className="text-[10px] text-slate-500 font-mono">
                   UUID: {selectedRecord.id.slice(0, 18)}...
                 </span>
@@ -362,11 +362,11 @@ export const RecordsPage = ({ initialFilters = {} }) => {
 
             {/* Validation & Error blocks */}
             {selectedRecord.is_suspicious && (
-              <div className="p-3 bg-amber-950/30 border border-amber-500/30 text-amber-300 text-xs rounded-lg flex flex-col gap-1 animate-pulse">
-                <h4 className="font-bold flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 bg-amber-400 rounded-full" />
+              <div className="p-3 bg-warning-950/30 border border-warning-500/30 text-warning-300 text-xs rounded-lg flex flex-col gap-1 animate-pulse">
+                <h3 className="font-bold flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-warning-400 rounded-full" />
                   Validation Warning Flags:
-                </h4>
+                </h3>
                 <ul className="list-disc list-inside space-y-0.5 opacity-90 pl-1 font-mono text-[10px]">
                   {Object.entries(selectedRecord.validation_errors || {}).map(([key, val]) => (
                     <li key={key}>
@@ -379,11 +379,11 @@ export const RecordsPage = ({ initialFilters = {} }) => {
             )}
 
             {selectedRecord.status === 'FAILED' && (
-              <div className="p-3 bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs rounded-lg flex flex-col gap-1">
-                <h4 className="font-bold flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 bg-rose-500 rounded-full" />
+              <div className="p-3 bg-danger-950/30 border border-danger-500/30 text-danger-300 text-xs rounded-lg flex flex-col gap-1">
+                <h3 className="font-bold flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-danger-500 rounded-full" />
                   Ingestion Validation Failures:
-                </h4>
+                </h3>
                 <ul className="list-disc list-inside space-y-0.5 opacity-90 pl-1 font-mono text-[10px]">
                   {Object.entries(selectedRecord.validation_errors || {}).map(([key, val]) => (
                     <li key={key}>
@@ -414,14 +414,14 @@ export const RecordsPage = ({ initialFilters = {} }) => {
 
             {/* Approval Metadata */}
             {selectedRecord.status === 'APPROVED' && (
-              <div className="p-3 bg-emerald-950/30 border border-emerald-500/30 text-emerald-300 text-xs rounded-lg flex flex-col gap-1.5">
-                <h4 className="font-bold flex items-center gap-1.5 text-white">
-                  <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <div className="p-3 bg-success-950/30 border border-success-500/30 text-success-300 text-xs rounded-lg flex flex-col gap-1.5">
+                <h3 className="font-bold flex items-center gap-1.5 text-white">
+                  <svg className="w-3.5 h-3.5 text-success-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                   </svg>
                   Secured Audit Lock Trail:
-                </h4>
-                <div className="flex flex-col gap-1 text-[11px] font-mono leading-relaxed pl-1 text-emerald-200">
+                </h3>
+                <div className="flex flex-col gap-1 text-[11px] font-mono leading-relaxed pl-1 text-success-200">
                   <div>Approved By ID: {selectedRecord.approved_by || 'Anonymous'}</div>
                   <div>Timestamp: {new Date(selectedRecord.approved_at).toLocaleString()}</div>
                 </div>
@@ -430,10 +430,10 @@ export const RecordsPage = ({ initialFilters = {} }) => {
 
             {/* Carbon Calculation Breakdown (explainability) */}
             {selectedRecord.calculation_status === 'CALCULATED' && selectedRecord.calculation_trace?.steps ? (
-              <div className="p-3 bg-emerald-950/20 border border-emerald-500/20 rounded-lg flex flex-col gap-2">
-                <h4 className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
+              <div className="p-3 bg-success-950/20 border border-success-500/20 rounded-lg flex flex-col gap-2">
+                <h3 className="text-xs font-bold text-success-300 uppercase tracking-wider">
                   Carbon Calculation
-                </h4>
+                </h3>
                 <div className="flex flex-col gap-1.5">
                   {selectedRecord.calculation_trace.steps.map((step, i) => (
                     <div key={i} className="flex justify-between items-baseline gap-3 text-[11px]">
@@ -446,13 +446,13 @@ export const RecordsPage = ({ initialFilters = {} }) => {
                   ))}
                 </div>
                 {selectedRecord.factor_provenance && (
-                  <div className="mt-1 pt-2 border-t border-emerald-500/10 text-[10px] text-slate-500 font-mono leading-relaxed">
+                  <div className="mt-1 pt-2 border-t border-success-500/10 text-[10px] text-slate-500 font-mono leading-relaxed">
                     Factor: {selectedRecord.factor_provenance.publisher} {selectedRecord.factor_provenance.version} · {selectedRecord.factor_provenance.factor_value} kgCO₂e/{selectedRecord.factor_provenance.factor_unit}
                   </div>
                 )}
               </div>
             ) : (
-              <div className="p-3 bg-amber-950/20 border border-amber-500/20 rounded-lg text-amber-300 text-xs leading-relaxed">
+              <div className="p-3 bg-warning-950/20 border border-warning-500/20 rounded-lg text-warning-300 text-xs leading-relaxed">
                 <span className="font-bold">CO₂e not computed.</span> No emission factor matched this record
                 {selectedRecord.calculation_status ? ` (${selectedRecord.calculation_status})` : ''}. An Org Admin can add
                 an activity mapping / factor and recalculate.
@@ -480,9 +480,9 @@ export const RecordsPage = ({ initialFilters = {} }) => {
 
             {/* Raw JSON Payload Viewer */}
             <div className="flex flex-col gap-1.5">
-              <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
                 Raw Source File Payload
-              </h4>
+              </h3>
               <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-3 overflow-auto max-h-[250px] font-mono text-[10px] text-slate-400 leading-normal">
                 <pre>{JSON.stringify(selectedRecord.raw_data_payload, null, 2)}</pre>
               </div>

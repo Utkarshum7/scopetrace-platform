@@ -22,7 +22,11 @@ export const WidgetFrame = ({
     {(title || actions) && (
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-col gap-0.5">
-          {title && <h3 className="text-sm font-bold text-white tracking-tight font-sans">{title}</h3>}
+          {/* Phase 8 (8e): h2, not h3 -- every widget on the dashboard sits
+              directly under the page's own h1 (PageHeader) with no h2 in
+              between, so h3 here was a heading-level skip repeated across
+              every widget on the page. h2 is the correct first sub-level. */}
+          {title && <h2 className="text-sm font-bold text-white tracking-tight font-sans">{title}</h2>}
           {subtitle && <span className="text-[10px] text-slate-500 uppercase tracking-wider">{subtitle}</span>}
         </div>
         {actions}

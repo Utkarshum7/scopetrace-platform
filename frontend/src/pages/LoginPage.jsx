@@ -48,7 +48,7 @@ export const LoginPage = () => {
         {/* Card */}
         <form
           onSubmit={handleSubmit}
-          className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col gap-5"
+          className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl flex flex-col gap-5"
         >
           <h1 className="text-sm font-bold text-white tracking-tight">Sign in to your workspace</h1>
 
@@ -81,7 +81,7 @@ export const LoginPage = () => {
           </div>
 
           {error && (
-            <div role="alert" className="p-3 bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs rounded-lg animate-shake">
+            <div role="alert" className="p-3 bg-danger-950/30 border border-danger-500/30 text-danger-300 text-xs rounded-lg animate-shake">
               {error}
             </div>
           )}
