@@ -127,7 +127,7 @@ export const ReportsWidget = ({ filters = {} }) => {
         </p>
         <button
           onClick={() => apiService.exportRecords({})}
-          className="px-4 py-2.5 border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-200 hover:text-white text-xs font-bold uppercase tracking-wider rounded-lg transition-all focus:outline-none flex items-center justify-center gap-2"
+          className="px-4 py-2.5 border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-200 hover:text-white text-xs font-bold uppercase tracking-wider rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 flex items-center justify-center gap-2"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -147,7 +147,8 @@ export const ReportsWidget = ({ filters = {} }) => {
               <button
                 onClick={handleRegenerate}
                 disabled={isRegenerating}
-                className="text-[10px] text-brand-400 hover:text-brand-300 font-bold uppercase tracking-wider transition-all focus:outline-none disabled:opacity-40"
+                aria-label={isRegenerating ? 'Queuing report narration regeneration' : 'Regenerate AI narrative'}
+                className="text-[10px] text-brand-400 hover:text-brand-300 font-bold uppercase tracking-wider transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded disabled:opacity-40"
               >
                 {isRegenerating ? 'Queuing…' : 'Regenerate'}
               </button>

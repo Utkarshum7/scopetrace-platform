@@ -7,7 +7,7 @@ import { EmptyState } from '../../ui/EmptyState';
 const RecordRow = ({ r, setView }) => (
   <button
     onClick={() => setView?.({ name: 'records', params: {} })}
-    className="flex items-center justify-between py-2.5 gap-2 w-full text-left hover:bg-slate-800/20 rounded px-1 transition-all focus:outline-none"
+    className="flex items-center justify-between py-2.5 gap-2 w-full text-left hover:bg-slate-800/20 rounded px-1 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
   >
     <div className="flex flex-col min-w-0">
       <span className="text-xs font-mono text-slate-300">#{r.row_index} · {r.scope_category}</span>
@@ -30,7 +30,7 @@ export const PendingApprovalsWidget = ({ filters, setView }) => {
         <span className="text-4xl font-black text-amber-400 font-sans">{data?.pending_approval ?? 0}</span>
         <span className="text-xs text-slate-500">records need review before they can be audit-locked.</span>
         <button onClick={() => setView?.({ name: 'records', params: { status: 'SUSPICIOUS' } })}
-          className="mt-1 text-[11px] font-semibold text-brand-400 hover:text-brand-300 focus:outline-none">Open audit queue →</button>
+          className="mt-1 text-[11px] font-semibold text-brand-400 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded">Open audit queue →</button>
       </div>
     </WidgetFrame>
   );
@@ -70,7 +70,7 @@ export const LockedRecordsWidget = ({ setView }) => {
         <span className="text-4xl font-black text-emerald-400 font-sans">{data?.count ?? 0}</span>
         <span className="text-xs text-slate-500">approved records sealed on the immutable ledger.</span>
         <button onClick={() => setView?.({ name: 'records', params: { status: 'APPROVED' } })}
-          className="mt-1 text-[11px] font-semibold text-brand-400 hover:text-brand-300 focus:outline-none">View locked records →</button>
+          className="mt-1 text-[11px] font-semibold text-brand-400 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded">View locked records →</button>
       </div>
     </WidgetFrame>
   );

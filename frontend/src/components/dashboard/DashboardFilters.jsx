@@ -28,12 +28,17 @@ export function periodToFilters(periodKey, scope) {
 
 export const DashboardFilters = ({ period, scope, onChange }) => (
   <div className="flex items-center gap-3 flex-wrap">
-    <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
+    <div
+      role="group"
+      aria-label="Time period"
+      className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1"
+    >
       {PERIODS.map((p) => (
         <button
           key={p.key}
           onClick={() => onChange({ period: p.key, scope })}
-          className={`px-3 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all focus:outline-none ${
+          aria-pressed={period === p.key}
+          className={`px-3 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
             period === p.key ? 'bg-brand-500/15 text-brand-300' : 'text-slate-500 hover:text-slate-300'
           }`}
         >
@@ -44,6 +49,7 @@ export const DashboardFilters = ({ period, scope, onChange }) => (
     <select
       value={scope}
       onChange={(e) => onChange({ period, scope: e.target.value })}
+      aria-label="Filter by scope"
       className="bg-slate-900 border border-slate-800 rounded-lg py-1.5 px-3 text-xs text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer"
     >
       {SCOPES.map((s) => (

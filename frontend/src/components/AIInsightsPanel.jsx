@@ -66,7 +66,9 @@ export const AIInsightsPanel = ({ recordId }) => {
       <button
         type="button"
         onClick={() => setIsExpanded((v) => !v)}
-        className="w-full flex items-center justify-between p-3 text-left focus:outline-none"
+        aria-expanded={isExpanded}
+        aria-controls="ai-insights-panel-content"
+        className="w-full flex items-center justify-between p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded-lg"
       >
         <span className="flex items-center gap-1.5 text-xs font-bold text-indigo-300 uppercase tracking-wider">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -81,7 +83,7 @@ export const AIInsightsPanel = ({ recordId }) => {
       </button>
 
       {isExpanded && (
-        <div className="px-3 pb-3 flex flex-col gap-3">
+        <div id="ai-insights-panel-content" className="px-3 pb-3 flex flex-col gap-3">
           {anomalyAnnotations.map((a, idx) => (
             <div
               key={a.id}

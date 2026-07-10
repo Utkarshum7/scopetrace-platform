@@ -10,7 +10,7 @@ export const ErrorState = ({ message = 'Could not load this widget.', onRetry })
     {onRetry && (
       <button
         onClick={onRetry}
-        className="mt-1 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800 text-[11px] font-semibold uppercase tracking-wider transition-all focus:outline-none"
+        className="mt-1 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800 text-[11px] font-semibold uppercase tracking-wider transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
       >
         Retry
       </button>

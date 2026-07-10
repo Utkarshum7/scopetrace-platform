@@ -122,11 +122,11 @@ export const ESGAssistantPage = () => {
         <button
           type="button"
           onClick={startNewConversation}
-          className="px-3 py-2 rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-400 text-xs font-bold uppercase tracking-wider hover:bg-brand-500/20 transition-all focus:outline-none"
+          className="px-3 py-2 rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-400 text-xs font-bold uppercase tracking-wider hover:bg-brand-500/20 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
         >
           + New conversation
         </button>
-        <div className="flex flex-col gap-1 overflow-y-auto">
+        <div className="flex flex-col gap-1 overflow-y-auto" role="list" aria-label="Conversations">
           {!isLoadingConversations && conversations.length === 0 && (
             <p className="text-[11px] text-slate-500 px-2">No conversations yet.</p>
           )}
@@ -134,8 +134,11 @@ export const ESGAssistantPage = () => {
             <button
               key={c.id}
               type="button"
+              role="listitem"
               onClick={() => selectConversation(c.id)}
-              className={`text-left px-3 py-2 rounded-lg text-xs font-semibold truncate transition-all focus:outline-none ${
+              aria-current={c.id === activeConversationId ? 'true' : undefined}
+              aria-label={`Conversation from ${new Date(c.created_at).toLocaleString()}`}
+              className={`text-left px-3 py-2 rounded-lg text-xs font-semibold truncate transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
                 c.id === activeConversationId
                   ? 'bg-slate-800/60 text-slate-100 border border-slate-700'
                   : 'text-slate-400 hover:bg-slate-800/40 border border-transparent'
@@ -149,7 +152,7 @@ export const ESGAssistantPage = () => {
 
       {/* Conversation panel */}
       <section className="flex-1 flex flex-col rounded-lg border border-indigo-500/30 bg-indigo-950/20 overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4" role="log" aria-label="Conversation messages">
           {messages.length === 0 && (
             <p className="text-xs text-slate-500 italic m-auto">
               Ask about uploaded datasets, emissions, calculations, scopes, factors, or platform usage.
@@ -215,10 +218,14 @@ export const ESGAssistantPage = () => {
           <div ref={bottomRef} />
         </div>
 
-        {error && <p className="px-4 py-1 text-[11px] text-rose-400">{error}</p>}
+        {error && <p role="alert" className="px-4 py-1 text-[11px] text-rose-400">{error}</p>}
 
         <form onSubmit={handleAsk} className="flex items-center gap-2 p-3 border-t border-indigo-500/10">
+          <label htmlFor="esg-assistant-question" className="sr-only">
+            Ask the ESG assistant a question
+          </label>
           <input
+            id="esg-assistant-question"
             type="text"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
@@ -229,7 +236,7 @@ export const ESGAssistantPage = () => {
           <button
             type="submit"
             disabled={isAsking || !question.trim()}
-            className="px-4 py-2 rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-400 text-xs font-bold uppercase tracking-wider hover:bg-brand-500/20 transition-all focus:outline-none disabled:opacity-40"
+            className="px-4 py-2 rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-400 text-xs font-bold uppercase tracking-wider hover:bg-brand-500/20 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:opacity-40"
           >
             {isAsking ? 'Asking…' : 'Ask'}
           </button>
