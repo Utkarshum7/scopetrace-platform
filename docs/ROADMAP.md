@@ -39,16 +39,17 @@ depth:
 
 ## 2. Future Roadmap
 
-Phases 0–9 (rebrand/infra → correctness fixes → auth/RBAC → carbon engine →
+Phases 0–10 (rebrand/infra → correctness fixes → auth/RBAC → carbon engine →
 metrics/analytics → production engineering: async processing, retries/DLQ,
 scheduling, notifications, monitoring, CI/CD, Docker, documentation →
 enterprise governance → AI: five real capabilities plus observability/
 cost governance/ops hardening → UX/accessibility → production engineering
 & release readiness: deployment audit, request-correlated observability,
-security/dependency hardening, release checklist) are complete — see
-[`VERSION.md`](../VERSION.md) (`0.9.0-rc1`) and
-[`RELEASE_NOTES.md`](RELEASE_NOTES.md) for the full breakdown. What's
-next, as currently planned:
+security/dependency hardening, release checklist → final production
+sign-off & release certification) are complete — see
+[`VERSION.md`](../VERSION.md) (`1.0.0`), [`RELEASE_NOTES.md`](RELEASE_NOTES.md),
+and [`RELEASE_CERTIFICATION.md`](RELEASE_CERTIFICATION.md) for the full
+breakdown. What's next, as currently planned:
 
 - **Phase 6 — Enterprise Governance** *(complete)*: full audit timeline UI,
   a real cryptographic immutable audit hash-chain (see §1, done in 6a),
@@ -160,7 +161,7 @@ next, as currently planned:
   [`FRONTEND_DESIGN_SYSTEM.md`](FRONTEND_DESIGN_SYSTEM.md). Saved/custom
   dashboards and an in-app notification center (distinct from Phase 5g's
   email notifications) were scoped here originally but not built — still
-  open, re-scoped under Phase 10+ below.
+  open, re-scoped under Phase 11+ below.
 - **Phase 9 — Production Engineering & Release Readiness** *(complete,
   9a–9d)*: retitled and re-scoped from this section's original
   "Observability"-only prediction once the phase actually started — see
@@ -175,9 +176,22 @@ next, as currently planned:
   (Phase 5h), the three health endpoints, and Phase 7g's AI observability
   endpoints remain today's observability surface — a real time-series
   backend (Prometheus/Grafana/Loki/OpenTelemetry/Sentry) is still future
-  work, re-scoped under Phase 10+ below, not part of what "Phase 9" ended
+  work, re-scoped under Phase 11+ below, not part of what "Phase 9" ended
   up meaning in practice.
-- **Phase 10+ — Launch & beyond**: a real landing page, a demo
+- **Phase 10 — Final Production Sign-Off & Release Certification**
+  *(complete)*: a principal-engineer-level release-candidate review,
+  distinct from Phase 9d's system-wide checklist — independently
+  re-verified architecture, code quality, production readiness, test
+  quality, performance, and security **from source**, not recalled from
+  prior phases. Zero release blockers found across 5 parallel independent
+  research passes plus direct re-verification of every safety-critical
+  claim. Two documentation defects found and fixed; one new production-
+  robustness finding (High, not blocking — the AI gateway's synchronous
+  path has no explicit provider-call timeout). Full scored assessment and
+  release decision (approved): [`RELEASE_CERTIFICATION.md`](RELEASE_CERTIFICATION.md).
+  This is the milestone that actually earned the `1.0.0` tag — see
+  [`VERSION.md`](../VERSION.md).
+- **Phase 11+ — Launch & beyond**: a real landing page, a demo
   environment, published architecture diagrams (this document's Mermaid
   diagrams are a starting point), API documentation (OpenAPI/Swagger —
   DRF's schema generation isn't wired up yet), real screenshots (replacing
@@ -185,8 +199,10 @@ next, as currently planned:
   OpenTelemetry/Sentry observability stack, saved/custom dashboards, an
   in-app notification center, and PDF compliance export (deferred since
   Phase 6e, ADR 0002). See [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md)
-  §16's "Future enhancement" bucket for the classified version of this
-  list.
+  §16's "Future enhancement" bucket and
+  [`RELEASE_CERTIFICATION.md`](RELEASE_CERTIFICATION.md) §4 for the
+  classified version of this list (renumbered from "Phase 10+" now that
+  Phase 10 itself is a completed, named milestone above, not a bucket).
 
 Each phase, as with every one so far, will get its own architecture review,
 explicit design decisions where trade-offs exist, small focused commits,

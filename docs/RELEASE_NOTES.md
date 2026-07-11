@@ -1,5 +1,30 @@
 # Release Notes (`RELEASE_NOTES.md`)
 
+## `1.0.0` — 2026-07-11
+
+**Phase 10 — Final Production Sign-Off & Release Certification.** A
+principal-engineer-level release-candidate review that independently
+re-verified architecture, code quality, production readiness, test
+quality, performance, and security from source — not recalled from prior
+phases' own conclusions. Five parallel independent research passes plus
+direct re-verification of every safety-critical claim (fail-closed
+config, JWT settings, Celery serialization, tenant isolation, upload
+path-traversal safety, AI advisory-only invariant) found **zero release
+blockers**. Two small documentation defects found and fixed (a
+self-contradictory README claim about the audit hash-chain; a stale
+Django-version reference in `ROADMAP.md`). One new production-robustness
+finding (High, not blocking): the AI gateway's synchronous ESG Assistant
+path has no explicit provider-call timeout, held under a per-org DB lock
+— recommended as the top fast-follow, not a release gate, since AI is
+disabled by default. Full scored assessment, evidence, and release
+decision: [`RELEASE_CERTIFICATION.md`](RELEASE_CERTIFICATION.md).
+
+**Release decision: approved.** See `RELEASE_CERTIFICATION.md` §10 for
+the complete reasoning and the two documented first-deploy verification
+steps this certification is conditioned on.
+
+---
+
 ## `0.9.0-rc1` — 2026-07-11
 
 First release candidate. See [`VERSION.md`](../VERSION.md) for the
@@ -114,7 +139,7 @@ classified risk register. Headline items: a Content-Security-Policy for
 the frontend (needs browser-verified rollout), the `esbuild`/`vite`
 dev-server CVE (needs a 3-major-version Vite migration), IP/network
 restriction on `/admin/` (infrastructure-layer), Prometheus/Grafana/
-Loki/OpenTelemetry/Sentry-grade observability (Phase 10+ scope — today's
+Loki/OpenTelemetry/Sentry-grade observability (Phase 11+ scope — today's
 surface is health endpoints + correlated structured logs + AI ops
 dashboards).
 

@@ -323,6 +323,7 @@ Below are placeholders representing key pages of the ScopeTrace platform. Replac
 | Doc | Covers |
 | :--- | :--- |
 | [`ARCHITECTURE_OVERVIEW.md`](docs/ARCHITECTURE_OVERVIEW.md) | System component diagram, async pipeline sequence diagram, queue topology, links to every subsystem doc |
+| [`RELEASE_CERTIFICATION.md`](docs/RELEASE_CERTIFICATION.md) | Phase 10 principal-engineer sign-off — independently re-verified architecture/code quality/testing/performance/security, 8 scored dimensions, release decision |
 | [`RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) · [`RELEASE_NOTES.md`](docs/RELEASE_NOTES.md) · [`SMOKE_TEST_CHECKLIST.md`](docs/SMOKE_TEST_CHECKLIST.md) · [`VERSION.md`](VERSION.md) | System-wide release-candidate audit with a classified risk register, what shipped per phase, manual post-deploy smoke test, current version |
 | [`DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) | Local dev, production deployment, full environment variable reference, Docker/Compose usage, per-commit release checklist |
 | [`OPERATIONS_RUNBOOK.md`](docs/OPERATIONS_RUNBOOK.md) | Celery operations, queue/DLQ operational guide, Flower, health checks, common tasks, scaling, step-by-step runbooks |
@@ -336,9 +337,11 @@ Below are placeholders representing key pages of the ScopeTrace platform. Replac
 
 ## 🗺️ Roadmap
 
-Phases 0–9 (rebrand & infra → correctness → auth/RBAC → carbon engine →
+Phases 0–10 (rebrand & infra → correctness → auth/RBAC → carbon engine →
 metrics/analytics → production engineering → enterprise governance → AI →
-UX/accessibility → production engineering & release readiness) are
-complete — current version `0.9.0-rc1`, see [`VERSION.md`](VERSION.md)
-and [`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md). Known limitations
-and the Phase 10+ launch plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
+UX/accessibility → production engineering & release readiness → final
+release certification) are complete — current version `1.0.0`, approved
+for release with zero blockers found, see [`VERSION.md`](VERSION.md),
+[`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md), and
+[`docs/RELEASE_CERTIFICATION.md`](docs/RELEASE_CERTIFICATION.md). Known
+limitations and the Phase 11+ launch plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
