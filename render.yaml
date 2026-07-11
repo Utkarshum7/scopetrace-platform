@@ -8,33 +8,33 @@
 # CONFIDENCE NOTE (read before deploying) — per explicit instruction not to
 # guess unsupported Render configuration:
 #
-#   HIGH CONFIDENCE — already proven working in this exact file, or
-#   long-established, stable Render IaC features:
-#     - `type: web` / `type: worker`, buildCommand/releaseCommand/startCommand
-#     - `databases:` + `fromDatabase` (Postgres) — unchanged from before
+#   HIGH CONFIDENCE — verified against Render's current Blueprint spec
+#   (https://render.com/docs/blueprint-spec):
+#     - `type: web` / `type: worker`, buildCommand/preDeployCommand/startCommand
+#     - `preDeployCommand` runs AFTER buildCommand and BEFORE startCommand
+#       (the migration/seed phase) and is supported on all instance types
+#     - `databases:` + `fromDatabase` (Postgres)
 #     - `envVarGroups:` for sharing secrets across services without duplication
-#     - `sync: false` for dashboard-only secrets never committed to git
+#     - `fromService: {..., property: connectionString}` (used for REDIS_URL)
+#     - `generateValue: true` and `sync: false` env vars
 #
-#   NEEDS VERIFICATION AGAINST RENDER'S CURRENT DOCS BEFORE DEPLOYING —
-#   marked inline with `# VERIFY:` — I cannot confirm these live (no deploy
-#   access), and Render has changed service-type naming before:
-#     1. `type: redis` for the managed Redis instance — Render's own product
-#        naming for this has shifted over time (Redis / Key Value). If
-#        `type: redis` is rejected by Render's blueprint validator, check
-#        Render's current docs for the replacement keyword (e.g. `keyvalue`)
-#        and swap it in the one place it's used below.
-#     2. `fromService: {..., envVarKey: SECRET_KEY}` for sharing the
-#        auto-generated SECRET_KEY across api/worker/beat without each
-#        generating its own (which would break JWT/session signing
-#        consistency across processes) — a documented cross-service
-#        reference pattern, but not verified live in this session.
+#   D2 COMPATIBILITY FIXES (the reason this note changed):
+#     1. `releaseCommand` was NOT a Render Blueprint field (it's a
+#        Heroku-ism) and was rejected by Render's parser. Replaced with
+#        `preDeployCommand`, the correct lifecycle field, same command.
+#     2. The previous `fromService: {..., envVarKey: SECRET_KEY}` cross-
+#        service SECRET_KEY copy is removed. `envVarKey` could not be
+#        confirmed in Render's current fromService spec, and it isn't
+#        needed: only the api process signs/verifies JWTs, sessions, and
+#        CSRF; worker/beat run tasks with plain kwargs + S3-presigned URLs
+#        and never verify api-issued tokens, so each service generating its
+#        own SECRET_KEY (`generateValue: true`) is both compatible and
+#        correct.
 #
-# If either turns out unsupported, the safe fallback is: provision Redis
-# manually in the Render dashboard and paste its connection string into each
-# service's REDIS_URL as a `sync: false` secret instead of an automatic
-# reference; likewise generate SECRET_KEY once and paste it into all three
-# services' dashboards identically. Functionally equivalent, just not
-# expressed as IaC.
+#   REMAINING KNOWN ITEM (valid, not a blocker):
+#     - `type: redis` is a deprecated-but-still-valid alias for the current
+#       `type: keyvalue`. Left as-is (it parses); switching to `keyvalue`
+#       is a safe future cleanup, not required for deployment.
 # ─────────────────────────────────────────────────────────────────────────
 
 # Shared, non-service-specific secrets — referenced by api/worker/beat below
@@ -105,7 +105,7 @@ services:
     # migrations run — worker/beat below never do (mirrors docker-compose.yml's
     # RUN_MIGRATIONS=false pattern: exactly one migration owner, so scaling
     # worker replicas never races migrations against each other).
-    releaseCommand: python manage.py migrate && python manage.py bootstrap_data && python manage.py seed_carbon
+    preDeployCommand: python manage.py migrate && python manage.py bootstrap_data && python manage.py seed_carbon
     # Phase 7.5 (H3-3): --worker-class gthread + --threads 4 raises
     # concurrent-request capacity from 2 to 8 -- see backend/Dockerfile's
     # matching CMD for the full rationale (the default sync worker class
@@ -164,7 +164,7 @@ services:
 
   # ─────────────────────────────────────────────────────────
   # Celery worker — Background Worker (Phase 5a–5g)
-  # Same codebase as `api`, different process. No releaseCommand (api alone
+  # Same codebase as `api`, different process. No preDeployCommand (api alone
   # owns migrations/seeding) and no healthCheckPath (worker services aren't
   # HTTP-reachable on Render — liveness is checked via GET /healthz/worker/
   # on the `api` service instead, which does a real `celery inspect ping`
@@ -193,23 +193,26 @@ services:
     # deploys api/worker/beat independently, with no built-in "wait for
     # another service's release to finish" primitive -- on a first-ever
     # deploy or any release adding a migration, worker/beat could otherwise
-    # start and hit the DB before api's releaseCommand (the sole migration
+    # start and hit the DB before api's preDeployCommand (the sole migration
     # owner) finishes `migrate`. `migrate --check` exits non-zero (without
     # applying anything) whenever the schema isn't current yet; Render
     # restarts a service that exits non-zero, so this naturally retries
     # with backoff until api's release completes -- no unverified Render
     # feature needed, just the same `&&` chaining already used in
-    # releaseCommand above.
+    # preDeployCommand above.
     startCommand: python manage.py migrate --check && celery -A config worker --loglevel=info -Q celery,ingestion,calculation,maintenance,notifications,ai
     envVarGroups:
       - scopetrace-shared
     envVars:
-      # VERIFY: see the confidence note at the top of this file.
+      # D2: this service generates its own SECRET_KEY. Worker/beat never
+      # verify api-issued JWTs or sign sessions/CSRF (all of which live in
+      # the api process, which is internally consistent) -- they run Celery
+      # tasks with plain kwargs and S3-presigned URLs -- so their key need
+      # not match the api's. This also drops the `fromService envVarKey`
+      # field, which could not be confirmed in Render's current Blueprint
+      # spec. See the note at the top of this file.
       - key: SECRET_KEY
-        fromService:
-          type: web
-          name: scopetrace-api
-          envVarKey: SECRET_KEY
+        generateValue: true
       - key: DEBUG
         value: "False"
       - key: DATABASE_URL
@@ -244,17 +247,21 @@ services:
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     # Phase 7.5 (H4-10): same migration-readiness gate as the worker
-    # service above -- see its comment for the full rationale.
+    # service above (waits for api's preDeployCommand migrate) -- see its
+    # comment for the full rationale.
     startCommand: python manage.py migrate --check && celery -A config beat --loglevel=info
     envVarGroups:
       - scopetrace-shared
     envVars:
-      # VERIFY: see the confidence note at the top of this file.
+      # D2: this service generates its own SECRET_KEY. Worker/beat never
+      # verify api-issued JWTs or sign sessions/CSRF (all of which live in
+      # the api process, which is internally consistent) -- they run Celery
+      # tasks with plain kwargs and S3-presigned URLs -- so their key need
+      # not match the api's. This also drops the `fromService envVarKey`
+      # field, which could not be confirmed in Render's current Blueprint
+      # spec. See the note at the top of this file.
       - key: SECRET_KEY
-        fromService:
-          type: web
-          name: scopetrace-api
-          envVarKey: SECRET_KEY
+        generateValue: true
       - key: DEBUG
         value: "False"
       - key: DATABASE_URL

@@ -163,10 +163,14 @@ npm run lint
 ### 3.2 Release flow (`render.yaml`)
 
 ```
-buildCommand:   pip install -r requirements.txt && collectstatic
-releaseCommand: migrate && bootstrap_data && seed_carbon   (idempotent — safe on every deploy)
-startCommand:   gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --worker-class gthread --threads 4 --timeout 120 --access-logfile - --access-logformat '...'
+buildCommand:     pip install -r requirements.txt && collectstatic
+preDeployCommand: migrate && bootstrap_data && seed_carbon   (idempotent — safe on every deploy)
+startCommand:     gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --worker-class gthread --threads 4 --timeout 120 --access-logfile - --access-logformat '...'
 ```
+
+(D2: `preDeployCommand` — not `releaseCommand`. `releaseCommand` is not a
+Render Blueprint field; Render runs `preDeployCommand` after the build and
+before the service starts, which is the correct phase for migrations/seed.)
 
 (`--access-logfile - --access-logformat '...'` — Phase 9b: gunicorn's access
 log to stdout, correlated with `apps.core.middleware.RequestIDMiddleware`'s
@@ -206,12 +210,13 @@ explicit, deliberate pass.
 
 **That pass is this file's current state.** `render.yaml` now provisions:
 
-- A Render `type: redis` managed instance, referenced by `api`/`worker`/
-  `beat` via `fromService` (not copy-pasted).
+- A Render `type: redis` managed instance (a deprecated-but-valid alias for
+  the current `type: keyvalue`), referenced by `api`/`worker`/`beat` via
+  `fromService: {..., property: connectionString}` (not copy-pasted).
 - A `type: worker` service (`scopetrace-worker`) running
   `celery -A config worker -Q celery,ingestion,calculation,maintenance,notifications,ai`.
 - A second `type: worker` service (`scopetrace-beat`) running
-  `celery -A config beat` — no `releaseCommand` on either (only `api` owns
+  `celery -A config beat` — no `preDeployCommand` on either (only `api` owns
   migrations/seeding), and deliberately no persistent disk for Beat's
   schedule file (Render's filesystem is ephemeral; losing that bookkeeping
   on restart is a minor inefficiency, not a correctness risk, since every
@@ -225,19 +230,22 @@ explicit, deliberate pass.
   `EMAIL_*` variables, shared across `api`/`worker`/`beat` without
   duplicating the same `sync: false` secret three times.
 
-**Two pieces of this file could not be verified against Render's live
-platform** (no deploy access) and are marked `# VERIFY:` directly in
-`render.yaml`: the `type: redis` service-type keyword itself (Render has
-renamed this product before), and `fromService: {..., envVarKey:
-SECRET_KEY}` for sharing one auto-generated `SECRET_KEY` across all three
-Python services (needed so JWT/session signing is consistent across
-processes — each service independently calling `generateValue: true` would
-give them three *different* secrets). If either is rejected by Render's
-blueprint validator, the documented fallback is to provision Redis manually
-and paste its connection string as a `sync: false` secret on each service,
-and to generate `SECRET_KEY` once and paste the identical value into all
-three services' dashboards — functionally equivalent, just not expressed
-as IaC.
+**D2 Blueprint compatibility fixes** (applied after Render's parser rejected
+the original file with `field releaseCommand not found`):
+- `releaseCommand` → **`preDeployCommand`**. `releaseCommand` is not a Render
+  Blueprint field (it's a Heroku-ism); `preDeployCommand` is the correct
+  field and runs in the same phase (after build, before start).
+- The `fromService: {..., envVarKey: SECRET_KEY}` cross-service key copy is
+  **removed**; `api`/`worker`/`beat` each now generate their own `SECRET_KEY`
+  via `generateValue: true`. `envVarKey` could not be confirmed in Render's
+  current `fromService` spec, and it isn't needed: only the `api` process
+  signs/verifies JWTs, sessions, and CSRF; `worker`/`beat` run Celery tasks
+  with plain kwargs and S3-presigned URLs and never verify api-issued
+  tokens, so their keys need not match.
+- `type: redis` is retained as a **deprecated-but-valid alias** for the
+  current `type: keyvalue` (it parses; a `keyvalue` rename is a safe future
+  cleanup). If a future Render release drops the alias, change the four
+  `type: redis` occurrences to `type: keyvalue`.
 
 **Object storage is explicitly not something Render's blueprint can
 provision** (it's a separate cloud service, chosen and owned outside
@@ -257,10 +265,10 @@ real values for whichever provider they've chosen once a bucket exists.
 1. Provision an actual object-storage bucket (any S3-compatible provider)
    and fill in the five `AWS_*` secrets via the Render dashboard — nothing
    in `render.yaml` itself can do this step, by design (§3.3).
-2. Deploy once, then check Render's build logs for whether `type: redis`
-   and the `fromService envVarKey` reference were accepted — if either was
-   rejected, apply the documented fallback in §3.3 rather than guessing
-   further at blueprint syntax.
+2. Deploy once, then check Render's build logs. The `preDeployCommand`
+   should run migrations/seed on the `api` service before it starts. If the
+   `type: redis` alias is ever rejected by a future Render release, switch
+   the four `type: redis` occurrences to `type: keyvalue` (see §3.3).
 3. Confirm `GET /healthz` and `GET /healthz/worker/` both return `200` post-deploy — the second specifically proves the new worker service is
    actually consuming from the broker, not just that it deployed.
 4. Do one real end-to-end upload through the live API before considering

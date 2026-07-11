@@ -432,6 +432,6 @@ docker compose logs --no-color worker | grep "<workflow_id>"
 2. Push the branch, confirm all three CI workflows pass.
 3. For Docker Compose environments: `docker compose up --build -d` (rebuilds
    changed images only, restarts affected services).
-4. For Render: push to the connected branch — `releaseCommand` re-runs
-   migrations/seeds automatically (idempotent, safe).
+4. For Render: push to the connected branch — the `api` service's
+   `preDeployCommand` re-runs migrations/seeds automatically (idempotent, safe).
 5. Confirm `/healthz` and `/healthz/worker/` both `200` post-deploy.
