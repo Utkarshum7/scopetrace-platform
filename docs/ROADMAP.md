@@ -22,7 +22,7 @@ depth:
 | ~~No secret-scanning CI step~~ | **Added in Phase 6f** — `gitleaks` over full git history, advisory (see `CI_CD.md` §1.2) | [`SECURITY.md`](SECURITY.md) §4 |
 | `render.yaml`'s `type: redis` and cross-service `SECRET_KEY` sharing are unverified against Render's live platform (no deploy access) | Infrastructure-layer, not application code — see Phase 6f's split | [`INFRASTRUCTURE_SECURITY.md`](INFRASTRUCTURE_SECURITY.md) §3 |
 | No formal RPO/RTO, no tested DR drill | Infrastructure-layer, not application code | [`INFRASTRUCTURE_SECURITY.md`](INFRASTRUCTURE_SECURITY.md) §2 |
-| ~~5 known Django CVEs unpatched~~ | **Fixed in Phase 6f** — bumped `Django` to `6.0.6` (patch release) | [`SECURITY.md`](SECURITY.md) §5 |
+| ~~5 known Django CVEs unpatched~~ | **Fixed in Phase 6f** (bumped `Django` to `6.0.6`), **3 further CVEs fixed in Phase 9c** (bumped to `6.0.7`, current pin) | [`SECURITY.md`](SECURITY.md) §5 |
 | ~~Three `FEATURE_*` flags declared in settings but read nowhere~~ | **Removed in Phase 6f** | [`GOVERNANCE.md`](GOVERNANCE.md) §6f |
 | No IP/network restriction on `/admin/` | Infrastructure-layer, not application code — a Django middleware was considered and rejected for this specifically | [`INFRASTRUCTURE_SECURITY.md`](INFRASTRUCTURE_SECURITY.md) §1 |
 | ~~No cryptographic audit hash-chain~~ | **Implemented in Phase 6a** — per-org SHA-256 chain, tamper-evident, with verification command/API/admin action | [`GOVERNANCE.md`](GOVERNANCE.md) §6a |

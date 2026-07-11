@@ -82,7 +82,7 @@ Modern enterprises collect environmental impact data across fragmented systems: 
 2. **Ingestion Strategy**: The file is processed using the appropriate strategy (`sap`, `utility`, or `travel`).
 3. **Validation & Normalization**: Data is checked for schema conformity and converted to standardized base activity units (the basis for CO₂e).
 4. **Ledger Auditing**: Suspicious rows (e.g., abnormal values) are flagged for human review. Once verified, the analyst approves the record.
-5. **Append-Only Lock**: The record is locked. An `AuditTrail` entry is written capturing the state change, the analyst, a timestamp, and the justification. (A cryptographic hash-chain over the ledger is planned for a later phase.)
+5. **Append-Only Lock**: The record is locked. An `AuditTrail` entry is written capturing the state change, the analyst, a timestamp, and the justification, chained into a per-organization SHA-256 hash-chain (tamper-*evident* — see [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md) §6a) verifiable via `GET /api/audit/verify/`.
 
 ---
 
