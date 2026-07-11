@@ -247,6 +247,13 @@ real values for whichever provider they've chosen once a bucket exists.
 
 ### 3.4 Before the first real deploy of this corrected blueprint
 
+0. **Connect the repo to Render as a Blueprint** — Render Dashboard →
+   **New +** → **Blueprint** → select this GitHub repo/branch → Render
+   detects `render.yaml` at the repo root and proposes the `api`/`worker`/
+   `beat`/`scopetrace-redis`/`scopetrace-db` services it defines → review
+   the plan → **Apply**. (Not previously documented anywhere in this
+   guide — everything below assumes the services already exist, but
+   nothing said how they get created in the first place.)
 1. Provision an actual object-storage bucket (any S3-compatible provider)
    and fill in the five `AWS_*` secrets via the Render dashboard — nothing
    in `render.yaml` itself can do this step, by design (§3.3).
@@ -457,6 +464,11 @@ changes up to at least 3 replicas.
 ---
 
 ## 6. Release Checklist
+
+Per-commit/per-PR gate — for the one-time, system-wide release-candidate
+audit (every subsystem, deployment verification, smoke-test checklist,
+and a classified risk register), see
+[`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) (Phase 9d).
 
 Before pushing a release-bound commit / opening a release PR:
 
