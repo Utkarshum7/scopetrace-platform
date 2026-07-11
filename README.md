@@ -1,126 +1,213 @@
-# ScopeTrace — Enterprise Carbon Accounting & ESG Data Platform
+<div align="center">
 
-[![Backend CI](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/backend-ci.yml)
-[![Frontend CI](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/frontend-ci.yml)
-[![Docker Build Verification](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/docker-build.yml/badge.svg)](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/docker-build.yml)
-[![Secret Scan](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/secret-scan.yml/badge.svg)](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/secret-scan.yml)
+# ScopeTrace
 
-> **ScopeTrace**  
-> A production-grade, full-stack enterprise platform that ingests corporate greenhouse gas (GHG) emission data from heterogeneous sources, normalizes it to standardized base activity units — the foundation for CO₂ equivalent (CO₂e) reporting — and guides analysts through an immutable audit and review workflow across Scopes 1, 2, and 3.
+### Enterprise ESG Compliance & AI Governance Platform
 
----
+A production-grade, full-stack platform for corporate greenhouse-gas accounting — ingesting emissions data from heterogeneous enterprise sources, computing explainable CO₂e across Scopes 1/2/3, enforcing a tamper-evident governance & approval workflow, and layering **advisory-only, fully-governed AI** on top of a deterministic core.
 
-## 📋 Project Overview
+[![Backend CI](https://github.com/Utkarshum7/scopetrace-platform/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/Utkarshum7/scopetrace-platform/actions/workflows/backend-ci.yml)
+[![Frontend CI](https://github.com/Utkarshum7/scopetrace-platform/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/Utkarshum7/scopetrace-platform/actions/workflows/frontend-ci.yml)
+[![Docker Build Verification](https://github.com/Utkarshum7/scopetrace-platform/actions/workflows/docker-build.yml/badge.svg)](https://github.com/Utkarshum7/scopetrace-platform/actions/workflows/docker-build.yml)
+[![Secret Scan](https://github.com/Utkarshum7/scopetrace-platform/actions/workflows/secret-scan.yml/badge.svg)](https://github.com/Utkarshum7/scopetrace-platform/actions/workflows/secret-scan.yml)
 
-Modern enterprises collect environmental impact data across fragmented systems: fuel purchases in CSVs, electricity invoices in utility tables, and business travel bookings in JSON files. 
+![Version](https://img.shields.io/badge/version-1.0.0-2ebb72)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
+![Django](https://img.shields.io/badge/Django-6.0-092E20?logo=django&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![Tests](https://img.shields.io/badge/tests-1007%20passing-2ebb72)
 
-**ScopeTrace** acts as a centralized middleware that:
-1. **Ingests** raw data from varied formats via a unified, strategy-pattern ingestion engine.
-2. **Validates** data points in real time, detecting format errors, missing metrics, and statistical anomalies.
-3. **Normalizes & computes CO₂e**: converts heterogeneous units (liters of diesel, kWh of electricity, passenger-kilometers) into standardized base activity units, then computes CO₂e via the **Carbon Intelligence Engine** — versioned, provenance-tracked emission factors (DEFRA/EPA/IPCC-ready) with fully explainable, factor-pinned calculations.
-4. **Guides Analysts** through a verification ledger to flag anomalies, review suspicious entries, and approve records.
-5. **Secures Audit Trails** by writing approved records into an append-only, immutable ledger (enforced at the model layer) for tamper-evident reporting.
-6. **Enforces Enterprise Access Control** via JWT authentication, role-based permissions, and per-organization tenant isolation — see [`docs/AUTH_RBAC.md`](docs/AUTH_RBAC.md).
+</div>
 
 ---
 
-## ✨ Features
+## 📋 Overview
 
-* **Multi-Adapter Ingestion**: Supports extensible strategy-pattern parsers for heterogeneous inputs:
-  * **SAP Fuel Feed** (CSV parser for fleet fuel purchases)
-  * **Utility Electricity Feed** (CSV parser for facility electricity metrics)
-  * **Corporate Travel Feed** (JSON parser for flight/train travel bookings)
-* **High-Fidelity Validation Pipeline**: Real-time validation checking structure, types, mandatory fields, and range boundaries.
-* **Suspicious Anomaly Detection**: Automatically flags records exceeding historical bounds or standard operating ranges (e.g., negative fuel values or abnormally high kWh readings).
-* **Analyst Review Ledger**: A clean dashboard UI for analysts to filter records, review anomalies, and enter justifications for approval.
-* **Immutable Audit Logging**: Employs an append-only ledger model that locks record states post-approval and tracks the analyst's ID, timestamp, and reasoning.
-* **Django Admin Integration**: Allows administrators to register organizations (tenants) and configure data sources on the fly.
-* **Enterprise Identity & Access**: JWT authentication (access/refresh tokens, rotation, logout blacklist), four organization-scoped roles (Org Admin, ESG Analyst, Auditor, Viewer) plus a cross-tenant Platform Admin, and server-side multi-tenant isolation enforced at the API layer.
-* **Carbon Intelligence Engine**: versioned, provenance-tracked emission-factor datasets (DEFRA/EPA/IPCC/country-ready) with effective-dated, region-aware factor resolution; Decimal-precise, factor-pinned, immutable CO₂e calculations; a self-contained explainability trace on every result; a staged pipeline with reserved hooks for future AI modules; and idempotent import/seed/backfill commands. See [`docs/CARBON_ENGINE_DESIGN.md`](docs/CARBON_ENGINE_DESIGN.md).
-* **Analytics & Dashboards**: a cached, tenant-scoped Metrics API (summary/time-series/breakdown + audit-activity and cross-tenant views) powering a **role-aware, pluggable dashboard** — professional KPI cards with trend deltas, responsive charts (behind a swappable chart abstraction), loading skeletons, and empty/error states. Pagination, standardized filtering, streaming CSV export, and API rate-limiting. See [`docs/METRICS_ANALYTICS.md`](docs/METRICS_ANALYTICS.md).
-* **Interactive Frontend Dashboard**: Rich visual metrics showing total emissions, pending reviews, batch statuses, and a streamlined drag-and-drop file upload center.
-* **Production-Ready Configurations**: Pre-configured WSGI environment with Gunicorn, WhiteNoise static assets, PostgreSQL compatibility, and Vercel routing rewrites.
+Modern enterprises collect environmental-impact data across fragmented systems: fuel purchases in SAP CSV exports, electricity invoices in utility tables, and business travel in JSON booking feeds. **ScopeTrace** is the centralized system of record that turns that mess into audit-grade, compliance-ready CO₂e reporting:
+
+1. **Ingests** heterogeneous formats through a pluggable, strategy-pattern ingestion engine (SAP fuel / utility electricity / corporate travel).
+2. **Validates & normalizes** every row in real time — structure, types, ranges, statistical anomalies — converting mixed units (litres, kWh, passenger-km) into standardized base activity units.
+3. **Computes explainable CO₂e** via a deterministic **Carbon Intelligence Engine**: versioned, provenance-tracked emission factors (DEFRA/EPA/IPCC-ready), Decimal-precise, factor-pinned, with a self-contained calculation trace on every result.
+4. **Governs** the data lifecycle: a formal Draft → Submitted → Approved/Rejected workflow, immutable version history, reversible soft delete, and a per-organization **cryptographic SHA-256 audit hash-chain** that makes tampering detectable.
+5. **Assists with governed AI**: five advisory-only capabilities (anomaly explanation, factor recommendation, validation assistance, a conversational ESG assistant, and report narration) — every call routed through a single enforcement gateway with per-tenant policy, budget, egress-tier, and a complete reproducibility audit trail. **AI never mutates governed data; the deterministic engine always decides.**
+
+Built over ten disciplined engineering phases (Phase 0 → 10), each with its own architecture review, design decisions, and milestone report — culminating in an independent [release certification](docs/RELEASE_CERTIFICATION.md) for **v1.0.0** with zero release blockers.
 
 ---
 
-## 🛠️ Tech Stack
+## ✨ Key Features
+
+### Ingestion & Carbon Engine
+- **Multi-adapter ingestion** — extensible `BaseParser` strategy pattern; adding a 4th source is three additive edits, zero changes to the orchestrator.
+- **High-fidelity validation** — structure, type, mandatory-field, and range checks; one bad row never aborts a batch.
+- **Anomaly detection** — deterministic flagging of out-of-range values (negative fuel, abnormal kWh) as `SUSPICIOUS`.
+- **Carbon Intelligence Engine** — versioned, effective-dated, region-aware factor resolution; immutable, factor-pinned, Decimal-precise CO₂e with a full explainability trace and idempotent import/seed/backfill commands.
+
+### Enterprise Governance
+- **Cryptographic audit hash-chain** — per-organization SHA-256 chain over the audit ledger, verifiable on demand (tamper-*evident*).
+- **Immutable version history** — every meaningful record edit snapshots an `EmissionRecordVersion`, with list / retrieve / field-diff APIs.
+- **Formal approval workflow** — a fixed Draft → Submitted → Approved/Rejected state machine, enforced at the model layer.
+- **Reversible soft delete** — governed data is never physically destroyed; `PROTECT` closes cascade-delete bypasses.
+- **Compliance reporting** — CSV/JSON reports over APPROVED-only data, each embedding a chain-verification snapshot.
+
+### Governed AI Layer
+- **Single enforcement gateway** — every production AI call flows through `invoke_ai()`: idempotency → policy → budget → egress → schema-render → provider → schema-validate → immutable `AIInteraction` audit row.
+- **Per-tenant AI policy** — global kill switch (`AI_ENABLED=False` by default — zero cost/egress out of the box), per-org model / budget / egress-tier controls.
+- **Advisory-only by construction** — the gateway has no write path to `EmissionRecord`/`EmissionCalculation`; structurally enforced by an import guard.
+- **Evaluation harness** — golden datasets, an I1–I6 invariant suite as a CI merge gate, deterministic replay providers, and an LLM-as-Judge framework.
+
+### Platform & Operations
+- **Enterprise identity & access** — JWT (rotation + logout blacklist), four org-scoped roles + a cross-tenant Platform Admin, server-side multi-tenant isolation.
+- **Async processing** — Celery + Redis across six routed queues, with retry/backoff, a dead-letter queue, and scheduled maintenance sweeps.
+- **Observability** — request-ID-correlated structured logs (UTC), three health endpoints, gunicorn access logging, and AI cost/usage dashboards.
+- **Analytics dashboards** — a cached, tenant-scoped Metrics API powering a role-aware, pluggable dashboard with KPI cards, trend charts, and skeleton/empty/error states.
+
+---
+
+## 🏛️ System Architecture
+
+High-level component view (full diagrams — async pipeline sequence, queue topology — in [`docs/ARCHITECTURE_OVERVIEW.md`](docs/ARCHITECTURE_OVERVIEW.md)):
+
+```mermaid
+flowchart TB
+    subgraph Client
+        FE["Frontend<br/>React + Vite + Tailwind<br/>(served by nginx / Vercel)"]
+    end
+
+    subgraph Web["Web tier"]
+        API["Django REST API<br/>(gunicorn)"]
+        GW["AI Gateway — invoke_ai()<br/>policy · budget · egress · schema · audit"]
+    end
+
+    subgraph Async["Async tier"]
+        WORKER["Celery worker(s)<br/>6 routed queues"]
+        BEAT["Celery Beat<br/>(single instance)"]
+    end
+
+    subgraph Data["Data tier"]
+        DB[("PostgreSQL")]
+        REDIS[("Redis<br/>broker · results · cache")]
+        STORAGE[("S3-compatible storage<br/>MinIO · S3 · R2 · B2")]
+    end
+
+    subgraph Providers["LLM providers (advisory-only)"]
+        LLM["Anthropic · OpenAI<br/>echo / replay (dev + CI)"]
+    end
+
+    FE -->|"HTTPS / JWT"| API
+    API -->|"reads / writes"| DB
+    API -->|"cache"| REDIS
+    API -->|"durable upload storage"| STORAGE
+    API -->|"enqueue ingest → calculate chain"| REDIS
+    API -->|"governed AI calls"| GW
+    WORKER -->|"governed AI calls"| GW
+    GW -->|"schema-validated request"| LLM
+    GW -->|"immutable AIInteraction row"| DB
+    WORKER -->|"consume"| REDIS
+    WORKER -->|"reads / writes"| DB
+    WORKER -->|"read staged upload"| STORAGE
+    BEAT -->|"dispatch scheduled tasks"| REDIS
+```
+
+**The core async pipeline** — `POST /api/upload/…` durably stores the file, creates an `UploadBatch`, and enqueues a Celery `chain(ingest_task, calculate_task)`; a fire-and-forget notification closes it out. A stable `workflow_id` correlates every log line across the chain. Deterministic calculation always runs first and commits; advisory AI enrichment is dispatched separately afterward and can never delay or alter it.
+
+---
+
+## 🛠️ Technology Stack
 
 | Layer | Technologies |
 | :--- | :--- |
-| **Frontend** | React 18, Vite 5, Tailwind CSS 3, Axios, TanStack Query, Recharts |
-| **Backend** | Django 6.0, Django REST Framework 3.17, SimpleJWT, django-filter, Python Decouple |
-| **Cache / Rate limiting** | Redis (optional; local-memory fallback) |
-| **Database** | PostgreSQL 16 (required in production) · SQLite (local dev only) |
-| **Containerization** | Docker · Docker Compose (PostgreSQL + API + frontend) |
-| **Asset Serving** | WhiteNoise 6.9 |
-| **Production Server** | Gunicorn 23.0 |
-| **Deployment Target** | **Frontend**: Vercel · **Backend & Database**: Render (portable via Docker) |
+| **Frontend** | React 18 · Vite 5 · Tailwind CSS 3 · TanStack Query · Recharts · Axios |
+| **Backend** | Python 3.12 · Django 6.0 · Django REST Framework 3.17 · SimpleJWT · django-filter |
+| **Async & messaging** | Celery 5 · Redis (broker + result backend + cache) |
+| **AI** | Provider-agnostic gateway · Anthropic & OpenAI SDKs · `jsonschema` response enforcement |
+| **Database** | PostgreSQL 16 (production) · SQLite (local dev only) |
+| **Object storage** | S3-compatible via `StorageService` — AWS S3 / Cloudflare R2 / Backblaze B2 / MinIO |
+| **Serving & infra** | Gunicorn · WhiteNoise · Docker · Docker Compose |
+| **Deployment** | Backend → Render · Frontend → Vercel (both fully containerized/portable) |
+| **CI/CD** | GitHub Actions × 4 (backend, frontend, Docker build, secret scan) · `pip-audit` · `npm audit` · `gitleaks` |
 
 ---
 
-## 📐 Architecture & Workflow
+## 🤖 AI Architecture Summary
+
+ScopeTrace treats AI as an **advisory layer over a deterministic core**, not a decision-maker. Full detail in [`docs/AI_ARCHITECTURE.md`](docs/AI_ARCHITECTURE.md).
+
+- **One enforcement point.** `apps/ai/services/gateway.py::invoke_ai()` is the *sole* path any production AI call may take. No caller constructs a provider, renders a prompt, or writes an `AIInteraction` directly — an import guard (`tests_import_guard`) makes bypassing it structurally impossible.
+- **Governed on every call.** In order: idempotency short-circuit → per-tenant policy resolution → budget check → egress-tier enforcement → schema lookup → PII redaction + prompt render → provider call → response schema validation → immutable audit-row write.
+- **Five capabilities, all advisory:** ① anomaly explanation, ② emission-factor recommendation, ③ validation assistance, ④ a conversational ESG assistant (structured retrieval, tenant/RBAC-aware), ⑤ compliance-report narration (built only from APPROVED data).
+- **Concurrency-safe.** A per-organization lock serializes budget-check → provider-call → write, closing budget-overspend and duplicate-paid-call races; idempotent calls replay an identical result.
+- **Cost-governed & observable.** Per-tenant monthly budgets, egress tiers (REDACTED / RAW / NO_EGRESS), and platform-level usage/latency/cost dashboards — all built from data the gateway already writes.
+- **Safe by default.** `AI_ENABLED=False` ships as the default: the entire AI layer is inert (no provider constructed, no cost, no egress) until a tenant explicitly opts in.
+
+---
+
+## 🔐 Governance & Security Highlights
+
+**Governance** (see [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md)):
+- Per-org **SHA-256 audit hash-chain**, tamper-evident, verifiable via `GET /api/audit/verify/`.
+- Immutable `EmissionRecordVersion` snapshots on every meaningful edit.
+- Model-enforced Draft → Submitted → Approved/Rejected workflow with distinct RBAC per transition.
+- Reversible soft delete; APPROVED records are audit-locked against business-field edits.
+- Bulk `.update()`/`.delete()` blocked at the QuerySet layer so nothing bypasses `clean()` or the audit trail.
+
+**Security** (see [`docs/SECURITY.md`](docs/SECURITY.md)):
+- **Fail-closed config** — with `DEBUG=False` the app refuses to boot without `SECRET_KEY`/`DATABASE_URL`, rejects wildcard `ALLOWED_HOSTS`, and requires S3 storage.
+- **JWT** — 15-min access / 7-day refresh, rotation + blacklist-after-rotation; failed logins logged (never the password).
+- **Multi-tenant isolation** — every queryset filtered server-side by resolved organization; org scope is never taken from a client parameter.
+- **Hardened surface** — CORS/CSRF locked down, secure cookies + HSTS in production, DRF throttling (anon/user/login/AI scopes), upload file-type allowlist with server-side content-type verification, CSV formula-injection sanitization, and JSON-only Celery serialization (no pickle RCE surface).
+- **Supply chain** — pinned dependencies, no known CVEs at the pinned versions, and a `gitleaks` secret-scan gate over full git history.
+
+---
+
+## 🧪 Testing Statistics
+
+| Suite | Count | Notes |
+| :--- | :--- | :--- |
+| **Backend** | **915** tests | Run against real **PostgreSQL 16 + Redis 7** service containers in CI — not SQLite/eager-mode |
+| **Frontend** | **92** tests | Vitest + React Testing Library |
+| **Total** | **1,007** | Green on every commit across 4 GitHub Actions workflows |
+
+Coverage highlights: every concurrent code path (`select_for_update` on AI budget/idempotency, approval transitions, soft delete, versioning, audit append, metrics-cache bump) has a dedicated multi-threaded race test; the AI evaluation harness ships an I1–I6 invariant suite enforced as a CI merge gate. Full strategy: [`docs/CI_CD.md`](docs/CI_CD.md).
+
+---
+
+## 📁 Folder Structure
 
 ```
-[ Django Admin Configures Organization & DataSource ]
-                      ↓
-[ Analyst Uploads Raw File (CSV/JSON) in Frontend Upload Center ]
-                      ↓
-  [ API Routes Request to strategy-pattern Ingestion Engine ]
-                      ↓
- [ Adapter Strategy Parses File ] → [ Validation & Anomaly Detection Pipeline ]
-                                                     ↓
-                                [ EmissionRecord created (DRAFT/SUSPICIOUS/FAILED) ]
-                                                     ↓
-                                  [ Analyst Dashboard Ledger Review ]
-                                                     ↓
-                   [ Analyst Approves Record (with custom reason) ]
-                                                     ↓
-             [ Atomic Transaction Locks Record & Generates AuditTrail Log ]
+scopetrace-platform/
+├── backend/                     # Django + DRF + Celery
+│   ├── apps/
+│   │   ├── core/                # Cross-cutting: storage, health, middleware, notifications
+│   │   ├── accounts/            # Auth, RBAC, JWT, multi-tenant resolution
+│   │   ├── ingestion/           # Upload → parse → validate → normalize (strategy parsers)
+│   │   ├── carbon/              # Carbon Intelligence Engine, factors, metrics, reports
+│   │   ├── audit/               # Audit trail + cryptographic hash-chain
+│   │   ├── tasks/               # Celery plumbing, dead-letter queue
+│   │   ├── ai/                  # AI gateway, 5 capabilities, providers, policy/budget/egress
+│   │   │   └── evaluation/      # Golden datasets, invariant suite, LLM-as-Judge
+│   │   └── ...
+│   ├── config/                  # settings, celery, wsgi, urls
+│   ├── Dockerfile · entrypoint.sh · requirements.txt
+├── frontend/                    # React + Vite + Tailwind SPA
+│   └── src/{pages,components,context,hooks,services,utils}/
+├── docs/                        # ~30 architecture, design & operations docs (+ ADRs)
+├── sample_data/                 # Example SAP / utility / travel files
+├── docker-compose.yml           # Full local stack (7 services)
+├── render.yaml                  # Backend IaC (Render Blueprint)
+└── .github/workflows/           # 4 CI pipelines
 ```
 
-1. **Administration**: Admin sets up an `Organization` and maps a `DataSource` to it (e.g., a Travel Feed adapter).
-2. **Ingestion Strategy**: The file is processed using the appropriate strategy (`sap`, `utility`, or `travel`).
-3. **Validation & Normalization**: Data is checked for schema conformity and converted to standardized base activity units (the basis for CO₂e).
-4. **Ledger Auditing**: Suspicious rows (e.g., abnormal values) are flagged for human review. Once verified, the analyst approves the record.
-5. **Append-Only Lock**: The record is locked. An `AuditTrail` entry is written capturing the state change, the analyst, a timestamp, and the justification, chained into a per-organization SHA-256 hash-chain (tamper-*evident* — see [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md) §6a) verifiable via `GET /api/audit/verify/`.
-
 ---
 
-## 🌐 Deployment Links
+## 🚀 Quick Start
 
-| Environment / Service | Live URL |
-| :--- | :--- |
-| **Frontend (Vercel)** | [https://scopetrace.vercel.app](https://scopetrace.vercel.app) |
-| **Backend API (Render)** | [https://scopetrace-api.onrender.com/api/](https://scopetrace-api.onrender.com/api/) |
-| **Django Admin Portal** | [https://scopetrace-api.onrender.com/admin/](https://scopetrace-api.onrender.com/admin/) |
+### Option A — Docker Compose (recommended, exercises the real architecture)
 
-> ℹ️ The hosted environments are being re-provisioned under the ScopeTrace namespace. Update these links once the new Render/Vercel services are live.
-
----
-
-## ⚙️ Environment Variables
-
-Copy `backend/.env.example` → `backend/.env` and `frontend/.env.example` →
-`frontend/.env`, then fill in real values. Configuration **fails closed**:
-with `DEBUG=False` the backend refuses to boot unless `SECRET_KEY` and
-`DATABASE_URL` are set, rejects a wildcard `ALLOWED_HOSTS`, and requires
-`STORAGE_BACKEND=s3` (with S3 credentials).
-
-The full reference — every variable, its default, and which subsystem reads
-it (Celery, storage, email, throttling, JWT, Docker-Compose-only infra
-credentials) — is in [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) §4, not duplicated here.
-
----
-
-## 🐳 Quick Start with Docker Compose (Recommended)
-
-The full stack — PostgreSQL, Redis, MinIO (S3-compatible storage), the
-Django API, a Celery worker, Celery Beat, and the built frontend — runs in
-containers with a single command. Postgres/MinIO/Beat data all persist in
-named volumes across restarts and rebuilds.
+The full stack — PostgreSQL, Redis, MinIO (S3-compatible storage), the Django API, a Celery worker, Celery Beat, and the built frontend — runs with a single command. Data persists in named volumes across restarts.
 
 ```bash
-# From the repository root
 docker compose up --build
 ```
 
@@ -133,115 +220,93 @@ docker compose up --build
 | Django Admin | http://localhost:8000/admin/ (`admin` / `admin12345` by default) |
 | MinIO console | http://localhost:9001 (`scopetrace` / `scopetrace123` by default) |
 
-On first start the API container automatically runs migrations, collects static files, and seeds baseline data (one demo Organization, three DataSources, the admin user, and one demo user per role) via the `bootstrap_data`/`seed_carbon` commands — so the app, including full async upload processing, is usable immediately. Override defaults (DB/MinIO credentials, admin password, `SECRET_KEY`) with a root `.env` file or shell environment; see `docker-compose.yml` for the variables, or the full reference in [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md).
+On first start the API container runs migrations, collects static files, and seeds baseline data (one demo Organization, three DataSources, an admin user, and one demo user per role — `orgadmin`/`analyst`/`auditor`/`viewer`, password `demo12345`) — so the app, including full async upload processing, is usable immediately.
 
 ```bash
-docker compose up --scale worker=3 -d          # horizontal worker scaling, zero code change
-docker compose --profile monitoring up -d flower  # optional Celery monitoring UI, see docs/FLOWER.md
-docker compose down          # keeps all named volumes
-docker compose down -v       # also deletes them (fresh start)
+docker compose up --scale worker=3 -d              # horizontal worker scaling, zero code change
+docker compose --profile monitoring up -d flower   # optional Celery monitoring UI (docs/FLOWER.md)
+docker compose down          # stop, keep named volumes
+docker compose down -v       # stop and delete volumes (fresh start)
 ```
 
-Full operational detail — health checks, Celery/queue operations, backup & recovery, troubleshooting, production deployment — lives in [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) and [`docs/OPERATIONS_RUNBOOK.md`](docs/OPERATIONS_RUNBOOK.md).
+### Option B — Local setup (without Docker)
 
----
+> **Configuration fails closed.** With `DEBUG=False` the backend refuses to start unless `SECRET_KEY` and `DATABASE_URL` are set. For local dev set `DEBUG=True` (SQLite is then used automatically when `DATABASE_URL` is blank). See `backend/.env.example`.
 
-## 🚀 Local Setup Instructions (without Docker)
-
-> **Configuration fails closed.** With `DEBUG=False` the backend refuses to start unless `SECRET_KEY` and `DATABASE_URL` are set, and it rejects a wildcard `ALLOWED_HOSTS`. For local development set `DEBUG=True` (SQLite is then used automatically when `DATABASE_URL` is blank). See `backend/.env.example`.
-
-### Prerequisites
-* Python 3.12+ (WSL recommended on Windows)
-* Node.js 18+ & npm
-* Git
-
-### 1. Backend Setup
-Navigate to the backend directory, create a virtual environment, install dependencies, and run migrations:
+**Prerequisites:** Python 3.12+ · Node.js 18+ & npm · Git
 
 ```bash
-# Move to backend directory
+# Backend
 cd backend
-
-# Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate          # On Linux/macOS/WSL
-# OR: .\venv\Scripts\activate     # On Windows CMD/Powershell
-
-# Install requirements
+python -m venv venv && source venv/bin/activate    # .\venv\Scripts\activate on Windows
 pip install -r requirements.txt
-
-# Run migrations
 python manage.py migrate
+python manage.py bootstrap_data --demo-users        # seed demo org, data sources, users
+python manage.py runserver                          # → http://localhost:8000/api/
 
-# Create administrative user
-python manage.py createsuperuser
-
-# Start Django development server
-python manage.py runserver
-```
-The Django API will be accessible at [http://localhost:8000/api/](http://localhost:8000/api/).
-
-### 2. Frontend Setup
-Open a new terminal window, navigate to the frontend directory, install npm packages, and run the development server:
-
-```bash
-# Move to frontend directory
+# Frontend (new terminal)
 cd frontend
-
-# Install packages
 npm install
-
-# Start Vite dev server
-npm run dev
+npm run dev                                         # → http://localhost:5173/
 ```
-The application dashboard will be accessible at [http://localhost:5173/](http://localhost:5173/).
 
-### 3. Running Tests
-To run the automated Django test suite covering parsers, validators, API views, and audit trail logic:
+Run the test suites:
 
 ```bash
-cd backend
-python manage.py test --verbosity=2
+cd backend && python manage.py test --verbosity=2   # backend
+cd frontend && npm test                             # frontend
 ```
 
----
+### Try the full workflow
 
-## 🔄 Sample Usage Workflow
+With the stack running and demo data seeded:
 
-To test the ingestion and analyst flow locally or in production:
+1. **Sign in** at the frontend as `analyst` / `demo12345`.
+2. **Upload** a file from [`sample_data/`](sample_data/) in the Upload Center (e.g. the SAP fuel sample against the *SAP Fuel Feed* source).
+3. **Review** the ingested rows in the Review Ledger — abnormal values are flagged `SUSPICIOUS`; if AI is enabled, advisory explanations appear alongside.
+4. **Submit → Approve** a record (with a justification). It locks into the immutable, hash-chained Audit Trail; verify chain integrity via `GET /api/audit/verify/`.
+5. **Report** — pull a compliance report (`/api/reports/compliance/`) over the APPROVED data.
 
-1. **Access Django Admin**: Go to `http://localhost:8000/admin/` and log in.
-2. **Seed Core Metadata** — run the bootstrap command (idempotent; also runs automatically under Docker and on Render release):
-   ```bash
-   python manage.py bootstrap_data --demo-users
-   ```
-   This creates a demo **Organization**, the three **Data Sources** (`SAP_FUEL`, `UTILITY_ELECTRICITY`, `CORP_TRAVEL`), an admin user, and (with `--demo-users`, also enabled by default under Docker Compose) one demo user per role — `orgadmin` / `analyst` / `auditor` / `viewer`, password `demo12345`. To create these manually instead, use Django Admin:
-   * Create an **Organization** (e.g., *Acme Corporation*).
-   * Create three **Data Sources** matching your organization:
-     * Name: `SAP Fuel Feed` · Type: `SAP_FUEL`
-     * Name: `Utility Feed` · Type: `UTILITY_ELECTRICITY`
-     * Name: `Travel Feed` · Type: `CORP_TRAVEL`
-   * Create a **Membership** binding a user to the organization with a role (Org Admin / ESG Analyst / Auditor / Viewer).
-3. **Sign In**: Open `http://localhost:5173/` and log in as `analyst` (or another demo user). The JWT session is required to reach the Dashboard, Upload Center, or Review Ledger.
-4. **Upload Files**:
-   * Navigate to the **Upload Center** (visible to Org Admin / ESG Analyst roles).
-   * Upload sample files from the `sample_data/` folder (e.g., `sap_fuel_sample.csv` matching `SAP Fuel Feed`).
-5. **Ingestion & Validation**:
-   * Verify that the batch upload completes and is parsed.
-   * View the newly created records in the **Review Ledger**. Anomalous metrics (e.g., highly abnormal fuel quantities) will be marked as `SUSPICIOUS`.
-6. **Analyst Audit**:
-   * Click the **Approve** button on a record (Org Admin / ESG Analyst / Auditor roles).
-   * Provide your analyst justification reasoning.
-   * Confirm the lock. The record status will update to `APPROVED` and write an immutable block into the database `AuditTrail`.
+Full operational detail — health checks, Celery operations, backup & recovery, production deployment — lives in [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) and [`docs/OPERATIONS_RUNBOOK.md`](docs/OPERATIONS_RUNBOOK.md).
 
 ---
 
-## 📊 API Endpoints Reference
+## 🌐 Live Demo & Deployment
+
+> 🚧 **To be filled after deployment.** ScopeTrace v1.0.0 is release-certified; the hosted environments are provisioned under the ScopeTrace namespace as part of the launch step.
+
+| Environment / Service | URL |
+| :--- | :--- |
+| **Live frontend** (Vercel) | _`https://…` — to be filled after deployment_ |
+| **Backend API** (Render) | _`https://…/api/` — to be filled after deployment_ |
+| **API documentation** | _to be filled after deployment (OpenAPI/Swagger is planned — see roadmap)_ |
+| **Django Admin** | _`https://…/admin/` — to be filled after deployment_ |
+
+Deployment targets: **backend → Render** (`render.yaml` Blueprint: web + worker + beat + managed Redis + managed PostgreSQL) and **frontend → Vercel** (static Vite build). Both are fully portable via Docker Compose. Step-by-step first-deploy instructions: [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) §3, with a manual post-deploy verification pass in [`docs/SMOKE_TEST_CHECKLIST.md`](docs/SMOKE_TEST_CHECKLIST.md).
+
+---
+
+## 🖼️ Screenshots
+
+> 🚧 **Placeholders — to be replaced with real product screenshots after deployment.**
+
+| ESG Command Dashboard | Ingestion & Upload Center | Review & Audit Ledger |
+| :---: | :---: | :---: |
+| ![Dashboard](https://placehold.co/420x260/0f172a/2ebb72?text=ESG+Dashboard) | ![Upload](https://placehold.co/420x260/0f172a/38bdf8?text=Upload+Center) | ![Ledger](https://placehold.co/420x260/0f172a/f59e0b?text=Review+Ledger) |
+| Carbon footprints, KPI cards, batch success rates, outstanding reviews | Drag-and-drop batch submission mapped to org data-source adapters | Raw vs. normalized values, suspicious-value flags, approval workflow |
+
+---
+
+## 📡 API Reference
+
+<details>
+<summary><strong>Full endpoint table</strong> (click to expand)</summary>
 
 | Method | Endpoint | Auth | Description |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/healthz` | none | Database-aware health probe (200 healthy / 503 if DB unreachable) |
 | `GET` | `/healthz/worker/` | none | Celery worker liveness (real broker round trip + Beat heartbeat freshness) |
+| `GET` | `/healthz/ai/` | none | AI foundation health (provider constructibility; healthy when disabled) |
 | `POST` | `/api/auth/login/` | none | Obtain JWT access + refresh tokens and the user profile |
 | `POST` | `/api/auth/refresh/` | none | Exchange a refresh token for a new access/refresh pair (rotated) |
 | `POST` | `/api/auth/logout/` | Bearer | Blacklist the refresh token (logout) |
@@ -263,7 +328,8 @@ To test the ingestion and analyst flow locally or in production:
 | `GET` | `/api/records/{id}/versions/{n}/compare/` | Bearer | Field-by-field diff between a historical version and the current record |
 | `DELETE` | `/api/records/{id}/` | Bearer (Org Admin) | Soft delete (reason required); the record is never physically removed |
 | `POST` | `/api/records/{id}/restore/` | Bearer (Org Admin) | Restore a soft-deleted record to its prior status |
-| `GET` | `/api/records/?deleted=true` | Bearer (Org Admin) | List soft-deleted records ("trash") |
+| `GET` | `/api/records/{id}/ai-annotations/` | Bearer | AI anomaly-explanation & validation-assistance annotations (advisory) |
+| `GET` | `/api/records/{id}/factor-recommendations/` | Bearer | AI emission-factor recommendations (advisory) |
 | `GET` | `/api/activity-types/` | Bearer | Activity-type vocabulary (global reference) |
 | `GET` | `/api/factor-datasets/` | Bearer | Emission-factor datasets with provenance (filter publisher/status) |
 | `GET` | `/api/emission-factors/` | Bearer | Emission factors (filter activity_type/region) |
@@ -277,44 +343,23 @@ To test the ingestion and analyst flow locally or in production:
 | `GET` | `/api/audit/verify/` | Bearer (Org Admin / Auditor) | Verify the organization's audit hash-chain integrity |
 | `GET` | `/api/reports/compliance/` | Bearer (Org Admin / Auditor) | JSON compliance report (APPROVED-only, requires date_from/date_to) |
 | `GET` | `/api/reports/compliance/csv/` | Bearer (Org Admin / Auditor) | Streaming CSV of the same compliance report |
+| `GET` | `/api/esg-assistant/conversations/` | Bearer (CanUseAI) | List/continue ESG-assistant conversations (advisory AI) |
+| `POST` | `/api/report-narration/regenerate/` | Bearer (Org Admin / Auditor) | Regenerate AI narration for a compliance report period |
+| `GET` | `/api/ai/ops/observability/` | Bearer (Platform Admin) | AI usage / latency / cost / evaluation health |
+| `GET` | `/api/ai/costs/` | Bearer (Org Admin / Auditor) | Per-organization AI spend & budget utilization |
 
-Emission records include read-only `co2e_kg`, `co2e_tonnes`, `calculation_status`, `factor_provenance`, and an explainable `calculation_trace`.
+Emission records include read-only `co2e_kg`, `co2e_tonnes`, `calculation_status`, `factor_provenance`, and an explainable `calculation_trace`. Unbounded list endpoints return `{count, next, previous, results}`; bounded selector lists return bare arrays. All requests are rate-limited.
 
-**Pagination:** unbounded list endpoints (`records`, `calculations`, `batches`, `factor-datasets`, `emission-factors`) return `{count, next, previous, results}`; bounded selector lists (`organizations`, `datasources`, `activity-types`) return bare arrays. API requests are rate-limited.
+</details>
 
-See [`docs/AUTH_RBAC.md`](docs/AUTH_RBAC.md) for authentication/RBAC/tenancy, [`docs/CARBON_ENGINE_DESIGN.md`](docs/CARBON_ENGINE_DESIGN.md) for the Carbon Intelligence Engine, and [`docs/METRICS_ANALYTICS.md`](docs/METRICS_ANALYTICS.md) for the Metrics API, caching, pagination/export, and the role-aware dashboard.
-
-### Carbon engine management commands
+**Carbon-engine management commands:**
 
 ```bash
-# Seed reference data + import & activate the bundled DEFRA 2024 factor subset
-python manage.py seed_carbon
-
-# Import a factor dataset (idempotent, provenance-tracked; --activate to publish)
+python manage.py seed_carbon                      # seed reference data + bundled DEFRA 2024 factor subset
 python manage.py import_emission_factors --file factors.csv --publisher DEFRA \
   --dataset-version 2025 --region GB --valid-from 2025-01-01 --valid-to 2025-12-31 --activate
-
-# Compute CO₂e for existing records (idempotent; --force recalculates, APPROVED frozen)
-python manage.py backfill_calculations
+python manage.py backfill_calculations            # compute CO₂e for existing records (APPROVED frozen)
 ```
-
----
-
-## 🖼️ Screenshots Section
-
-Below are placeholders representing key pages of the ScopeTrace platform. Replace these with product screenshots after deployment:
-
-### ESG Command Dashboard
-![ESG Command Dashboard](https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1200&q=80)
-*Overview of carbon footprints, total metric tonnes, batch success rates, and outstanding reviews.*
-
-### Ingestion & Upload Center
-![Upload Center](https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=1200&q=80)
-*Drag-and-drop file interface for batch submissions mapped to specific organization adapters.*
-
-### Ledger & Auditing View
-![Review Ledger](https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&w=1200&q=80)
-*Interactive table detailing raw versus normalized activity values, flags for suspicious values, and validation status.*
 
 ---
 
@@ -322,26 +367,37 @@ Below are placeholders representing key pages of the ScopeTrace platform. Replac
 
 | Doc | Covers |
 | :--- | :--- |
-| [`ARCHITECTURE_OVERVIEW.md`](docs/ARCHITECTURE_OVERVIEW.md) | System component diagram, async pipeline sequence diagram, queue topology, links to every subsystem doc |
-| [`RELEASE_CERTIFICATION.md`](docs/RELEASE_CERTIFICATION.md) | Phase 10 principal-engineer sign-off — independently re-verified architecture/code quality/testing/performance/security, 8 scored dimensions, release decision |
-| [`RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) · [`RELEASE_NOTES.md`](docs/RELEASE_NOTES.md) · [`SMOKE_TEST_CHECKLIST.md`](docs/SMOKE_TEST_CHECKLIST.md) · [`VERSION.md`](VERSION.md) | System-wide release-candidate audit with a classified risk register, what shipped per phase, manual post-deploy smoke test, current version |
-| [`DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) | Local dev, production deployment, full environment variable reference, Docker/Compose usage, per-commit release checklist |
-| [`OPERATIONS_RUNBOOK.md`](docs/OPERATIONS_RUNBOOK.md) | Celery operations, queue/DLQ operational guide, Flower, health checks, common tasks, scaling, step-by-step runbooks |
-| [`INCIDENT_RESPONSE.md`](docs/INCIDENT_RESPONSE.md) | Backup/restore (verified commands), disaster recovery, incident response, troubleshooting table |
-| [`SECURITY.md`](docs/SECURITY.md) | Auth/RBAC/tenancy posture, secrets, rate limiting, dependency vulnerability status, known gaps |
-| [`ROADMAP.md`](docs/ROADMAP.md) | Known limitations and the real Phase 6–10 plan |
-| [`AUTH_RBAC.md`](docs/AUTH_RBAC.md) · [`CARBON_ENGINE_DESIGN.md`](docs/CARBON_ENGINE_DESIGN.md) · [`METRICS_ANALYTICS.md`](docs/METRICS_ANALYTICS.md) · [`MODEL.md`](docs/MODEL.md) · [`SOURCES.md`](docs/SOURCES.md) | Domain design docs — auth, carbon engine, analytics, data model, source formats |
-| [`JOB_LIFECYCLE.md`](docs/JOB_LIFECYCLE.md) · [`RETRY_DLQ.md`](docs/RETRY_DLQ.md) · [`SCHEDULED_TASKS.md`](docs/SCHEDULED_TASKS.md) · [`NOTIFICATIONS.md`](docs/NOTIFICATIONS.md) | Async pipeline design — job lifecycle, retry/backoff/DLQ, Celery Beat, email notifications |
-| [`FLOWER.md`](docs/FLOWER.md) · [`DOCKER.md`](docs/DOCKER.md) · [`CI_CD.md`](docs/CI_CD.md) | Monitoring, Docker image design, GitHub Actions CI |
-| [`DECISIONS.md`](docs/DECISIONS.md) · [`TRADEOFFS.md`](docs/TRADEOFFS.md) | Architectural decisions made and scope deliberately deferred |
+| [`ARCHITECTURE_OVERVIEW.md`](docs/ARCHITECTURE_OVERVIEW.md) | Component & pipeline diagrams, queue topology, links to every subsystem |
+| [`RELEASE_CERTIFICATION.md`](docs/RELEASE_CERTIFICATION.md) | Phase 10 principal-engineer sign-off — 8 scored dimensions, release decision |
+| [`RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) · [`RELEASE_NOTES.md`](docs/RELEASE_NOTES.md) · [`SMOKE_TEST_CHECKLIST.md`](docs/SMOKE_TEST_CHECKLIST.md) · [`VERSION.md`](VERSION.md) | System-wide readiness audit + risk register, per-phase changelog, manual smoke test, version |
+| [`AI_ARCHITECTURE.md`](docs/AI_ARCHITECTURE.md) · [`AI_EVALUATION.md`](docs/AI_EVALUATION.md) | AI gateway, governance, 5 capabilities, and the evaluation harness |
+| [`GOVERNANCE.md`](docs/GOVERNANCE.md) · [`AUTH_RBAC.md`](docs/AUTH_RBAC.md) · [`SECURITY.md`](docs/SECURITY.md) · [`INFRASTRUCTURE_SECURITY.md`](docs/INFRASTRUCTURE_SECURITY.md) | Audit hash-chain, workflow, RBAC/tenancy, application & infrastructure security posture |
+| [`CARBON_ENGINE_DESIGN.md`](docs/CARBON_ENGINE_DESIGN.md) · [`METRICS_ANALYTICS.md`](docs/METRICS_ANALYTICS.md) · [`MODEL.md`](docs/MODEL.md) · [`SOURCES.md`](docs/SOURCES.md) | Carbon engine, analytics, data model, source formats |
+| [`DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) · [`OPERATIONS_RUNBOOK.md`](docs/OPERATIONS_RUNBOOK.md) · [`INCIDENT_RESPONSE.md`](docs/INCIDENT_RESPONSE.md) | Deploy, day-2 operations, backup/DR/incident response |
+| [`JOB_LIFECYCLE.md`](docs/JOB_LIFECYCLE.md) · [`RETRY_DLQ.md`](docs/RETRY_DLQ.md) · [`SCHEDULED_TASKS.md`](docs/SCHEDULED_TASKS.md) · [`NOTIFICATIONS.md`](docs/NOTIFICATIONS.md) | Async pipeline, retry/DLQ, Celery Beat, notifications |
+| [`FRONTEND_DESIGN_SYSTEM.md`](docs/FRONTEND_DESIGN_SYSTEM.md) · [`FLOWER.md`](docs/FLOWER.md) · [`DOCKER.md`](docs/DOCKER.md) · [`CI_CD.md`](docs/CI_CD.md) | UI design system, monitoring, Docker design, CI |
+| [`DECISIONS.md`](docs/DECISIONS.md) · [`TRADEOFFS.md`](docs/TRADEOFFS.md) · [`ROADMAP.md`](docs/ROADMAP.md) · [`adr/`](docs/adr/) | Design decisions, deferred scope, roadmap, ADRs |
+
+---
 
 ## 🗺️ Roadmap
 
-Phases 0–10 (rebrand & infra → correctness → auth/RBAC → carbon engine →
-metrics/analytics → production engineering → enterprise governance → AI →
-UX/accessibility → production engineering & release readiness → final
-release certification) are complete — current version `1.0.0`, approved
-for release with zero blockers found, see [`VERSION.md`](VERSION.md),
-[`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md), and
-[`docs/RELEASE_CERTIFICATION.md`](docs/RELEASE_CERTIFICATION.md). Known
-limitations and the Phase 11+ launch plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Phases 0–10 are complete — current version **`1.0.0`**, release-certified with zero blockers ([`docs/RELEASE_CERTIFICATION.md`](docs/RELEASE_CERTIFICATION.md)):
+
+> rebrand & infra → correctness → auth/RBAC → carbon engine → metrics/analytics → production engineering → enterprise governance → **AI (5 governed capabilities)** → UX/accessibility → production engineering & release readiness → final release certification
+
+**Phase 11+ — Launch & beyond:** live landing page & demo environment, OpenAPI/Swagger schema, real Prometheus/Grafana/Loki/OpenTelemetry/Sentry observability, saved/custom dashboards, an in-app notification center, and PDF compliance export. Full known-limitations list and forward plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+---
+
+## 📄 License
+
+Released under the **MIT License** — see [`LICENSE`](LICENSE).
+
+---
+
+## 🙏 Acknowledgements
+
+- Emission factors modeled on publicly documented **DEFRA / EPA / IPCC** methodologies (the bundled dataset is an illustrative DEFRA 2024 subset — see [`docs/SOURCES.md`](docs/SOURCES.md)).
+- Built on the open-source ecosystem: **Django · Django REST Framework · Celery · React · Vite · Tailwind CSS · TanStack Query · Recharts · PostgreSQL · Redis**.
+- Developed as a portfolio flagship across ten disciplined engineering phases, each with its own review, decisions, and milestone report.

@@ -1,6 +1,6 @@
 # ScopeTrace — Frontend
 
-The React + Vite single-page application for **ScopeTrace**, the Enterprise Carbon Accounting & ESG Data Platform. It provides the analyst-facing dashboard, the multi-source ingestion (upload) center, and the emissions review ledger with the record approval workflow.
+The React + Vite single-page application for **ScopeTrace**, the Enterprise ESG Compliance & AI Governance Platform. It provides the analyst-facing dashboard, the multi-source ingestion (upload) center, the emissions review ledger with the record approval workflow, and the governed AI insights surfaces (anomaly explanations, factor recommendations, the ESG assistant, and AI cost/observability widgets).
 
 ## Tech Stack
 
