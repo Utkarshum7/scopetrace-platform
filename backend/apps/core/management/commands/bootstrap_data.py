@@ -42,6 +42,9 @@ DEMO_USERS = [
 ]
 
 DEV_DEFAULT_PASSWORD = "admin12345"
+# Referenced in README.md / docs/DEPLOYMENT_GUIDE.md / LoginPage.jsx's local-demo
+# hint -- keep this exact value if it ever needs to change, update those too.
+DEMO_DEV_DEFAULT_PASSWORD = "demo12345"
 
 
 class Command(BaseCommand):
@@ -121,7 +124,26 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Created admin user: {username} (Platform Admin)"))
 
     def _ensure_demo_users(self, org):
-        password = os.environ.get("DEMO_USER_PASSWORD", "demo12345")
+        password = os.environ.get("DEMO_USER_PASSWORD")
+        if not password:
+            if settings.DEBUG:
+                password = DEMO_DEV_DEFAULT_PASSWORD
+                self.stdout.write(
+                    self.style.WARNING(
+                        "DEMO_USER_PASSWORD not set — using insecure dev default "
+                        f"'{DEMO_DEV_DEFAULT_PASSWORD}' (allowed only because DEBUG=True)."
+                    )
+                )
+            else:
+                self.stdout.write(
+                    self.style.WARNING(
+                        "DEMO_USER_PASSWORD not set and DEBUG=False — skipping demo user "
+                        "creation (never create publicly-documented-password accounts, up to "
+                        "ORG_ADMIN, in production). Set the variable and re-run if demo users "
+                        "are genuinely needed in this environment."
+                    )
+                )
+                return
         for username, role in DEMO_USERS:
             user, created = User.objects.get_or_create(
                 username=username,
