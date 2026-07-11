@@ -43,6 +43,17 @@ reviewer shouldn't have to know Django's undocumented-in-this-codebase
 defaults to confirm the posture. Verified live before making them
 explicit: zero runtime behavior change.
 
+**Phase 9c**: `frontend/nginx.conf` (the Docker Compose frontend service)
+had no security headers at all. Added `X-Content-Type-Options: nosniff`,
+`X-Frame-Options: DENY`, `Referrer-Policy: same-origin` (matching the
+backend's own policy above), and `X-XSS-Protection: 1; mode=block` — safe,
+standard, zero-ambiguity headers. **Deliberately not added: a
+Content-Security-Policy.** A CSP needs every legitimate script/style/
+connect-src enumerated and verified in a real browser before shipping —
+getting it wrong fails closed (blank page, broken API calls), not open.
+Reviewed and left as an open recommendation (§10) rather than guessed at
+inside this pass.
+
 ## 3. Rate limiting
 
 DRF throttling on every request: `THROTTLE_ANON` (100/hour default),
@@ -65,21 +76,47 @@ over the full git history on every push — advisory
 established pattern (see `CI_CD.md` §1.2). Confirmed clean on a local
 100-commit history scan before this workflow was added.
 
+**Phase 9c**: `bootstrap_data`'s admin-creation path already refused to
+create a weak-password superuser when `DEBUG=False` and
+`DJANGO_SUPERUSER_PASSWORD` was unset — its sibling `--demo-users` path
+(creates 4 users, up to `ORG_ADMIN`, and defaults to the publicly-
+documented password `demo12345` in README.md/this repo's own source) had
+no such guard. `render.yaml` never sets `BOOTSTRAP_DEMO_USERS`, so this
+was not an active production exposure, but the code path itself was
+structurally unsafe — now mirrors the admin path's fail-closed behavior
+exactly (skip + `WARNING` log when `DEBUG=False` and no
+`DEMO_USER_PASSWORD` is set).
+
 ## 5. Dependency vulnerability posture
 
 CI runs `pip-audit`/`npm audit` on every push, **advisory** (not blocking —
 see [`CI_CD.md`](CI_CD.md) §1.2 for why).
 
-- **Backend**: **Phase 6f** bumped `Django` `6.0.5` → `6.0.6` (patch
-  release), fixing all 5 CVEs (`PYSEC-2026-197` through `-201`) flagged
-  since Phase 5i's first real scan. Could not be installed/tested in this
-  development sandbox (no outbound PyPI network access); relies on
-  `backend-ci.yml`'s real-network `Test (Postgres + Redis)` job for actual
-  verification — see [`GOVERNANCE.md`](GOVERNANCE.md) §6f.
-- **Frontend**: 4 findings (2 moderate, 2 high) — all in dev/transitive
-  dependencies (`esbuild`/`vite`'s dev-server-only issue, `form-data`,
-  `js-yaml`), none in code actually shipped to end users in the production
-  build. Not yet remediated.
+- **Backend**: **Phase 6f** bumped `Django` `6.0.5` → `6.0.6`, fixing 5
+  CVEs (`PYSEC-2026-197` through `-201`). **Phase 9c** bumped `6.0.6` →
+  `6.0.7`, fixing 3 more (`PYSEC-2026-2090/2091/2092` — `CVE-2026-48588`
+  cached `Set-Cookie` exposure via `UpdateCacheMiddleware`/`cache_page()`,
+  `CVE-2026-53877` `GDALRaster` heap over-read, `CVE-2026-53878`
+  `DomainNameValidator` header injection). Verified none of the three
+  vulnerable code paths are used anywhere in this codebase (grepped for
+  `cache_page`/`UpdateCacheMiddleware`/`GDALRaster`/`contrib.gis`/
+  `DomainNameValidator` — zero matches) — this is a defense-in-depth
+  upgrade, not an active-exploit fix. Same sandbox network limitation as
+  Phase 6f: could not be installed/tested locally, relies on
+  `backend-ci.yml`'s real-network job for verification.
+- **Frontend**: **Phase 9c** fixed `form-data` (high, `GHSA-hmw2-7cc7-3qxx`,
+  CRLF injection via unescaped multipart field names) and `js-yaml`
+  (moderate, `GHSA-h67p-54hq-rp68`, quadratic-complexity DoS) via `npm audit
+  fix` — both transitive-only (axios/jsdom and eslint respectively),
+  resolved without any `package.json` direct-dependency change. **Still
+  open**: `esbuild`/`vite` (moderate, `GHSA-67mh-4wv8-2f99` — any website
+  can send requests to the Vite *dev server* and read the response). Dev-
+  server-only; the production build is always a static `vite build` output
+  served by nginx/Vercel, which never runs a dev server. The only fix
+  (`npm audit fix --force`) installs `vite@8.1.4`, a 3-major-version jump
+  npm itself flags as breaking — deliberately not forced through inside an
+  additive hardening pass; needs its own dedicated migration/testing
+  effort.
 
 Both are tracked here, not silently ignored — re-check `pip-audit`/`npm
 audit` output on every CI run (§7 of `OPERATIONS_RUNBOOK.md`'s weekly
@@ -207,6 +244,21 @@ this milestone.
 
 **Fixed in Phase 6f**: the 3 dead `FEATURE_*` flags, Django's 5 known
 CVEs (bumped to `6.0.6`), no secret-scanning CI step (added, advisory).
+
+**Fixed in Phase 9c**: Django's 3 more known CVEs (bumped to `6.0.7`),
+`form-data`/`js-yaml` frontend CVEs, `bootstrap_data --demo-users`'
+missing fail-closed guard, missing `nginx.conf` security headers.
+
+**Still open — application-level, deliberately deferred pending dedicated
+follow-up (not guessed at inside an additive hardening pass)**:
+
+1. **No Content-Security-Policy** on the frontend (§2). Needs every
+   legitimate script/style/connect-src enumerated and verified in a real
+   browser — a wrong CSP fails closed (breaks the app), so this needs its
+   own browser-verified rollout, not a blind addition.
+2. **`esbuild`/`vite` dev-server CVE** (§5, moderate, dev-only exposure).
+   Fix requires a 3-major-version Vite bump (`5.4` → `8.1`) with its own
+   migration/testing effort.
 
 **Still open — infrastructure-layer, not application code** (see
 [`docs/INFRASTRUCTURE_SECURITY.md`](INFRASTRUCTURE_SECURITY.md) for the
