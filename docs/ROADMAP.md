@@ -39,12 +39,16 @@ depth:
 
 ## 2. Future Roadmap
 
-Phases 0–7 (rebrand/infra → correctness fixes → auth/RBAC → carbon engine →
+Phases 0–9 (rebrand/infra → correctness fixes → auth/RBAC → carbon engine →
 metrics/analytics → production engineering: async processing, retries/DLQ,
 scheduling, notifications, monitoring, CI/CD, Docker, documentation →
 enterprise governance → AI: five real capabilities plus observability/
-cost governance/ops hardening) are complete. What's next, as currently
-planned:
+cost governance/ops hardening → UX/accessibility → production engineering
+& release readiness: deployment audit, request-correlated observability,
+security/dependency hardening, release checklist) are complete — see
+[`VERSION.md`](../VERSION.md) (`0.9.0-rc1`) and
+[`RELEASE_NOTES.md`](RELEASE_NOTES.md) for the full breakdown. What's
+next, as currently planned:
 
 - **Phase 6 — Enterprise Governance** *(complete)*: full audit timeline UI,
   a real cryptographic immutable audit hash-chain (see §1, done in 6a),
@@ -148,24 +152,41 @@ planned:
   and new Platform Admin/Org Admin/Auditor dashboard widgets (AI usage,
   provider mix, evaluation health, latency trend, budget utilization).
   See AI_ARCHITECTURE.md §19, AI_EVALUATION.md §9, and ADR 0014.
-- **Phase 8 — UX**: accessibility audit, responsive design pass, theming,
-  saved/custom dashboards, an in-app notification center (distinct from
-  Phase 5g's email notifications — a UI-visible feed, not a new delivery
-  channel; see [`NOTIFICATIONS.md`](NOTIFICATIONS.md) for why that's a
-  clean extension point, not a redesign).
-- **Phase 9 — Observability**: Prometheus/Grafana/Loki/OpenTelemetry/Sentry,
-  structured logging beyond today's `logging`-module-based approach. Flower
-  (Phase 5h), the three health endpoints (`/healthz`, `/healthz/worker/`,
-  `/healthz/ai/`), and Phase 7g's AI observability/cost-governance/ops-
-  health endpoints + dashboard widgets are today's observability surface;
-  this phase is the "real" production-grade layer on top (metrics scraped
-  by an actual time-series backend, not read on-demand from the app's own
-  database).
-- **Phase 10 — Production Release**: a real landing page, a demo
+- **Phase 8 — UX** *(complete, 8a–8e)*: an accessibility and design-system
+  pass — shared UI primitives (`Card`, `PageHeader`, `Modal`, `Skeleton`,
+  `EmptyState`/`ErrorState`, `ConfidenceBadge`, `AIAdvisoryBadge`), design
+  tokens, WCAG-conscious focus/landmark/heading conventions, and a
+  consistent loading/empty/error pattern across every page. See
+  [`FRONTEND_DESIGN_SYSTEM.md`](FRONTEND_DESIGN_SYSTEM.md). Saved/custom
+  dashboards and an in-app notification center (distinct from Phase 5g's
+  email notifications) were scoped here originally but not built — still
+  open, re-scoped under Phase 10+ below.
+- **Phase 9 — Production Engineering & Release Readiness** *(complete,
+  9a–9d)*: retitled and re-scoped from this section's original
+  "Observability"-only prediction once the phase actually started — see
+  [`RELEASE_NOTES.md`](RELEASE_NOTES.md) for the full breakdown. Covered a
+  full deployment/environment audit (9a), request-correlated structured
+  logging and AI-gateway observability (9b — the `logging`-module-based
+  approach this bullet originally called out as a limitation is now
+  request-ID-correlated and UTC-timestamped, see
+  [`OPERATIONS_RUNBOOK.md`](OPERATIONS_RUNBOOK.md) §1a), a security/
+  dependency audit with CVE fixes (9c), and this system-wide release
+  checklist (9d, [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md)). Flower
+  (Phase 5h), the three health endpoints, and Phase 7g's AI observability
+  endpoints remain today's observability surface — a real time-series
+  backend (Prometheus/Grafana/Loki/OpenTelemetry/Sentry) is still future
+  work, re-scoped under Phase 10+ below, not part of what "Phase 9" ended
+  up meaning in practice.
+- **Phase 10+ — Launch & beyond**: a real landing page, a demo
   environment, published architecture diagrams (this document's Mermaid
   diagrams are a starting point), API documentation (OpenAPI/Swagger —
   DRF's schema generation isn't wired up yet), real screenshots (replacing
-  §1's placeholder), a video demo, GitHub release notes.
+  §1's placeholder), a video demo, a real Prometheus/Grafana/Loki/
+  OpenTelemetry/Sentry observability stack, saved/custom dashboards, an
+  in-app notification center, and PDF compliance export (deferred since
+  Phase 6e, ADR 0002). See [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md)
+  §16's "Future enhancement" bucket for the classified version of this
+  list.
 
 Each phase, as with every one so far, will get its own architecture review,
 explicit design decisions where trade-offs exist, small focused commits,

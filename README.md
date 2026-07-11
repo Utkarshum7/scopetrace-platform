@@ -3,6 +3,7 @@
 [![Backend CI](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/backend-ci.yml)
 [![Frontend CI](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/frontend-ci.yml)
 [![Docker Build Verification](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/docker-build.yml/badge.svg)](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/docker-build.yml)
+[![Secret Scan](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/secret-scan.yml/badge.svg)](https://github.com/Utkarshum7/breathe-esg-platform/actions/workflows/secret-scan.yml)
 
 > **ScopeTrace**  
 > A production-grade, full-stack enterprise platform that ingests corporate greenhouse gas (GHG) emission data from heterogeneous sources, normalizes it to standardized base activity units — the foundation for CO₂ equivalent (CO₂e) reporting — and guides analysts through an immutable audit and review workflow across Scopes 1, 2, and 3.
@@ -322,7 +323,8 @@ Below are placeholders representing key pages of the ScopeTrace platform. Replac
 | Doc | Covers |
 | :--- | :--- |
 | [`ARCHITECTURE_OVERVIEW.md`](docs/ARCHITECTURE_OVERVIEW.md) | System component diagram, async pipeline sequence diagram, queue topology, links to every subsystem doc |
-| [`DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) | Local dev, production deployment, full environment variable reference, Docker/Compose usage, release checklist |
+| [`RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) · [`RELEASE_NOTES.md`](docs/RELEASE_NOTES.md) · [`SMOKE_TEST_CHECKLIST.md`](docs/SMOKE_TEST_CHECKLIST.md) · [`VERSION.md`](VERSION.md) | System-wide release-candidate audit with a classified risk register, what shipped per phase, manual post-deploy smoke test, current version |
+| [`DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) | Local dev, production deployment, full environment variable reference, Docker/Compose usage, per-commit release checklist |
 | [`OPERATIONS_RUNBOOK.md`](docs/OPERATIONS_RUNBOOK.md) | Celery operations, queue/DLQ operational guide, Flower, health checks, common tasks, scaling, step-by-step runbooks |
 | [`INCIDENT_RESPONSE.md`](docs/INCIDENT_RESPONSE.md) | Backup/restore (verified commands), disaster recovery, incident response, troubleshooting table |
 | [`SECURITY.md`](docs/SECURITY.md) | Auth/RBAC/tenancy posture, secrets, rate limiting, dependency vulnerability status, known gaps |
@@ -334,7 +336,9 @@ Below are placeholders representing key pages of the ScopeTrace platform. Replac
 
 ## 🗺️ Roadmap
 
-Phases 0–5 (rebrand & infra → correctness → auth/RBAC → carbon engine →
-metrics/analytics → production engineering) are complete. Known limitations
-and the actual Phase 6–10 plan (Enterprise Governance, AI, UX, Observability,
-Production Release): [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Phases 0–9 (rebrand & infra → correctness → auth/RBAC → carbon engine →
+metrics/analytics → production engineering → enterprise governance → AI →
+UX/accessibility → production engineering & release readiness) are
+complete — current version `0.9.0-rc1`, see [`VERSION.md`](VERSION.md)
+and [`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md). Known limitations
+and the Phase 10+ launch plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
