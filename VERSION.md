@@ -37,7 +37,7 @@ authoritative version reference going forward.
 
 ## What's in `1.0.0`
 
-Phases 0 through 10, in full — see [`RELEASE_NOTES.md`](RELEASE_NOTES.md)
+Phases 0 through 10, in full — see [`RELEASE_NOTES.md`](docs/RELEASE_NOTES.md)
 for the phase-by-phase breakdown, [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md)
 for the Phase 9d system-wide readiness audit, and
 [`docs/RELEASE_CERTIFICATION.md`](docs/RELEASE_CERTIFICATION.md) for the

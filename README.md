@@ -16,7 +16,7 @@ A production-grade, full-stack platform for corporate greenhouse-gas accounting 
 ![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
 ![Django](https://img.shields.io/badge/Django-6.0-092E20?logo=django&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
-![Tests](https://img.shields.io/badge/tests-1007%20passing-2ebb72)
+![Tests](https://img.shields.io/badge/tests-1038%20passing-2ebb72)
 
 </div>
 
@@ -165,9 +165,9 @@ ScopeTrace treats AI as an **advisory layer over a deterministic core**, not a d
 
 | Suite | Count | Notes |
 | :--- | :--- | :--- |
-| **Backend** | **915** tests | Run against real **PostgreSQL 16 + Redis 7** service containers in CI — not SQLite/eager-mode |
-| **Frontend** | **92** tests | Vitest + React Testing Library |
-| **Total** | **1,007** | Green on every commit across 4 GitHub Actions workflows |
+| **Backend** | **943** tests | Run against real **PostgreSQL 16 + Redis 7** service containers in CI — not SQLite/eager-mode |
+| **Frontend** | **95** tests | Vitest + React Testing Library |
+| **Total** | **1,038** | Green on every commit across 4 GitHub Actions workflows |
 
 Coverage highlights: every concurrent code path (`select_for_update` on AI budget/idempotency, approval transitions, soft delete, versioning, audit append, metrics-cache bump) has a dedicated multi-threaded race test; the AI evaluation harness ships an I1–I6 invariant suite enforced as a CI merge gate. Full strategy: [`docs/CI_CD.md`](docs/CI_CD.md).
 

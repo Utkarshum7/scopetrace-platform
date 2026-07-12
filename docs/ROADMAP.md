@@ -191,8 +191,11 @@ breakdown. What's next, as currently planned:
   release decision (approved): [`RELEASE_CERTIFICATION.md`](RELEASE_CERTIFICATION.md).
   This is the milestone that actually earned the `1.0.0` tag — see
   [`VERSION.md`](../VERSION.md).
-- **Phase 11+ — Launch & beyond**: a real landing page, a demo
-  environment, published architecture diagrams (this document's Mermaid
+- **Phase 11+ — Launch & beyond**: a real landing page, a *live hosted*
+  demo environment (the `DEMO_MODE` capability that makes free hosting
+  possible is already built — see [`DEMO_MODE_LATENCY.md`](DEMO_MODE_LATENCY.md)
+  and README's "Demo Deployment" section — what's still pending is actually
+  deploying and linking one), published architecture diagrams (this document's Mermaid
   diagrams are a starting point), API documentation (OpenAPI/Swagger —
   DRF's schema generation isn't wired up yet), real screenshots (replacing
   §1's placeholder), a video demo, a real Prometheus/Grafana/Loki/
