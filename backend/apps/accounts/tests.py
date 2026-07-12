@@ -2,7 +2,7 @@ from io import BytesIO
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import InMemoryUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework import status as drf
 from rest_framework.test import APIClient
 
@@ -99,6 +99,19 @@ class AuthFlowTests(TestCase):
         self.assertEqual(d["active_role"], "ANALYST")
         self.assertEqual(d["active_organization"]["name"], "Auth Org")
         self.assertFalse(d["is_platform_admin"])
+
+    def test_me_reports_demo_mode_false_by_default(self):
+        # D5: production (DEMO_MODE unset -> False) must not report demo_mode
+        # true -- the frontend's Demo Mode banner reads this field directly.
+        self.client.force_authenticate(self.user)
+        d = self.client.get("/api/me/").json()
+        self.assertFalse(d["demo_mode"])
+
+    @override_settings(DEMO_MODE=True)
+    def test_me_reports_demo_mode_true_when_enabled(self):
+        self.client.force_authenticate(self.user)
+        d = self.client.get("/api/me/").json()
+        self.assertTrue(d["demo_mode"])
 
     def test_refresh_issues_new_access(self):
         tokens = self._login()

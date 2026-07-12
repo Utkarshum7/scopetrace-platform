@@ -1,5 +1,6 @@
 import logging
 
+from django.conf import settings
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -72,6 +73,10 @@ class MeView(APIView):
 
     def get(self, request):
         data = UserSerializer(request.user).data
+        # D5: lets the frontend show a Demo Mode indicator without a separate
+        # request -- deployment mode is not sensitive, and /api/me/ is already
+        # fetched once per session by AuthContext, so this is free.
+        data["demo_mode"] = settings.DEMO_MODE
         try:
             ctx = resolve_tenant_context(request)
             data["active_organization"] = (
