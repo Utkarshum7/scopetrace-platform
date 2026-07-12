@@ -235,13 +235,19 @@ the original file with `field releaseCommand not found`):
 - `releaseCommand` → **`preDeployCommand`**. `releaseCommand` is not a Render
   Blueprint field (it's a Heroku-ism); `preDeployCommand` is the correct
   field and runs in the same phase (after build, before start).
-- The `fromService: {..., envVarKey: SECRET_KEY}` cross-service key copy is
-  **removed**; `api`/`worker`/`beat` each now generate their own `SECRET_KEY`
-  via `generateValue: true`. `envVarKey` could not be confirmed in Render's
-  current `fromService` spec, and it isn't needed: only the `api` process
-  signs/verifies JWTs, sessions, and CSRF; `worker`/`beat` run Celery tasks
-  with plain kwargs and S3-presigned URLs and never verify api-issued
-  tokens, so their keys need not match.
+- `SECRET_KEY` is now a **single shared value** declared once in the
+  `scopetrace-shared` env group (`sync: false`, populated once in the
+  dashboard) — Render's documented "single source of truth" mechanism for
+  sharing one value across `api`/`worker`/`beat`, which all three already
+  reference. This replaces the previous `fromService: {..., envVarKey:
+  SECRET_KEY}` cross-service copy: `envVarKey` is no longer in Render's
+  current `fromService` spec (verified against the docs — `fromService` now
+  exposes only connection properties like `connectionString`), and a shared
+  *and* Render-auto-generated secret cannot be expressed in a current
+  Blueprint (`generateValue` is not documented inside an env group). Generate
+  the value once (`python -c "from django.core.management.utils import
+  get_random_secret_key as k; print(k())"`) and set it on the group before
+  the first deploy; it is required (the app fails closed without it).
 - `type: redis` is retained as a **deprecated-but-valid alias** for the
   current `type: keyvalue` (it parses; a `keyvalue` rename is a safe future
   cleanup). If a future Render release drops the alias, change the four

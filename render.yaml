@@ -22,14 +22,18 @@
 #     1. `releaseCommand` was NOT a Render Blueprint field (it's a
 #        Heroku-ism) and was rejected by Render's parser. Replaced with
 #        `preDeployCommand`, the correct lifecycle field, same command.
-#     2. The previous `fromService: {..., envVarKey: SECRET_KEY}` cross-
-#        service SECRET_KEY copy is removed. `envVarKey` could not be
-#        confirmed in Render's current fromService spec, and it isn't
-#        needed: only the api process signs/verifies JWTs, sessions, and
-#        CSRF; worker/beat run tasks with plain kwargs + S3-presigned URLs
-#        and never verify api-issued tokens, so each service generating its
-#        own SECRET_KEY (`generateValue: true`) is both compatible and
-#        correct.
+#     2. SECRET_KEY is now a SINGLE shared value across api/worker/beat,
+#        declared once in the `scopetrace-shared` env group (`sync: false`,
+#        set once in the dashboard) — Render's documented mechanism for
+#        sharing one value across multiple services. This replaces the
+#        previous `fromService: {..., envVarKey: SECRET_KEY}` cross-service
+#        copy: `envVarKey` is no longer present in Render's current
+#        `fromService` spec (verified against the docs — `fromService` now
+#        exposes only connection properties like `connectionString`), and a
+#        shared AND Render-auto-generated secret cannot be expressed in a
+#        current Blueprint (`generateValue` is not documented inside an env
+#        group). The operator generates SECRET_KEY once and sets it on the
+#        group — see the group definition below.
 #
 #   REMAINING KNOWN ITEM (valid, not a blocker):
 #     - `type: redis` is a deprecated-but-still-valid alias for the current
@@ -44,6 +48,26 @@
 envVarGroups:
   - name: scopetrace-shared
     envVars:
+      # ─────────────────────────────────────────────────────
+      # Django SECRET_KEY — a SINGLE shared value across api/worker/beat.
+      # Render's documented mechanism for sharing one value across multiple
+      # services is an environment group ("a single source of truth ...
+      # linked to any number of services"), which all three services already
+      # reference below. Declared `sync: false` (a placeholder populated once
+      # in the Render dashboard, never committed) — the same pattern as the
+      # AWS_* secrets in this group.
+      #
+      # Why not auto-generated: a shared AND Render-auto-generated secret
+      # cannot be expressed in a current Blueprint — `fromService envVarKey`
+      # (the old cross-service generated-value share) is no longer in the
+      # Blueprint spec, and `generateValue` inside an env group is not
+      # documented. So the operator generates SECRET_KEY once and sets it on
+      # this group before the first deploy, e.g.:
+      #   python -c "from django.core.management.utils import get_random_secret_key as k; print(k())"
+      # It is REQUIRED: settings.py fails closed (won't boot) without it when
+      # DEBUG=False.
+      - key: SECRET_KEY
+        sync: false
       # ─────────────────────────────────────────────────────
       # Object storage (Phase 5b) — REQUIRED, STORAGE_BACKEND fails closed
       # to 's3' whenever DEBUG=False (which every service below sets).
@@ -130,8 +154,8 @@ services:
     envVarGroups:
       - scopetrace-shared
     envVars:
-      - key: SECRET_KEY
-        generateValue: true          # Render auto-generates a cryptographic secret
+      # SECRET_KEY comes from the `scopetrace-shared` env group (single
+      # shared value across api/worker/beat) — see the group at the top.
       - key: DEBUG
         value: "False"
       - key: ALLOWED_HOSTS
@@ -204,15 +228,9 @@ services:
     envVarGroups:
       - scopetrace-shared
     envVars:
-      # D2: this service generates its own SECRET_KEY. Worker/beat never
-      # verify api-issued JWTs or sign sessions/CSRF (all of which live in
-      # the api process, which is internally consistent) -- they run Celery
-      # tasks with plain kwargs and S3-presigned URLs -- so their key need
-      # not match the api's. This also drops the `fromService envVarKey`
-      # field, which could not be confirmed in Render's current Blueprint
-      # spec. See the note at the top of this file.
-      - key: SECRET_KEY
-        generateValue: true
+      # SECRET_KEY comes from the `scopetrace-shared` env group — a single
+      # value shared with api/beat (Render's documented cross-service
+      # sharing mechanism). See the group definition at the top of this file.
       - key: DEBUG
         value: "False"
       - key: DATABASE_URL
@@ -253,15 +271,9 @@ services:
     envVarGroups:
       - scopetrace-shared
     envVars:
-      # D2: this service generates its own SECRET_KEY. Worker/beat never
-      # verify api-issued JWTs or sign sessions/CSRF (all of which live in
-      # the api process, which is internally consistent) -- they run Celery
-      # tasks with plain kwargs and S3-presigned URLs -- so their key need
-      # not match the api's. This also drops the `fromService envVarKey`
-      # field, which could not be confirmed in Render's current Blueprint
-      # spec. See the note at the top of this file.
-      - key: SECRET_KEY
-        generateValue: true
+      # SECRET_KEY comes from the `scopetrace-shared` env group — a single
+      # value shared with api/beat (Render's documented cross-service
+      # sharing mechanism). See the group definition at the top of this file.
       - key: DEBUG
         value: "False"
       - key: DATABASE_URL
