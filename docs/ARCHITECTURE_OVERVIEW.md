@@ -196,3 +196,28 @@ successful ingestion, and vice versa. Nearly every operational surface in
 this system (the DLQ, the stale-batch sweep, the notification dispatch
 logic, the progress API) is built around this same two-axis model. Full
 rationale: [`JOB_LIFECYCLE.md`](JOB_LIFECYCLE.md) §0.
+
+---
+
+## 6. Deployment modes: Production vs Demo
+
+Everything in §1–§5 above describes **Production Mode** (`DEMO_MODE=False`,
+the default) exactly as implemented: the Worker/Beat/Redis async tier is
+real, and every diagram, sequence, and queue-topology detail above is
+unchanged and unconditional.
+
+**Demo Mode** (`DEMO_MODE=True`) is an *additive* second mode for free
+hosting tiers that can't run a standing background-worker process (see
+[`README.md`](../README.md) §"Demo Deployment"). It does not remove or
+redesign the Worker/Beat/Redis architecture — it changes exactly one Celery
+setting (`CELERY_TASK_ALWAYS_EAGER`, derived by
+`apps.core.execution.resolve_celery_execution`) so §2's sequence collapses
+into a single synchronous call stack inside the `POST /api/upload/*` request:
+`ingest_task → generate_anomaly_explanations_task →
+generate_validation_assistance_task → calculate_task →
+send_notification_task → generate_factor_recommendations_task` all execute
+inline, in that order, before the HTTP response is returned — no broker, no
+`Q` hop, no `W1`/`W2`/`W3` processes in §2's diagram exist in this mode.
+`/healthz/worker/` reports `mode: "demo"` (200 OK) instead of the real
+worker-ping check, since no worker is expected. Full latency evidence and
+the resulting safe-default configuration: [`DEMO_MODE_LATENCY.md`](DEMO_MODE_LATENCY.md).

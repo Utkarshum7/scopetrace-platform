@@ -286,6 +286,48 @@ Deployment targets: **backend → Render** (`render.yaml` Blueprint: web + worke
 
 ---
 
+## 🧪 Demo Deployment
+
+The architecture above — **Production Mode** — is the real, enterprise
+design this project is built to: a Django/gunicorn API dispatching work to a
+horizontally-scalable Celery **Worker** and a **Beat** scheduler over Redis.
+That's the correct architecture for production, and it's what runs by
+default (`DEMO_MODE=False`) with zero behavior change from everything
+described above.
+
+It also requires a standing background-worker process, which most free
+hosting tiers (including Render's own free tier) don't offer — background
+workers are a paid instance type. **Demo Mode** (`DEMO_MODE=True`) exists
+solely to let this project run end-to-end, including its AI capabilities,
+on free hosting for portfolio/demonstration purposes, without a Worker or
+Beat process:
+
+- One setting change (`CELERY_TASK_ALWAYS_EAGER`, derived from `DEMO_MODE`
+  — see [`apps/core/execution.py`](backend/apps/core/execution.py)) makes
+  the exact same ingest → AI-anomaly-detection → AI-validation-assistance →
+  calculate → notify → AI-factor-recommendation pipeline run synchronously,
+  inline, inside the upload request itself — instead of being dispatched to
+  a worker. No `.delay()` call site changes; no business logic changes.
+  Every feature works the same way: upload, calculation, all four AI
+  capabilities, the ESG Assistant, the audit trail, and the approval
+  workflow.
+- Health checks understand the difference: `/healthz/worker/` reports
+  `{"status": "ok", "mode": "demo"}` instead of a false "no worker
+  responded" failure.
+- AI defaults to the zero-cost, zero-network `echo` provider in Demo Mode
+  (not a real paid provider) unless an operator explicitly configures one —
+  see [`docs/DEMO_MODE_LATENCY.md`](docs/DEMO_MODE_LATENCY.md) for the
+  full, evidence-based latency analysis behind that default and for the
+  bounded request timeout (`AI_PROVIDER_TIMEOUT_SECONDS`) that protects a
+  real-provider deployment against gunicorn's request timeout.
+
+**`render.yaml`, `docker-compose.yml`, and the Worker/Beat services
+themselves are completely untouched by Demo Mode** — it's an additive
+alternate configuration, not a redesign. Setting `DEMO_MODE=False` (the
+default) restores the full enterprise architecture with no other change.
+
+---
+
 ## 🖼️ Screenshots
 
 > 🚧 **Placeholders — to be replaced with real product screenshots after deployment.**
@@ -375,6 +417,7 @@ python manage.py backfill_calculations            # compute CO₂e for existing 
 | [`CARBON_ENGINE_DESIGN.md`](docs/CARBON_ENGINE_DESIGN.md) · [`METRICS_ANALYTICS.md`](docs/METRICS_ANALYTICS.md) · [`MODEL.md`](docs/MODEL.md) · [`SOURCES.md`](docs/SOURCES.md) | Carbon engine, analytics, data model, source formats |
 | [`DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) · [`OPERATIONS_RUNBOOK.md`](docs/OPERATIONS_RUNBOOK.md) · [`INCIDENT_RESPONSE.md`](docs/INCIDENT_RESPONSE.md) | Deploy, day-2 operations, backup/DR/incident response |
 | [`JOB_LIFECYCLE.md`](docs/JOB_LIFECYCLE.md) · [`RETRY_DLQ.md`](docs/RETRY_DLQ.md) · [`SCHEDULED_TASKS.md`](docs/SCHEDULED_TASKS.md) · [`NOTIFICATIONS.md`](docs/NOTIFICATIONS.md) | Async pipeline, retry/DLQ, Celery Beat, notifications |
+| [`DEMO_MODE_LATENCY.md`](docs/DEMO_MODE_LATENCY.md) | Evidence-based Demo Mode runtime assessment — measured/estimated latency, Gunicorn timeout analysis, safe-default rationale |
 | [`FRONTEND_DESIGN_SYSTEM.md`](docs/FRONTEND_DESIGN_SYSTEM.md) · [`FLOWER.md`](docs/FLOWER.md) · [`DOCKER.md`](docs/DOCKER.md) · [`CI_CD.md`](docs/CI_CD.md) | UI design system, monitoring, Docker design, CI |
 | [`DECISIONS.md`](docs/DECISIONS.md) · [`TRADEOFFS.md`](docs/TRADEOFFS.md) · [`ROADMAP.md`](docs/ROADMAP.md) · [`adr/`](docs/adr/) | Design decisions, deferred scope, roadmap, ADRs |
 
