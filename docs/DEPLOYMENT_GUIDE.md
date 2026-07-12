@@ -222,13 +222,16 @@ explicit, deliberate pass.
   on restart is a minor inefficiency, not a correctness risk, since every
   scheduled task is idempotent/self-healing — see
   [`SCHEDULED_TASKS.md`](SCHEDULED_TASKS.md)).
-- An `envVarGroups: [scopetrace-shared]` block holding `STORAGE_BACKEND` +
-  the five `AWS_S3_*` variables (provider-configurable — the same five
-  variables configure AWS S3, Cloudflare R2, Backblaze B2, or a
-  self-hosted MinIO-compatible host; only their *values* differ per
-  provider, documented inline in `render.yaml` itself) and the optional
-  `EMAIL_*` variables, shared across `api`/`worker`/`beat` without
-  duplicating the same `sync: false` secret three times.
+- A top-level `envVarGroups:` block defining `scopetrace-shared`, holding
+  the shared `SECRET_KEY`, `STORAGE_BACKEND` + the five `AWS_S3_*` variables
+  (provider-configurable — the same five variables configure AWS S3,
+  Cloudflare R2, Backblaze B2, or a self-hosted MinIO-compatible host; only
+  their *values* differ per provider, documented inline in `render.yaml`
+  itself) and the optional `EMAIL_*` variables. Each service **attaches**
+  the group from inside its own `envVars` list via `- fromGroup:
+  scopetrace-shared` (D2: not a service-level `envVarGroups:` field, which
+  Render's parser rejects), so the same secrets are shared across
+  `api`/`worker`/`beat` without repeating them three times.
 
 **D2 Blueprint compatibility fixes** (applied after Render's parser rejected
 the original file with `field releaseCommand not found`):

@@ -14,11 +14,19 @@
 #     - `preDeployCommand` runs AFTER buildCommand and BEFORE startCommand
 #       (the migration/seed phase) and is supported on all instance types
 #     - `databases:` + `fromDatabase` (Postgres)
-#     - `envVarGroups:` for sharing secrets across services without duplication
+#     - top-level `envVarGroups:` to DEFINE a shared group; a service ATTACHES
+#       it via `envVars: [{ fromGroup: <name> }]` (NOT a service-level
+#       `envVarGroups:` field -- that is rejected by Render's parser)
 #     - `fromService: {..., property: connectionString}` (used for REDIS_URL)
 #     - `generateValue: true` and `sync: false` env vars
 #
 #   D2 COMPATIBILITY FIXES (the reason this note changed):
+#     0. Service-level `envVarGroups: [scopetrace-shared]` was rejected
+#        ("field envVarGroups not found in type file.Service"). A Blueprint
+#        service attaches a group from INSIDE its `envVars` list via
+#        `- fromGroup: scopetrace-shared`, not a service-level field. Fixed
+#        on all three services. (The TOP-LEVEL `envVarGroups:` that DEFINES
+#        the group is a separate, valid key and is unchanged.)
 #     1. `releaseCommand` was NOT a Render Blueprint field (it's a
 #        Heroku-ism) and was rejected by Render's parser. Replaced with
 #        `preDeployCommand`, the correct lifecycle field, same command.
@@ -41,10 +49,10 @@
 #       is a safe future cleanup, not required for deployment.
 # ─────────────────────────────────────────────────────────────────────────
 
-# Shared, non-service-specific secrets — referenced by api/worker/beat below
-# via `envVarGroups: [scopetrace-shared]` instead of repeating the same
-# sync:false entries three times. See docs/DEPLOYMENT_GUIDE.md §4 for what
-# each of these actually configures.
+# Shared, non-service-specific secrets — attached by api/worker/beat below
+# via `envVars: [{ fromGroup: scopetrace-shared }]` instead of repeating the
+# same entries three times. See docs/DEPLOYMENT_GUIDE.md §4 for what each of
+# these actually configures.
 envVarGroups:
   - name: scopetrace-shared
     envVars:
@@ -151,9 +159,11 @@ services:
     # Database-aware health check — Render stops routing to the instance if the
     # DB is unreachable, instead of the old always-200 /api/ router root.
     healthCheckPath: /healthz
-    envVarGroups:
-      - scopetrace-shared
     envVars:
+      # Attach the shared env group. In a Blueprint a service references a
+      # group INSIDE its envVars via `fromGroup` (there is no service-level
+      # `envVarGroups:` field -- Render's parser rejects it).
+      - fromGroup: scopetrace-shared
       # SECRET_KEY comes from the `scopetrace-shared` env group (single
       # shared value across api/worker/beat) — see the group at the top.
       - key: DEBUG
@@ -225,9 +235,11 @@ services:
     # feature needed, just the same `&&` chaining already used in
     # preDeployCommand above.
     startCommand: python manage.py migrate --check && celery -A config worker --loglevel=info -Q celery,ingestion,calculation,maintenance,notifications,ai
-    envVarGroups:
-      - scopetrace-shared
     envVars:
+      # Attach the shared env group. In a Blueprint a service references a
+      # group INSIDE its envVars via `fromGroup` (there is no service-level
+      # `envVarGroups:` field -- Render's parser rejects it).
+      - fromGroup: scopetrace-shared
       # SECRET_KEY comes from the `scopetrace-shared` env group — a single
       # value shared with api/beat (Render's documented cross-service
       # sharing mechanism). See the group definition at the top of this file.
@@ -268,9 +280,11 @@ services:
     # service above (waits for api's preDeployCommand migrate) -- see its
     # comment for the full rationale.
     startCommand: python manage.py migrate --check && celery -A config beat --loglevel=info
-    envVarGroups:
-      - scopetrace-shared
     envVars:
+      # Attach the shared env group. In a Blueprint a service references a
+      # group INSIDE its envVars via `fromGroup` (there is no service-level
+      # `envVarGroups:` field -- Render's parser rejects it).
+      - fromGroup: scopetrace-shared
       # SECRET_KEY comes from the `scopetrace-shared` env group — a single
       # value shared with api/beat (Render's documented cross-service
       # sharing mechanism). See the group definition at the top of this file.
