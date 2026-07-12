@@ -19,6 +19,13 @@ import dj_database_url
 import os
 import sys
 
+# D4: pure, unit-tested helper deriving Celery's eager-execution defaults from
+# the deployment mode — see its use below CELERY_BROKER_URL for the full
+# rationale. Imported at the top (not inline) to satisfy ruff's E402 (module-
+# level imports must precede other code); apps.core.execution has no Django
+# settings dependency of its own, so importing it this early is safe.
+from apps.core.execution import resolve_celery_execution
+
 # True while running the test suite — used to disable rate limiting so tests
 # don't hit throttle ceilings.
 _TESTING = 'test' in sys.argv
@@ -389,8 +396,6 @@ CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default=REDIS_URL)
 #     propagate = False, so eager .delay() mirrors production's fire-and-forget
 #     contract (a task failure records its own outcome and never re-raises into
 #     the HTTP caller). See apps/core/execution.py for the full rationale.
-from apps.core.execution import resolve_celery_execution
-
 _eager_default, _eager_propagates_default = resolve_celery_execution(
     debug=DEBUG, testing=_TESTING, demo_mode=DEMO_MODE
 )
