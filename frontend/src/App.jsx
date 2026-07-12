@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import LoginPage from './pages/LoginPage';
 import { Spinner } from './components/ui/Spinner';
+import { DemoModeBanner } from './components/ui/DemoModeBanner';
 import { useAuth } from './context/AuthContext';
 
 // Phase 8 (8a.4): route-split the 4 authenticated-area pages. Measured via
@@ -23,7 +24,7 @@ const ROLE_LABELS = {
 };
 
 function App() {
-  const { isAuthenticated, loading, user, role, isPlatformAdmin, canUpload, canUseAI, logout } = useAuth();
+  const { isAuthenticated, loading, user, role, isPlatformAdmin, canUpload, canUseAI, demoMode, logout } = useAuth();
   // Simple, ultra-stable state-based router
   const [view, setView] = useState({ name: 'dashboard', params: {} });
   const [menuOpen, setMenuOpen] = useState(false);
@@ -107,7 +108,9 @@ function App() {
     }`;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex font-sans antialiased selection:bg-brand-500/30 selection:text-brand-300">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-brand-500/30 selection:text-brand-300">
+      {demoMode && <DemoModeBanner />}
+      <div className="flex flex-1 min-h-0">
 
       {/* Sidebar Navigation */}
       <aside aria-label="Sidebar" className="w-sidebar bg-slate-900 border-r border-slate-800/80 flex flex-col justify-between p-6 select-none shrink-0">
@@ -233,6 +236,7 @@ function App() {
         </Suspense>
       </main>
 
+      </div>
     </div>
   );
 }

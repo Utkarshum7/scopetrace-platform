@@ -61,6 +61,10 @@ export const AuthProvider = ({ children }) => {
     // gates the ?deleted=true "trash" view on GET /api/records/, which is
     // an administrative-oversight capability, not a routine read.
     canViewDeletedRecords: isPlatformAdmin || role === 'ORG_ADMIN',
+    // D5: true when the backend is running with DEMO_MODE=True (background
+    // work executes synchronously in-process, no Celery worker/Beat) --
+    // drives the Demo Mode banner in App.jsx. Absent/false in production.
+    demoMode: !!user?.demo_mode,
     login,
     logout,
     refreshUser: loadUser,

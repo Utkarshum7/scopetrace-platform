@@ -38,6 +38,7 @@ function Probe() {
       <div data-testid="can-upload">{String(auth.canUpload)}</div>
       <div data-testid="can-approve">{String(auth.canApprove)}</div>
       <div data-testid="can-use-ai">{String(auth.canUseAI)}</div>
+      <div data-testid="demo-mode">{String(auth.demoMode)}</div>
       <button onClick={() => auth.login('u', 'p')}>login</button>
       <button onClick={() => auth.logout()}>logout</button>
     </div>
@@ -173,6 +174,30 @@ describe('AuthContext', () => {
       expect(screen.getByTestId('can-upload')).toHaveTextContent('false');
       expect(screen.getByTestId('can-approve')).toHaveTextContent('false');
       expect(screen.getByTestId('can-use-ai')).toHaveTextContent('false');
+    });
+  });
+
+  describe('D5 — demoMode (from GET /api/me/\'s demo_mode field)', () => {
+    it('defaults to false when the backend omits demo_mode (production)', async () => {
+      tokenStore.getAccess.mockReturnValue('t');
+      apiService.getCurrentUser.mockResolvedValue({ username: 'x', active_role: 'ANALYST' });
+      renderProbe();
+      await waitFor(() => expect(screen.getByTestId('authenticated')).toHaveTextContent('true'));
+      expect(screen.getByTestId('demo-mode')).toHaveTextContent('false');
+    });
+
+    it('is true when the backend reports demo_mode: true', async () => {
+      tokenStore.getAccess.mockReturnValue('t');
+      apiService.getCurrentUser.mockResolvedValue({ username: 'x', active_role: 'ANALYST', demo_mode: true });
+      renderProbe();
+      await waitFor(() => expect(screen.getByTestId('authenticated')).toHaveTextContent('true'));
+      expect(screen.getByTestId('demo-mode')).toHaveTextContent('true');
+    });
+
+    it('is false when unauthenticated (no user loaded at all)', async () => {
+      renderProbe();
+      await waitFor(() => expect(screen.getByTestId('authenticated')).toHaveTextContent('false'));
+      expect(screen.getByTestId('demo-mode')).toHaveTextContent('false');
     });
   });
 
