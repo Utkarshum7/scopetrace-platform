@@ -26,7 +26,13 @@ class AnthropicProvider(LLMProvider):
             raise ImproperlyConfigured(
                 "ANTHROPIC_API_KEY is not configured but AI_PROVIDER=anthropic."
             )
-        self._client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        client_kwargs = {"api_key": settings.ANTHROPIC_API_KEY}
+        # D5: bounded request timeout, Demo Mode only — see settings.
+        # AI_PROVIDER_TIMEOUT_SECONDS's docstring. None in production, so this
+        # falls through to the SDK's own default (10 minutes) unchanged.
+        if settings.AI_PROVIDER_TIMEOUT_SECONDS is not None:
+            client_kwargs["timeout"] = settings.AI_PROVIDER_TIMEOUT_SECONDS
+        self._client = anthropic.Anthropic(**client_kwargs)
 
     def capabilities(self) -> frozenset[AICapability]:
         return frozenset({AICapability.STRUCTURED_OUTPUT})

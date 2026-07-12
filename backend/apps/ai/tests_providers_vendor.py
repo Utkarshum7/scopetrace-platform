@@ -111,6 +111,51 @@ class OpenAIProviderCompleteTests(TestCase):
                 provider.complete(LLMRequest(prompt="hi", model="gpt-4o"))
 
 
+@override_settings(ANTHROPIC_API_KEY="sk-ant-test-key", AI_PROVIDER_TIMEOUT_SECONDS=30)
+class AnthropicProviderTimeoutTests(TestCase):
+    """D5 — the Demo Mode-only bounded provider timeout (settings.
+    AI_PROVIDER_TIMEOUT_SECONDS) must reach the vendor client's constructor
+    when set, and must NOT be passed at all when None (production — the SDK's
+    own default timeout applies unchanged, byte-for-byte pre-D5 behavior)."""
+
+    def test_timeout_passed_to_client_when_configured(self):
+        from apps.ai.providers.anthropic import AnthropicProvider
+
+        with patch("anthropic.Anthropic") as mocked_client_cls:
+            AnthropicProvider()
+
+        mocked_client_cls.assert_called_once_with(api_key="sk-ant-test-key", timeout=30)
+
+    @override_settings(AI_PROVIDER_TIMEOUT_SECONDS=None)
+    def test_no_timeout_kwarg_when_unset(self):
+        from apps.ai.providers.anthropic import AnthropicProvider
+
+        with patch("anthropic.Anthropic") as mocked_client_cls:
+            AnthropicProvider()
+
+        mocked_client_cls.assert_called_once_with(api_key="sk-ant-test-key")
+
+
+@override_settings(OPENAI_API_KEY="sk-openai-test-key", AI_PROVIDER_TIMEOUT_SECONDS=30)
+class OpenAIProviderTimeoutTests(TestCase):
+    def test_timeout_passed_to_client_when_configured(self):
+        from apps.ai.providers.openai import OpenAIProvider
+
+        with patch("openai.OpenAI") as mocked_client_cls:
+            OpenAIProvider()
+
+        mocked_client_cls.assert_called_once_with(api_key="sk-openai-test-key", timeout=30)
+
+    @override_settings(AI_PROVIDER_TIMEOUT_SECONDS=None)
+    def test_no_timeout_kwarg_when_unset(self):
+        from apps.ai.providers.openai import OpenAIProvider
+
+        with patch("openai.OpenAI") as mocked_client_cls:
+            OpenAIProvider()
+
+        mocked_client_cls.assert_called_once_with(api_key="sk-openai-test-key")
+
+
 class ProviderFactoryVendorTests(TestCase):
     @override_settings(ANTHROPIC_API_KEY="sk-ant-test-key")
     def test_factory_selects_anthropic(self):

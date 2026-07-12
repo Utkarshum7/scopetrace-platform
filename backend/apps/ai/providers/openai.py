@@ -23,7 +23,13 @@ class OpenAIProvider(LLMProvider):
             raise ImproperlyConfigured(
                 "OPENAI_API_KEY is not configured but AI_PROVIDER=openai."
             )
-        self._client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+        client_kwargs = {"api_key": settings.OPENAI_API_KEY}
+        # D5: bounded request timeout, Demo Mode only — see settings.
+        # AI_PROVIDER_TIMEOUT_SECONDS's docstring. None in production, so this
+        # falls through to the SDK's own default unchanged.
+        if settings.AI_PROVIDER_TIMEOUT_SECONDS is not None:
+            client_kwargs["timeout"] = settings.AI_PROVIDER_TIMEOUT_SECONDS
+        self._client = openai.OpenAI(**client_kwargs)
 
     def capabilities(self) -> frozenset[AICapability]:
         return frozenset({AICapability.STRUCTURED_OUTPUT})

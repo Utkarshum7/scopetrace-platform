@@ -665,13 +665,46 @@ AI_ENABLED = config('AI_ENABLED', default=False, cast=bool)
 # '' is a valid value (no platform default provider configured) — the
 # factory raises ImproperlyConfigured on first use, not at settings-load
 # time, exactly like STORAGE_BACKEND validating only when actually selected.
-AI_PROVIDER = config('AI_PROVIDER', default='echo' if (DEBUG or _TESTING) else '')
+# D5: DEMO_MODE joins DEBUG/_TESTING in this default — Demo Mode's whole
+# pipeline runs synchronously inside the HTTP request (see apps.core.execution),
+# so if an operator flips AI_ENABLED=True in Demo Mode without also picking a
+# provider, the safe zero-cost/zero-network 'echo' provider is what runs, not
+# an ImproperlyConfigured 500 and not an accidental real paid provider from a
+# copy-pasted production env. See docs/DEMO_MODE_LATENCY.md.
+AI_PROVIDER = config('AI_PROVIDER', default='echo' if (DEBUG or _TESTING or DEMO_MODE) else '')
 AI_DEFAULT_MODEL = config('AI_DEFAULT_MODEL', default='claude-sonnet-5')
 AI_DEFAULT_EGRESS_TIER = config('AI_DEFAULT_EGRESS_TIER', default='REDACTED')
 AI_DEFAULT_MONTHLY_BUDGET_USD = config('AI_DEFAULT_MONTHLY_BUDGET_USD', default='50.00')
 
 ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
 OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
+
+# D5 (Demo Mode latency safety) — a bounded per-call provider request timeout,
+# applied ONLY when DEMO_MODE=True. Production (DEMO_MODE=False) is completely
+# unaffected: AnthropicProvider/OpenAIProvider keep using the vendor SDK's own
+# default timeout (10 minutes) exactly as before this setting existed, because
+# production AI calls run inside an async Celery worker, never inside a
+# gunicorn request — there is no fixed wall-clock ceiling to protect there.
+#
+# Demo Mode is different: apps.ingestion.views.BaseUploadView.post's chain
+# (ingest -> AI anomaly/validation -> calculate -> notify -> AI factor-rec)
+# runs synchronously inside ONE gunicorn-timed HTTP request (render.yaml's
+# gunicorn --timeout is 120s). A real remote LLM provider call has NO
+# application-level timeout otherwise (see AnthropicProvider/OpenAIProvider —
+# neither passes `timeout=` to its vendor client), so a single slow upstream
+# response could otherwise stall that request for up to the SDK's own 10-
+# minute default, far past gunicorn's 120s. This default (30s) is chosen so
+# that even several sequential AI calls in one upload (this pipeline calls
+# the provider once per suspicious/failed/unresolved record, one at a time —
+# see apps.ai.tasks) still leave headroom under the 120s ceiling; it does NOT
+# by itself guarantee every upload stays under the ceiling for an
+# unboundedly large batch — see docs/DEMO_MODE_LATENCY.md for the full
+# evidence-based analysis and why Demo Mode's recommended default is
+# AI_PROVIDER=echo (zero network, measured ~20ms/call) rather than a real
+# provider at all.
+AI_PROVIDER_TIMEOUT_SECONDS = (
+    config('AI_PROVIDER_TIMEOUT_SECONDS', default=30, cast=int) if DEMO_MODE else None
+)
 
 # Phase 7a.5 -- apps.ai.evaluation's LLM-as-Judge framework (Tier 2,
 # advisory evaluation). False by default: the framework (rubric
