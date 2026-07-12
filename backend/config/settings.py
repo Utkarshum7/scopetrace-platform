@@ -39,6 +39,20 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # DEBUG defaults to False so an unset env var can never enable debug in prod.
 DEBUG = config('DEBUG', default=False, cast=bool)
 
+# ---------------------------------------------------------------------------
+# DEMO_MODE (D4) — a single, clearly-named flag selecting the deployment mode.
+#   False (default) = PRODUCTION: the full enterprise architecture (Celery
+#     Worker + Beat + Redis, async .delay() dispatch). Nothing about production
+#     changes when this is False — it is byte-for-byte the pre-Demo-Mode system.
+#   True = DEMO: for free hosting where no background worker can run. Background
+#     work executes synchronously in-process via Celery's eager mode (see the
+#     CELERY_TASK_ALWAYS_EAGER derivation below and apps.core.execution). No
+#     Worker, Beat, or broker is required. Intended only for portfolio/demo
+#     hosting; flipping it back to False immediately restores the async system.
+# This is NOT DEBUG: DEMO_MODE runs with DEBUG=False and every production
+# security control (fail-closed config, HSTS, secure cookies) fully active.
+DEMO_MODE = config('DEMO_MODE', default=False, cast=bool)
+
 # SECRET_KEY: a throwaway key is allowed only in local debug. In production the
 # variable is mandatory — booting without it is a hard error, not a weak default.
 SECRET_KEY = config('SECRET_KEY', default='')
@@ -366,13 +380,26 @@ REDIS_URL = config('REDIS_URL', default='')
 # ALWAYS under the test runner, so CI never needs a live Redis to run the suite.
 CELERY_BROKER_URL = config('CELERY_BROKER_URL', default=REDIS_URL)
 CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default=REDIS_URL)
-CELERY_TASK_ALWAYS_EAGER = config(
-    'CELERY_TASK_ALWAYS_EAGER', default=(DEBUG or _TESTING), cast=bool
+# D4: eager execution + exception propagation are derived from the mode via a
+# pure, unit-tested helper (apps.core.execution.resolve_celery_execution). The
+# derived values are DEFAULTS — an explicit env var still overrides either one.
+#   DEMO_MODE=False (production/tests): default eager = (DEBUG or _TESTING),
+#     propagate = True -- byte-for-byte identical to the pre-D4 behavior.
+#   DEMO_MODE=True (demo): eager = True (no worker/broker needed) and
+#     propagate = False, so eager .delay() mirrors production's fire-and-forget
+#     contract (a task failure records its own outcome and never re-raises into
+#     the HTTP caller). See apps/core/execution.py for the full rationale.
+from apps.core.execution import resolve_celery_execution
+
+_eager_default, _eager_propagates_default = resolve_celery_execution(
+    debug=DEBUG, testing=_TESTING, demo_mode=DEMO_MODE
 )
-# Eager mode re-raises task exceptions synchronously instead of swallowing them
-# into the (unused, in eager mode) result backend — failures surface immediately
-# in local dev and in tests.
-CELERY_TASK_EAGER_PROPAGATES = True
+CELERY_TASK_ALWAYS_EAGER = config(
+    'CELERY_TASK_ALWAYS_EAGER', default=_eager_default, cast=bool
+)
+CELERY_TASK_EAGER_PROPAGATES = config(
+    'CELERY_TASK_EAGER_PROPAGATES', default=_eager_propagates_default, cast=bool
+)
 
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_ACCEPT_CONTENT = ['json']

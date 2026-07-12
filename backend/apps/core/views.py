@@ -73,7 +73,30 @@ def healthz_worker(request):
     HTTP status, which remains driven by the active inspect().ping() check
     alone (extend, not redesign). This endpoint alone was already sufficient
     for Phase 5a's scope (proving the pipeline exists and works at all).
+
+    D4 (Demo Mode): when DEMO_MODE=True there is deliberately NO Celery worker
+    or Beat — background work runs synchronously in-process. A worker ping
+    would therefore always fail; reporting that as 503 would be a false alarm.
+    So in demo mode this returns 200 with mode="demo" and a clear explanation,
+    instead of running the (guaranteed-to-fail) inspect().ping(). Production
+    (DEMO_MODE=False, the default) is completely unaffected — the code below
+    runs exactly as before.
     """
+    if settings.DEMO_MODE:
+        return JsonResponse(
+            {
+                "status": "ok",
+                "mode": "demo",
+                "demo_mode": True,
+                "detail": (
+                    "Demo mode: background tasks run synchronously in-process "
+                    "(CELERY_TASK_ALWAYS_EAGER). No Celery worker or Beat "
+                    "process is expected — this is by design, not a failure."
+                ),
+            },
+            status=200,
+        )
+
     if not settings.CELERY_BROKER_URL:
         return JsonResponse(
             {
