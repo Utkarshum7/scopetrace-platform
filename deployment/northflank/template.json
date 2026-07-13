@@ -51,8 +51,8 @@
                   },
                   "buildSettings": {
                     "dockerfile": {
-                      "dockerFilePath": "backend/Dockerfile",
-                      "dockerWorkDir": "backend"
+                      "dockerFilePath": "/backend/Dockerfile",
+                      "dockerWorkDir": "/backend"
                     }
                   },
                   "deployment": {

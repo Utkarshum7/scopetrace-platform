@@ -84,10 +84,20 @@ You now have: bucket name, endpoint URL, access key ID, secret access key.
 ## Step 4 — Configure the build (this is where a resource starts getting created)
 
 1. **Build type**: choose **Dockerfile**.
-2. **Dockerfile path**: `backend/Dockerfile`.
-3. **Build context / working directory**: `backend` (the Dockerfile's
-   `COPY` instructions are relative to that directory).
-4. Leave build arguments empty — nothing in `backend/Dockerfile` needs any.
+2. **Dockerfile location**: `/backend/Dockerfile` — **with the leading
+   slash**. Northflank resolves this path relative to the repo root, and
+   its own docs/examples always show a leading slash (`/Dockerfile`,
+   `/app/src`); omitting it causes a real, reproducible "No Dockerfile
+   found at this location" error (confirmed during D10's live deployment).
+3. **Build context**: `/backend` — also with the leading slash, same
+   reason. This scopes which files are available to `COPY`/`ADD`
+   instructions in the Dockerfile.
+4. There is no separate "working directory" or "root directory" field
+   distinct from build context on Northflank — don't look for one.
+5. **Start command**: leave blank/unset. `backend/Dockerfile` already
+   defines its own `ENTRYPOINT`/`CMD` (`entrypoint.sh` -> gunicorn);
+   Northflank should use that, not an override.
+6. Leave build arguments empty — nothing in `backend/Dockerfile` needs any.
 
 ---
 
