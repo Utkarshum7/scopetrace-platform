@@ -418,6 +418,7 @@ python manage.py backfill_calculations            # compute CO₂e for existing 
 | [`DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) · [`OPERATIONS_RUNBOOK.md`](docs/OPERATIONS_RUNBOOK.md) · [`INCIDENT_RESPONSE.md`](docs/INCIDENT_RESPONSE.md) | Deploy, day-2 operations, backup/DR/incident response |
 | [`JOB_LIFECYCLE.md`](docs/JOB_LIFECYCLE.md) · [`RETRY_DLQ.md`](docs/RETRY_DLQ.md) · [`SCHEDULED_TASKS.md`](docs/SCHEDULED_TASKS.md) · [`NOTIFICATIONS.md`](docs/NOTIFICATIONS.md) | Async pipeline, retry/DLQ, Celery Beat, notifications |
 | [`DEMO_MODE_LATENCY.md`](docs/DEMO_MODE_LATENCY.md) | Evidence-based Demo Mode runtime assessment — measured/estimated latency, Gunicorn timeout analysis, safe-default rationale |
+| [`DEMO_DEPLOYMENT_PLAN.md`](docs/DEMO_DEPLOYMENT_PLAN.md) · [`deployment/northflank/`](deployment/northflank/) | Demo Mode hosting-platform evaluation, environment-variable audit, and manual deployment checklist (preparation only — not yet deployed) |
 | [`FRONTEND_DESIGN_SYSTEM.md`](docs/FRONTEND_DESIGN_SYSTEM.md) · [`FLOWER.md`](docs/FLOWER.md) · [`DOCKER.md`](docs/DOCKER.md) · [`CI_CD.md`](docs/CI_CD.md) | UI design system, monitoring, Docker design, CI |
 | [`DECISIONS.md`](docs/DECISIONS.md) · [`TRADEOFFS.md`](docs/TRADEOFFS.md) · [`ROADMAP.md`](docs/ROADMAP.md) · [`adr/`](docs/adr/) | Design decisions, deferred scope, roadmap, ADRs |
 
