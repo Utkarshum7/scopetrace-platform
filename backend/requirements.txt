@@ -1,11 +1,35 @@
 asgiref==3.11.1
 dj-database-url==3.1.2
-Django==6.0.5
+Django==6.0.7
 django-cors-headers==4.9.0
 djangorestframework==3.17.1
+djangorestframework-simplejwt==5.5.1
+django-filter==25.1
 psycopg2-binary==2.9.12
 python-decouple==3.8
 sqlparse==0.5.5
 tzdata==2026.2
 whitenoise==6.9.0
 gunicorn==23.0.0
+
+# Phase 5 — async task queue (Celery) + Redis client.
+# redis is also the driver for the CACHES backend declared in Phase 4
+# (previously missing from requirements.txt despite being referenced in settings).
+celery==5.4.0
+redis==5.2.1
+
+# Phase 5b — StorageService durable file storage abstraction.
+# django-storages wraps S3 (and, later, GCS/Azure) behind Django's Storage
+# API; boto3 is its S3 client dependency (also speaks the S3-compatible API
+# used by Cloudflare R2, Backblaze B2, and the local MinIO Compose service).
+django-storages==1.14.4
+boto3==1.35.36
+
+# Phase 7a — LLMProvider abstraction (apps.ai). anthropic/openai are each
+# imported ONLY from their matching apps/ai/providers/*.py adapter (enforced
+# by apps.ai.tests_import_guard, never anywhere else). jsonschema validates
+# every AI response envelope against its declared schema at the gateway —
+# see apps/ai/services/gateway.py.
+anthropic==0.116.0
+openai==2.44.0
+jsonschema==4.26.0

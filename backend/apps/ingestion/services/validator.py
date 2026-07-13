@@ -16,6 +16,7 @@ TWO tiers of validation:
                 stored, but flagged for mandatory analyst review before approval.
                 Example: quantity is 10× the batch median, date is 18 months old.
 """
+import statistics
 from dataclasses import dataclass, field
 from datetime import date
 from .base_parser import ParsedRow
@@ -256,10 +257,14 @@ class RowValidator:
         """Flag rows whose quantity is SUSPICIOUS_QUANTITY_MULTIPLIER× the batch median."""
         if row.quantity is None or not batch_quantities:
             return
-        sorted_q = sorted(q for q in batch_quantities if q is not None)
-        if not sorted_q:
+        # Baseline of "normal" consumption = positive quantities only; negative
+        # or zero values are invalid and must not skew the median. Use a true
+        # median (statistics.median averages the middle pair for even counts,
+        # unlike the previous sorted_q[len//2] which was biased high).
+        baseline = [q for q in batch_quantities if q is not None and q > 0]
+        if not baseline:
             return
-        median = sorted_q[len(sorted_q) // 2]
+        median = statistics.median(baseline)
         if median > 0 and row.quantity > SUSPICIOUS_QUANTITY_MULTIPLIER * median:
             result.mark_suspicious(
                 "quantity",

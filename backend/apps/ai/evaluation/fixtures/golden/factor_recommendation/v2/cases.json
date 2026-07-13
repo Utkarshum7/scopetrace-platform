@@ -1,0 +1,83 @@
+[
+  {
+    "case_id": "factor_recommendation_v2_001",
+    "description": "No candidate matches the org's default region exactly, but a globally-applicable candidate is still the best available fit -- the AI picks a labeled candidate, not a raw identifier.",
+    "prompt_name": "factor_recommendation",
+    "response_schema_id": "factor_recommendation",
+    "response_schema_version": 2,
+    "template_vars": {
+      "activity_type_name": "Diesel - Stationary Combustion",
+      "activity_type_code": "DIESEL_STATIONARY",
+      "scope": "SCOPE_1",
+      "quantity": "500.00",
+      "unit": "L",
+      "reporting_date": "2024-06-15",
+      "org_region": "IN",
+      "candidates": "candidate_1: DEFRA 2024, region=GLOBAL, valid 2024-01-01 to 2024-12-31, publisher=DEFRA, factor=2.6800 kgCO2e/L\ncandidate_2: EPA 2024, region=US, valid 2024-01-01 to 2024-12-31, publisher=EPA, factor=2.7000 kgCO2e/L"
+    },
+    "expected_response": {
+      "recommended_candidate_label": "candidate_1",
+      "confidence": "MEDIUM",
+      "explanation": "Neither candidate is specific to the organization's IN region, but candidate_1's GLOBAL region is the more defensible default than candidate_2's US-specific factor.",
+      "reasoning": "Both candidates are valid for the 2024-06-15 reporting date. candidate_1 is published by DEFRA for a GLOBAL region, while candidate_2 is US-specific and less applicable to an organization based in IN.",
+      "alternative_candidates": ["candidate_2"]
+    },
+    "expected_prompt_template_hash": "e077823eefe9ef21b3f58bd18316db021d7712494f8d1a2e144f1e6cf9726028",
+    "expected_rendered_input_hash": "1f08b62173abba0229ddb6851271774eb2b60bc0bc0ea359ab5000e8d5a5f1c9",
+    "min_score": 1.0
+  },
+  {
+    "case_id": "factor_recommendation_v2_002",
+    "description": "Neither candidate's region is a reasonable fit for the organization -- the AI honestly recommends none of the candidates rather than forcing a low-quality pick.",
+    "prompt_name": "factor_recommendation",
+    "response_schema_id": "factor_recommendation",
+    "response_schema_version": 2,
+    "template_vars": {
+      "activity_type_name": "Aviation Fuel - Jet Kerosene",
+      "activity_type_code": "JET_KEROSENE",
+      "scope": "SCOPE_1",
+      "quantity": "1200.00",
+      "unit": "L",
+      "reporting_date": "2024-03-01",
+      "org_region": "SG",
+      "candidates": "candidate_1: DEFRA 2023, region=UK, valid 2023-01-01 to 2023-12-31, publisher=DEFRA, factor=2.5400 kgCO2e/L\ncandidate_2: EPA 2023, region=US, valid 2023-01-01 to 2023-12-31, publisher=EPA, factor=2.5600 kgCO2e/L"
+    },
+    "expected_response": {
+      "recommended_candidate_label": "none",
+      "confidence": "LOW",
+      "explanation": "Both candidates are region-specific (UK and US) to regions unrelated to the organization's SG region, and neither publisher covers Southeast Asia for this activity type.",
+      "reasoning": "candidate_1 and candidate_2 are both valid for the 2024-03-01 reporting date, but their regional specificity (UK, US) makes either a poor proxy for an SG-based organization without further evidence.",
+      "alternative_candidates": []
+    },
+    "expected_prompt_template_hash": "e077823eefe9ef21b3f58bd18316db021d7712494f8d1a2e144f1e6cf9726028",
+    "expected_rendered_input_hash": "706c99ceda40c89d7db2715d304ce90d89f6707f818af3c2119c63857e448e95",
+    "min_score": 1.0
+  },
+  {
+    "case_id": "factor_recommendation_v2_003",
+    "description": "Same publisher and region across both candidates, differing only by dataset year -- a publisher/date edge case where the more current dataset covering the reporting date should be preferred.",
+    "prompt_name": "factor_recommendation",
+    "response_schema_id": "factor_recommendation",
+    "response_schema_version": 2,
+    "template_vars": {
+      "activity_type_name": "Grid Electricity - Location-Based",
+      "activity_type_code": "GRID_ELECTRICITY",
+      "scope": "SCOPE_2",
+      "quantity": "8500.00",
+      "unit": "kWh",
+      "reporting_date": "2024-11-20",
+      "org_region": "GLOBAL",
+      "candidates": "candidate_1: DEFRA 2023, region=GLOBAL, valid 2023-01-01 to 2023-12-31, publisher=DEFRA, factor=0.2330 kgCO2e/kWh\ncandidate_2: DEFRA 2024, region=GLOBAL, valid 2024-01-01 to 2024-12-31, publisher=DEFRA, factor=0.2070 kgCO2e/kWh"
+    },
+    "expected_response": {
+      "recommended_candidate_label": "candidate_2",
+      "confidence": "HIGH",
+      "explanation": "candidate_2 is the DEFRA 2024 dataset, which directly covers the 2024-11-20 reporting date, making it the more current and defensible choice over the older 2023 dataset.",
+      "reasoning": "Both candidates share the same publisher (DEFRA) and region (GLOBAL), so the reporting date is the deciding factor: candidate_2's 2024-01-01 to 2024-12-31 validity window contains the reporting date, while candidate_1's 2023 window does not.",
+      "alternative_candidates": ["candidate_1"]
+    },
+    "expected_prompt_template_hash": "e077823eefe9ef21b3f58bd18316db021d7712494f8d1a2e144f1e6cf9726028",
+    "expected_rendered_input_hash": "06afe91634c667ba4acd62b3596ab89ea95da57f3e325f9c3f7fd5977f17ceea",
+    "min_score": 1.0
+  }
+]

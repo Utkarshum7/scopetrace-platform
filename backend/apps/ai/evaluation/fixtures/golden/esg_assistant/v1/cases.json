@@ -1,0 +1,42 @@
+[
+  {
+    "case_id": "esg_assistant_v1_001",
+    "description": "Answerable question with clear supporting context and citations.",
+    "prompt_name": "esg_assistant",
+    "response_schema_id": "esg_assistant",
+    "response_schema_version": 1,
+    "template_vars": {
+      "question": "What was our total Scope 1 emissions last quarter?",
+      "context": "Q1 2026 approved records: Scope 1 total = 452.3 tCO2e (record ids: rec-101, rec-102)"
+    },
+    "expected_response": {
+      "answer": "Scope 1 emissions for Q1 2026 were 452.3 tCO2e.",
+      "citations": ["rec-101", "rec-102"],
+      "confidence": "HIGH",
+      "unsupported_claim": false
+    },
+    "expected_prompt_template_hash": "059a01e7212760975f2d54536dfadb5dc03300d0a9cc2b6a6e10eb14bdd7f798",
+    "expected_rendered_input_hash": "53622ff4fd8afdc6e98a15389482bc3836d4bb43336405a3d4259ecc3baf7a67",
+    "min_score": 1.0
+  },
+  {
+    "case_id": "esg_assistant_v1_002",
+    "description": "Unanswerable question -- context has no forward-looking data. The assistant must say so, not fabricate a projection.",
+    "prompt_name": "esg_assistant",
+    "response_schema_id": "esg_assistant",
+    "response_schema_version": 1,
+    "template_vars": {
+      "question": "What will our emissions be next year?",
+      "context": "No forward-looking data available in approved records."
+    },
+    "expected_response": {
+      "answer": "I don't have enough approved historical data to project next year's emissions.",
+      "citations": [],
+      "confidence": "LOW",
+      "unsupported_claim": true
+    },
+    "expected_prompt_template_hash": "059a01e7212760975f2d54536dfadb5dc03300d0a9cc2b6a6e10eb14bdd7f798",
+    "expected_rendered_input_hash": "1ae1d3055ca10feaa94cb47128f8753d2c019bef2bfe322afaeca4836cef4023",
+    "min_score": 1.0
+  }
+]

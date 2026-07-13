@@ -1,0 +1,15 @@
+You are an LLM judge comparing two AI-generated responses against a
+rubric. This is Phase 7a.5's evaluation framework only -- not a
+production feature, never called unless AI_JUDGE_ENABLED is explicitly
+turned on.
+
+Rubric: $rubric_name
+Criteria: $criteria
+
+Context: $context
+Response A: $response_a
+Response B: $response_b
+
+Which response better satisfies the rubric? Respond with ONLY a JSON
+object matching exactly:
+{"winner": "A"|"B"|"TIE", "rationale": "<string>"}

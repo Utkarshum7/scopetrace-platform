@@ -18,6 +18,7 @@ from .views import (
     OrganizationViewSet,
     DataSourceViewSet,
 )
+from .export_views import RecordExportView
 
 router = DefaultRouter()
 router.register(r"batches", UploadBatchViewSet, basename="uploadbatch")
@@ -30,6 +31,9 @@ urlpatterns = [
     path("upload/sap/", SAPUploadView.as_view(), name="upload-sap"),
     path("upload/utility/", UtilityUploadView.as_view(), name="upload-utility"),
     path("upload/travel/", TravelUploadView.as_view(), name="upload-travel"),
+    # Streaming CSV export — MUST precede the router so "records/export/" is not
+    # captured as a record detail lookup.
+    path("records/export/", RecordExportView.as_view(), name="records-export"),
     # ViewSet-managed endpoints (list + detail)
     path("", include(router.urls)),
 ]

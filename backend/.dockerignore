@@ -1,0 +1,20 @@
+venv/
+venv_check/
+**/__pycache__/
+*.pyc
+*.pyo
+.ruff_cache/
+db.sqlite3
+db.sqlite3-journal
+staticfiles/
+media/
+.env
+.env.example
+.git/
+.gitignore
+# CI/dev-only tooling (Phase 5i/5j) — never needed at runtime; the
+# multi-stage build's explicit COPY allow-list already excludes these from
+# the final image regardless, but keeping them out of the build context too
+# means they're never even sent to the Docker daemon.
+requirements-dev.txt
+pyproject.toml

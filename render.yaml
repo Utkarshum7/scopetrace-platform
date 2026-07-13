@@ -1,42 +1,323 @@
-# render.yaml — Render Infrastructure as Code (IaC) for Breathe ESG
+# render.yaml — Render Infrastructure as Code (IaC) for ScopeTrace
 #
 # This file is the single-click deployment spec for Render.
 # Commit it to the repo root, then connect the repo in the Render dashboard.
 # Render will auto-discover this file and provision all services automatically.
+#
+# ─────────────────────────────────────────────────────────────────────────
+# CONFIDENCE NOTE (read before deploying) — per explicit instruction not to
+# guess unsupported Render configuration:
+#
+#   HIGH CONFIDENCE — verified against Render's current Blueprint spec
+#   (https://render.com/docs/blueprint-spec):
+#     - `type: web` / `type: worker`, buildCommand/preDeployCommand/startCommand
+#     - `preDeployCommand` runs AFTER buildCommand and BEFORE startCommand
+#       (the migration/seed phase) and is supported on all instance types
+#     - `databases:` + `fromDatabase` (Postgres)
+#     - top-level `envVarGroups:` to DEFINE a shared group; a service ATTACHES
+#       it via `envVars: [{ fromGroup: <name> }]` (NOT a service-level
+#       `envVarGroups:` field -- that is rejected by Render's parser)
+#     - `fromService: {..., property: connectionString}` (used for REDIS_URL)
+#     - `generateValue: true` and `sync: false` env vars
+#
+#   D2 COMPATIBILITY FIXES (the reason this note changed):
+#     0. Service-level `envVarGroups: [scopetrace-shared]` was rejected
+#        ("field envVarGroups not found in type file.Service"). A Blueprint
+#        service attaches a group from INSIDE its `envVars` list via
+#        `- fromGroup: scopetrace-shared`, not a service-level field. Fixed
+#        on all three services. (The TOP-LEVEL `envVarGroups:` that DEFINES
+#        the group is a separate, valid key and is unchanged.)
+#     1. `releaseCommand` was NOT a Render Blueprint field (it's a
+#        Heroku-ism) and was rejected by Render's parser. Replaced with
+#        `preDeployCommand`, the correct lifecycle field, same command.
+#     2. SECRET_KEY is now a SINGLE shared value across api/worker/beat,
+#        declared once in the `scopetrace-shared` env group (`sync: false`,
+#        set once in the dashboard) — Render's documented mechanism for
+#        sharing one value across multiple services. This replaces the
+#        previous `fromService: {..., envVarKey: SECRET_KEY}` cross-service
+#        copy: `envVarKey` is no longer present in Render's current
+#        `fromService` spec (verified against the docs — `fromService` now
+#        exposes only connection properties like `connectionString`), and a
+#        shared AND Render-auto-generated secret cannot be expressed in a
+#        current Blueprint (`generateValue` is not documented inside an env
+#        group). The operator generates SECRET_KEY once and sets it on the
+#        group — see the group definition below.
+#
+#   REMAINING KNOWN ITEM (valid, not a blocker):
+#     - `type: redis` is a deprecated-but-still-valid alias for the current
+#       `type: keyvalue`. Left as-is (it parses); switching to `keyvalue`
+#       is a safe future cleanup, not required for deployment.
+# ─────────────────────────────────────────────────────────────────────────
+
+# Shared, non-service-specific secrets — attached by api/worker/beat below
+# via `envVars: [{ fromGroup: scopetrace-shared }]` instead of repeating the
+# same entries three times. See docs/DEPLOYMENT_GUIDE.md §4 for what each of
+# these actually configures.
+envVarGroups:
+  - name: scopetrace-shared
+    envVars:
+      # ─────────────────────────────────────────────────────
+      # Django SECRET_KEY — a SINGLE shared value across api/worker/beat.
+      # Render's documented mechanism for sharing one value across multiple
+      # services is an environment group ("a single source of truth ...
+      # linked to any number of services"), which all three services already
+      # reference below. Declared `sync: false` (a placeholder populated once
+      # in the Render dashboard, never committed) — the same pattern as the
+      # AWS_* secrets in this group.
+      #
+      # Why not auto-generated: a shared AND Render-auto-generated secret
+      # cannot be expressed in a current Blueprint — `fromService envVarKey`
+      # (the old cross-service generated-value share) is no longer in the
+      # Blueprint spec, and `generateValue` inside an env group is not
+      # documented. So the operator generates SECRET_KEY once and sets it on
+      # this group before the first deploy, e.g.:
+      #   python -c "from django.core.management.utils import get_random_secret_key as k; print(k())"
+      # It is REQUIRED: settings.py fails closed (won't boot) without it when
+      # DEBUG=False.
+      - key: SECRET_KEY
+        sync: false
+      # ─────────────────────────────────────────────────────
+      # Object storage (Phase 5b) — REQUIRED, STORAGE_BACKEND fails closed
+      # to 's3' whenever DEBUG=False (which every service below sets).
+      # Provider-agnostic: the SAME four AWS_* variables configure any
+      # S3-compatible backend — only their values change per provider:
+      #
+      #   AWS S3:          AWS_S3_ENDPOINT_URL blank, AWS_S3_ADDRESSING_STYLE=virtual,
+      #                     AWS_S3_REGION_NAME = the real AWS region (e.g. us-east-1)
+      #   Cloudflare R2:    AWS_S3_ENDPOINT_URL = https://<account-id>.r2.cloudflarestorage.com,
+      #                     AWS_S3_ADDRESSING_STYLE=virtual, AWS_S3_REGION_NAME=auto
+      #   Backblaze B2:     AWS_S3_ENDPOINT_URL = https://s3.<region>.backblazeb2.com,
+      #                     AWS_S3_ADDRESSING_STYLE=virtual
+      #   Self-hosted MinIO: AWS_S3_ENDPOINT_URL = https://your-minio-host,
+      #                     AWS_S3_ADDRESSING_STYLE=path (MinIO requires path-style)
+      #
+      # This project does not hard-code or favor any one provider — pick one
+      # and fill in these five values via the Render dashboard (sync: false
+      # means they are NEVER stored in this committed file).
+      - key: STORAGE_BACKEND
+        value: "s3"
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_STORAGE_BUCKET_NAME
+        sync: false
+      - key: AWS_S3_REGION_NAME
+        sync: false
+      - key: AWS_S3_ENDPOINT_URL
+        sync: false
+      - key: AWS_S3_ADDRESSING_STYLE
+        sync: false
+      # ─────────────────────────────────────────────────────
+      # Email notifications (Phase 5g) — OPTIONAL. Leave unset to use the
+      # console backend (notifications logged, not delivered) — a safe
+      # default even in production; see docs/NOTIFICATIONS.md. Set EMAIL_HOST
+      # to switch to real SMTP.
+      # ─────────────────────────────────────────────────────
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        value: "noreply@scopetrace.local"
 
 services:
   # ─────────────────────────────────────────────────────────
   # Django REST API — Web Service
   # ─────────────────────────────────────────────────────────
   - type: web
-    name: breathe-esg-api
+    name: scopetrace-api
     runtime: python
     rootDir: backend
     buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
-    releaseCommand: python manage.py migrate
-    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
-    healthCheckPath: /api/
+    # Migrate the schema and idempotently seed baseline data on every release so
+    # a fresh database is usable immediately. This is also the ONLY place
+    # migrations run — worker/beat below never do (mirrors docker-compose.yml's
+    # RUN_MIGRATIONS=false pattern: exactly one migration owner, so scaling
+    # worker replicas never races migrations against each other).
+    preDeployCommand: python manage.py migrate && python manage.py bootstrap_data && python manage.py seed_carbon
+    # Phase 7.5 (H3-3): --worker-class gthread + --threads 4 raises
+    # concurrent-request capacity from 2 to 8 -- see backend/Dockerfile's
+    # matching CMD for the full rationale (the default sync worker class
+    # meant 2 simultaneously slow requests, e.g. two ESG-assistant chat
+    # calls, could starve the entire API).
+    # Phase 9b: CONFIRMED gap -- gunicorn's access log is OFF by default
+    # unless --access-logfile is passed, so there was zero HTTP-level
+    # request/response trail (method, path, status, duration) in production
+    # logs, only whatever apps.core.exception_handlers/individual views
+    # happened to log themselves. --access-logfile - sends it to stdout
+    # (captured by Render like every other log line); the custom
+    # --access-logformat drops gunicorn's default Apache-combined fields
+    # that add no value for a JSON API (referrer, user-agent) and instead
+    # includes rid=%({X-Request-ID}o)s -- the SAME id
+    # apps.core.middleware.RequestIDMiddleware attaches to the response and
+    # to every application log line for this request, so one id greps
+    # straight from an access-log line to the matching app-log lines.
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --worker-class gthread --threads 4 --timeout 120 --access-logfile - --access-logformat '%(h)s "%(r)s" %(s)s %(L)ss rid=%({X-Request-ID}o)s'
+    # Database-aware health check — Render stops routing to the instance if the
+    # DB is unreachable, instead of the old always-200 /api/ router root.
+    healthCheckPath: /healthz
     envVars:
-      - key: SECRET_KEY
-        generateValue: true          # Render auto-generates a cryptographic secret
+      # Attach the shared env group. In a Blueprint a service references a
+      # group INSIDE its envVars via `fromGroup` (there is no service-level
+      # `envVarGroups:` field -- Render's parser rejects it).
+      - fromGroup: scopetrace-shared
+      # SECRET_KEY comes from the `scopetrace-shared` env group (single
+      # shared value across api/worker/beat) — see the group at the top.
       - key: DEBUG
         value: "False"
       - key: ALLOWED_HOSTS
-        value: "breathe-esg-api.onrender.com"
+        value: "scopetrace-api.onrender.com"
       - key: DATABASE_URL
         fromDatabase:
-          name: breathe-esg-db
+          name: scopetrace-db
+          property: connectionString
+      # VERIFY: see the confidence note at the top of this file.
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: scopetrace-redis
           property: connectionString
       - key: CORS_ALLOW_ALL_ORIGINS
         value: "False"
       - key: CORS_ALLOWED_ORIGINS
-        value: "https://breathe-esg.vercel.app"
+        value: "https://scopetrace.vercel.app"
+      - key: CSRF_TRUSTED_ORIGINS
+        value: "https://scopetrace.vercel.app"
+      # Admin seeding for bootstrap_data. The admin is only created when a
+      # password is present; set it securely in the Render dashboard (sync:false
+      # means it is NOT stored in this file / git).
+      - key: DJANGO_SUPERUSER_USERNAME
+        value: "admin"
+      - key: DJANGO_SUPERUSER_EMAIL
+        value: "admin@scopetrace.local"
+      - key: DJANGO_SUPERUSER_PASSWORD
+        sync: false
+
+  # ─────────────────────────────────────────────────────────
+  # Celery worker — Background Worker (Phase 5a–5g)
+  # Same codebase as `api`, different process. No preDeployCommand (api alone
+  # owns migrations/seeding) and no healthCheckPath (worker services aren't
+  # HTTP-reachable on Render — liveness is checked via GET /healthz/worker/
+  # on the `api` service instead, which does a real `celery inspect ping`
+  # control-plane round trip to whichever worker(s) are running).
+  # ─────────────────────────────────────────────────────────
+  - type: worker
+    name: scopetrace-worker
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    # -Q lists every queue explicitly — see docs/ARCHITECTURE_OVERVIEW.md §3
+    # for the full queue topology. One worker service consumes all six
+    # today (celery, ingestion, calculation, maintenance, notifications, ai),
+    # same as docker-compose.yml's `worker`; splitting a queue onto its own
+    # dedicated worker service later needs no code change, only a second
+    # service here with a narrower `-Q`.
+    #
+    # The queue list here MUST cover every queue in
+    # config.settings.CELERY_TASK_ROUTES (plus the default 'celery' queue);
+    # a missing queue silently strands its tasks in Redis with no consumer.
+    # apps.tasks.tests_queue_coverage enforces this in CI against both this
+    # file and docker-compose.yml.
+    #
+    # Phase 7.5 (H4-10): `python manage.py migrate --check &&` gates the
+    # actual worker startup on the schema already being current. Render
+    # deploys api/worker/beat independently, with no built-in "wait for
+    # another service's release to finish" primitive -- on a first-ever
+    # deploy or any release adding a migration, worker/beat could otherwise
+    # start and hit the DB before api's preDeployCommand (the sole migration
+    # owner) finishes `migrate`. `migrate --check` exits non-zero (without
+    # applying anything) whenever the schema isn't current yet; Render
+    # restarts a service that exits non-zero, so this naturally retries
+    # with backoff until api's release completes -- no unverified Render
+    # feature needed, just the same `&&` chaining already used in
+    # preDeployCommand above.
+    startCommand: python manage.py migrate --check && celery -A config worker --loglevel=info -Q celery,ingestion,calculation,maintenance,notifications,ai
+    envVars:
+      # Attach the shared env group. In a Blueprint a service references a
+      # group INSIDE its envVars via `fromGroup` (there is no service-level
+      # `envVarGroups:` field -- Render's parser rejects it).
+      - fromGroup: scopetrace-shared
+      # SECRET_KEY comes from the `scopetrace-shared` env group — a single
+      # value shared with api/beat (Render's documented cross-service
+      # sharing mechanism). See the group definition at the top of this file.
+      - key: DEBUG
+        value: "False"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: scopetrace-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: scopetrace-redis
+          property: connectionString
+
+  # ─────────────────────────────────────────────────────────
+  # Celery Beat — the periodic-task scheduler (Phase 5f). MUST stay a
+  # single instance — never scale this service. Running two Beat
+  # schedulers would independently fire every periodic task on its own
+  # timer, double-dispatching every scheduled job (same rule as
+  # docker-compose.yml's `beat` service).
+  #
+  # No persistent disk is attached for the schedule bookkeeping file —
+  # unlike docker-compose.yml's `beatdata` volume, Render's ephemeral
+  # filesystem means a restart loses "last run time" state. This is a minor
+  # inefficiency, not a correctness risk: every scheduled task
+  # (config/settings.py CELERY_BEAT_SCHEDULE) is an idempotent, self-healing
+  # sweep — see docs/SCHEDULED_TASKS.md. Attaching a Render persistent disk
+  # (`disks:` key, paid-plan feature) is a reasonable future enhancement,
+  # not required for correctness.
+  # ─────────────────────────────────────────────────────────
+  - type: worker
+    name: scopetrace-beat
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    # Phase 7.5 (H4-10): same migration-readiness gate as the worker
+    # service above (waits for api's preDeployCommand migrate) -- see its
+    # comment for the full rationale.
+    startCommand: python manage.py migrate --check && celery -A config beat --loglevel=info
+    envVars:
+      # Attach the shared env group. In a Blueprint a service references a
+      # group INSIDE its envVars via `fromGroup` (there is no service-level
+      # `envVarGroups:` field -- Render's parser rejects it).
+      - fromGroup: scopetrace-shared
+      # SECRET_KEY comes from the `scopetrace-shared` env group — a single
+      # value shared with api/beat (Render's documented cross-service
+      # sharing mechanism). See the group definition at the top of this file.
+      - key: DEBUG
+        value: "False"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: scopetrace-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: scopetrace-redis
+          property: connectionString
+
+  # ─────────────────────────────────────────────────────────
+  # Redis — Celery broker/result-backend AND the Django cache backend
+  # (Phase 4/5a). VERIFY: see the confidence note at the top of this file —
+  # `type: redis` is this file's single least-certain line.
+  # ─────────────────────────────────────────────────────────
+  - type: redis
+    name: scopetrace-redis
+    plan: free
+    ipAllowList: []   # no external access — only other Render services in this blueprint reach it
 
 # ─────────────────────────────────────────────────────────
 # PostgreSQL — Managed Database
+# NOTE: Render's free PostgreSQL is deleted ~90 days after creation. For a
+# persistent production deployment, upgrade this to a paid plan (or point
+# DATABASE_URL at an external managed Postgres).
 # ─────────────────────────────────────────────────────────
 databases:
-  - name: breathe-esg-db
-    databaseName: breathe_esg
-    user: breathe_esg_user
+  - name: scopetrace-db
+    databaseName: scopetrace
+    user: scopetrace_user
     plan: free

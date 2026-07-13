@@ -1,0 +1,250 @@
+# ScopeTrace — local development / portable deployment stack.
+#
+# Brings up PostgreSQL (persistent named volume), the Django API, and the built
+# frontend. The API runs with DEBUG=False to mirror production configuration,
+# with TLS redirect/secure cookies disabled for local plain-HTTP use.
+#
+#   docker compose up --build
+#   API:      http://localhost:8000/api/     Health: http://localhost:8000/healthz
+#   Admin:    http://localhost:8000/admin/   (admin / admin12345 by default)
+#   Frontend: http://localhost:8080
+#   MinIO console: http://localhost:9001     (scopetrace / scopetrace123 by default)
+#
+# Data persists in the `pgdata` volume across restarts and rebuilds — the whole
+# point of Phase 0 (no more ephemeral SQLite).
+#
+#   Flower (Celery monitoring UI, Phase 5h) — optional, dev-only, NOT started
+#   by `docker compose up` alone:
+#     docker compose --profile monitoring up -d flower
+#   Flower: http://localhost:5555            (scopetrace / scopetrace123 by default)
+
+# Shared backend environment — used by both `api` and `worker` (they must run
+# with identical Django settings; a YAML anchor keeps this one source of truth
+# instead of copy-pasting the block onto every service that imports config/settings.py).
+x-backend-env: &backend-env
+  DEBUG: "False"
+  SECRET_KEY: ${SECRET_KEY:-docker-compose-local-secret-not-for-production}
+  ALLOWED_HOSTS: "localhost,127.0.0.1,api"
+  DATABASE_URL: "postgres://${POSTGRES_USER:-scopetrace}:${POSTGRES_PASSWORD:-scopetrace}@db:5432/${POSTGRES_DB:-scopetrace}"
+  CORS_ALLOW_ALL_ORIGINS: "False"
+  CORS_ALLOWED_ORIGINS: "http://localhost:5173,http://localhost:3000,http://localhost:8080"
+  # Local plain-HTTP: disable TLS redirect / secure-only cookies.
+  SECURE_SSL_REDIRECT: "False"
+  SESSION_COOKIE_SECURE: "False"
+  CSRF_COOKIE_SECURE: "False"
+  # Redis — Celery broker/result-backend + Django cache (Phase 5).
+  REDIS_URL: "redis://redis:6379/0"
+  # Durable storage (Phase 5b) — StorageService's S3 provider, pointed at the
+  # local MinIO container. This exercises the SAME code path production uses
+  # against real S3/R2/B2 (only the endpoint + addressing style differ),
+  # rather than a separate "local filesystem" path that would never be
+  # tested against the real provider integration.
+  STORAGE_BACKEND: "s3"
+  AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-scopetrace}
+  AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-scopetrace123}
+  AWS_STORAGE_BUCKET_NAME: ${STORAGE_BUCKET:-scopetrace-uploads}
+  AWS_S3_REGION_NAME: "us-east-1"
+  AWS_S3_ENDPOINT_URL: "http://minio:9000"
+  # MinIO requires path-style addressing (bucket-in-path); AWS S3/R2/B2 use
+  # virtual-hosted style in production — only this one setting changes.
+  AWS_S3_ADDRESSING_STYLE: "path"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-scopetrace}
+      POSTGRES_USER: ${POSTGRES_USER:-scopetrace}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scopetrace}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scopetrace} -d ${POSTGRES_DB:-scopetrace}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # MinIO — self-hosted, S3-compatible object store. Gives StorageService's
+  # S3StorageService a real backend to run against locally without needing
+  # actual cloud credentials, while still exercising the production code path.
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-scopetrace}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-scopetrace123}
+    volumes:
+      - miniodata:/data
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot init: creates the upload bucket if it doesn't exist yet, then
+  # exits. `api`/`worker` depend on minio's own healthcheck, not this — a
+  # bucket that already exists (idempotent restarts) doesn't block startup.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-scopetrace} ${MINIO_ROOT_PASSWORD:-scopetrace123} &&
+      mc mb --ignore-existing local/${STORAGE_BUCKET:-scopetrace-uploads}
+      "
+
+  api:
+    build:
+      context: ./backend
+    environment:
+      <<: *backend-env
+      # Seed on startup so the stack is immediately usable.
+      BOOTSTRAP_DATA: "true"
+      # Also seed one demo user per role (orgadmin/analyst/auditor/viewer).
+      BOOTSTRAP_DEMO_USERS: "true"
+      DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:-demo12345}
+      DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME:-admin}
+      DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-admin12345}
+      DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL:-admin@scopetrace.local}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Celery worker — same image as `api`, different process (RUN_MIGRATIONS=false
+  # below — `api` is the sole migration/seed owner). Horizontally scalable:
+  # `docker compose up --scale worker=3` requires no code or config change
+  # (see config/celery.py).
+  worker:
+    build:
+      context: ./backend
+    # -Q lists every queue name explicitly (Phase 5d's ingestion/calculation
+    # routing seam, Phase 5f's maintenance queue, Phase 5g's notifications
+    # queue, Phase 7a's ai queue, config/settings.py CELERY_TASK_ROUTES, plus
+    # the default 'celery' queue apps.core.tasks.ping still uses) — one
+    # worker pool consumes all six today; a future deployment can give
+    # calculation (or maintenance, notifications, or ai) its own dedicated
+    # worker service by adding e.g. `-Q calculation` there instead.
+    command: ["celery", "-A", "config", "worker", "--loglevel=info", "-Q", "celery,ingestion,calculation,maintenance,notifications,ai"]
+    environment:
+      <<: *backend-env
+      # `api` is the single migration/seed owner (see entrypoint.sh) — the
+      # worker only ever waits for schema to exist, never applies it itself,
+      # so scaling worker replicas never races migrations against each other.
+      RUN_MIGRATIONS: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME --timeout 5 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+
+  # Celery Beat — the periodic-task scheduler (Phase 5f). MUST stay a single
+  # instance: unlike `worker` above, this is NOT horizontally scalable —
+  # running two Beat schedulers would independently fire every periodic task
+  # on its own timer, double-dispatching every scheduled job. Never add
+  # `--scale beat=N>1` or a second Beat service.
+  #
+  # Deliberately its own service rather than `celery worker -B` (Beat bundled
+  # into the worker process) specifically because `worker` above IS meant to
+  # be scaled (`--scale worker=3` is a real, documented capability) — bundling
+  # Beat into a scalable service would silently break the instant someone
+  # scaled it.
+  #
+  # --schedule points at a file on a dedicated named volume so the "last run
+  # time" bookkeeping (Celery's PersistentScheduler) survives container
+  # restarts/rebuilds — without it, every restart would immediately re-fire
+  # any task whose interval had already elapsed since the image was last
+  # built. Not critical for correctness (every scheduled task here is an
+  # idempotent, self-healing sweep — see config/settings.py's
+  # CELERY_BEAT_SCHEDULE comment), just avoids unnecessary duplicate runs.
+  beat:
+    build:
+      context: ./backend
+    command: ["celery", "-A", "config", "beat", "--loglevel=info", "--schedule=/app/beat-data/celerybeat-schedule"]
+    environment:
+      <<: *backend-env
+      RUN_MIGRATIONS: "false"
+    volumes:
+      - beatdata:/app/beat-data
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  # Flower — Celery monitoring UI (Phase 5h). Official image, not our own
+  # backend image: Flower is a pure operator/dev convenience that never runs
+  # in production, so it deliberately carries none of its own dependencies
+  # in requirements.txt/Dockerfile — nothing about the production-mirroring
+  # `api`/`worker` image changes to support it.
+  #
+  # `profiles: [monitoring]` is what makes this "optional, dev-only": a plain
+  # `docker compose up` never starts it. Bring it up explicitly with
+  # `docker compose --profile monitoring up -d flower`.
+  flower:
+    image: mher/flower:2.0
+    profiles: ["monitoring"]
+    environment:
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/0"
+      FLOWER_PORT: "5555"
+      # Basic auth by default (not left wide open) — same "sane default,
+      # override via env" pattern already used for MinIO's root credentials.
+      FLOWER_BASIC_AUTH: "${FLOWER_USER:-scopetrace}:${FLOWER_PASSWORD:-scopetrace123}"
+    ports:
+      - "5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  miniodata:
+  beatdata:

@@ -3,7 +3,6 @@ import json
 from decimal import Decimal
 from datetime import date, timedelta
 from django.test import TestCase
-from django.urls import reverse
 from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
@@ -11,6 +10,7 @@ from rest_framework import status as drf_status
 from apps.core.models import Organization, DataSource
 from apps.ingestion.models import UploadBatch, EmissionRecord
 from apps.audit.models import AuditTrail
+from apps.audit.services import append_entry
 from apps.ingestion.services.base_parser import ParsedRow
 from apps.ingestion.services.sap_parser import SAPFuelParser
 from apps.ingestion.services.utility_parser import UtilityElectricityParser
@@ -61,7 +61,12 @@ class ESGDomainModelTestCase(TestCase):
         record.refresh_from_db()
         self.assertEqual(record.normalized_value, 5200.0)
 
-        # 3. Transition to APPROVED state
+        # 3. Transition to APPROVED state -- Phase 6c requires SUBMITTED
+        # first; DRAFT -> APPROVED directly is now an invalid transition
+        # (enforced in EmissionRecord.clean() itself, see
+        # apps.ingestion.tests_workflow for the dedicated transition tests).
+        record.status = EmissionRecord.RecordStatus.SUBMITTED
+        record.save()
         record.status = EmissionRecord.RecordStatus.APPROVED
         record.approved_by = self.user
         record.save()
@@ -81,8 +86,11 @@ class ESGDomainModelTestCase(TestCase):
         self.assertEqual(record.normalized_value, 5200.0)
 
     def test_audit_trail_immutability(self):
-        # 1. Create an audit log entry
-        log = AuditTrail.objects.create(
+        # 1. Create an audit log entry — via append_entry() (Phase 6a), the
+        # only sanctioned creation path now that entries are hash-chained;
+        # AuditTrail.objects.create() directly would fail full_clean() with
+        # sequence/prev_hash/entry_hash unset.
+        log = append_entry(
             organization=self.org,
             action="RECORD_INGEST",
             changed_by=self.user,
@@ -412,8 +420,10 @@ class ServiceLayerTestCase(TestCase):
             service = IngestionService()
             result = service.ingest(self.sap_ds, temp_name, uploaded_by=self.user)
 
-            # Verify batch status and counts
-            self.assertEqual(result.batch.status, UploadBatch.BatchStatus.COMPLETED)
+            # Verify batch status and counts. Phase 5c: any row-level
+            # failure yields PARTIALLY_COMPLETED, not COMPLETED — the
+            # pipeline itself didn't crash, but not every row succeeded.
+            self.assertEqual(result.batch.status, UploadBatch.BatchStatus.PARTIALLY_COMPLETED)
             self.assertEqual(result.total_rows, 5)
             self.assertEqual(result.failed_rows, 2)
             self.assertEqual(result.suspicious_rows, 1)
@@ -468,6 +478,12 @@ class APILayerTestCase(TestCase):
         self.client = APIClient()
         self.org = Organization.objects.create(name='API Test Org')
         self.user = User.objects.create_user(username='api_analyst', password='password')
+        # Grant the test user an active Analyst membership so tenant resolution
+        # and upload/approve permissions succeed.
+        from apps.accounts.models import Membership, Role
+        Membership.objects.create(
+            user=self.user, organization=self.org, role=Role.ANALYST, active=True
+        )
         self.client.force_authenticate(user=self.user)
 
         self.sap_ds = DataSource.objects.create(
@@ -508,12 +524,20 @@ class APILayerTestCase(TestCase):
 
     def test_sap_upload_success(self):
         response = self._upload_sap()
-        self.assertEqual(response.status_code, drf_status.HTTP_201_CREATED)
+        # Phase 5b: upload is now asynchronous — 202 Accepted, not 201. Under
+        # CELERY_TASK_ALWAYS_EAGER (the test runner) the task has already
+        # fully run by the time this response is built, so the counts below
+        # are real, not placeholders — this is not true against a real async
+        # worker (see apps.ingestion.tests_tasks.IngestTaskTests).
+        self.assertEqual(response.status_code, drf_status.HTTP_202_ACCEPTED)
         data = response.json()
         self.assertEqual(data['status'], UploadBatch.BatchStatus.COMPLETED)
         self.assertEqual(data['total_rows'], 2)
         self.assertEqual(data['failed_rows'], 0)
+        # A1: the original uploaded filename is preserved (not the temp name).
+        self.assertEqual(data['file_name'], 'sap_test.csv')
         batch = UploadBatch.objects.get(id=data['batch_id'])
+        self.assertEqual(batch.file_name, 'sap_test.csv')
         self.assertEqual(EmissionRecord.objects.filter(batch=batch).count(), 2)
 
     def test_sap_upload_type_mismatch_returns_400(self):
@@ -541,6 +565,78 @@ class APILayerTestCase(TestCase):
         self.assertEqual(response.status_code, drf_status.HTTP_400_BAD_REQUEST)
         self.assertIn('file', response.json())
 
+    def test_sap_upload_empty_file_returns_400(self):
+        # D5: an empty file is rejected with a clear validation message.
+        from io import BytesIO
+        from django.core.files.uploadedfile import InMemoryUploadedFile
+        file_obj = InMemoryUploadedFile(
+            file=BytesIO(b''), field_name='file',
+            name='empty.csv', content_type='text/csv',
+            size=0, charset='utf-8',
+        )
+        response = self.client.post(
+            '/api/upload/sap/',
+            data={'file': file_obj, 'data_source': str(self.sap_ds.id)},
+            format='multipart',
+        )
+        self.assertEqual(response.status_code, drf_status.HTTP_400_BAD_REQUEST)
+        self.assertIn('empty', str(response.json()).lower())
+
+    def test_sap_upload_rejects_an_unsupported_file_extension(self):
+        # Phase 7.5 (H4-4): parsers only ever read .csv (sap/utility) or
+        # .json (travel) -- confirmed via apps.ingestion.services.
+        # {sap,utility}_parser (csv.DictReader) / travel_parser (json.load).
+        # Before this fix, ANY file type was accepted and persisted to
+        # durable storage with no check at all.
+        from io import BytesIO
+        from django.core.files.uploadedfile import InMemoryUploadedFile
+        file_obj = InMemoryUploadedFile(
+            file=BytesIO(b"MZ\x90\x00fake-binary-content"), field_name='file',
+            name='payload.exe', content_type='application/octet-stream',
+            size=20, charset=None,
+        )
+        response = self.client.post(
+            '/api/upload/sap/',
+            data={'file': file_obj, 'data_source': str(self.sap_ds.id)},
+            format='multipart',
+        )
+        self.assertEqual(response.status_code, drf_status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Unsupported file type', str(response.json()))
+        # Nothing should have been persisted to durable storage or created a batch.
+        self.assertEqual(UploadBatch.objects.count(), 0)
+
+    def test_sap_upload_stores_a_server_derived_content_type_not_the_client_header(self):
+        # Phase 7.5 (H4-4): the client-supplied Content-Type header is fully
+        # attacker-controlled (e.g. could claim text/html) -- storage must
+        # receive the extension-derived type instead, regardless of what the
+        # client claims. Spies on the REAL storage service (wraps=, not a
+        # bare Mock) so the rest of the ingest/calculate chain still runs
+        # exactly as in test_sap_upload_success, and only the content_type
+        # argument passed to save() is inspected.
+        from io import BytesIO
+        from unittest.mock import patch
+        from django.core.files.uploadedfile import InMemoryUploadedFile
+        from apps.core.storage import get_storage_service as real_get_storage_service
+
+        file_obj = InMemoryUploadedFile(
+            file=BytesIO(self._sap_csv_bytes), field_name='file',
+            name='sap_test.csv', content_type='text/html',  # spoofed
+            size=len(self._sap_csv_bytes), charset='utf-8',
+        )
+        real_storage = real_get_storage_service()
+        with patch.object(real_storage, 'save', wraps=real_storage.save) as save_spy, \
+                patch('apps.ingestion.views.get_storage_service', return_value=real_storage):
+            response = self.client.post(
+                '/api/upload/sap/',
+                data={'file': file_obj, 'data_source': str(self.sap_ds.id)},
+                format='multipart',
+            )
+        self.assertEqual(response.status_code, drf_status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.json()['status'], UploadBatch.BatchStatus.COMPLETED)
+        self.assertEqual(save_spy.call_count, 1)
+        _, kwargs = save_spy.call_args
+        self.assertEqual(kwargs['content_type'], 'text/csv')  # NOT the spoofed 'text/html'
+
     def test_travel_upload_success(self):
         from io import BytesIO
         from django.core.files.uploadedfile import InMemoryUploadedFile
@@ -562,8 +658,43 @@ class APILayerTestCase(TestCase):
             data={'file': file_obj, 'data_source': str(self.travel_ds.id)},
             format='multipart',
         )
-        self.assertEqual(response.status_code, drf_status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, drf_status.HTTP_202_ACCEPTED)
         self.assertEqual(response.json()['total_rows'], 1)
+
+    def test_upload_parse_errors_are_structured(self):
+        # A2: parser errors must be returned as row-addressable objects
+        # ({"row_index", "error"}), not opaque strings.
+        from io import BytesIO
+        from django.core.files.uploadedfile import InMemoryUploadedFile
+        today = date.today().isoformat()
+        travel_data = [
+            {
+                'trip_id': 'T001', 'travel_mode': 'RAIL',
+                'origin': 'LON', 'destination': 'PAR',
+                'distance_km': 490.0, 'travel_date': today,
+                'employee_id': 'EMP001',
+            },
+            "this-is-not-an-object",  # -> per-record parse error at row_index 2
+        ]
+        payload = json.dumps(travel_data).encode('utf-8')
+        file_obj = InMemoryUploadedFile(
+            file=BytesIO(payload), field_name='file',
+            name='travel_bad.json', content_type='application/json',
+            size=len(payload), charset='utf-8',
+        )
+        response = self.client.post(
+            '/api/upload/travel/',
+            data={'file': file_obj, 'data_source': str(self.travel_ds.id)},
+            format='multipart',
+        )
+        self.assertEqual(response.status_code, drf_status.HTTP_202_ACCEPTED)
+        data = response.json()
+        self.assertTrue(len(data['errors']) >= 1)
+        first = data['errors'][0]
+        self.assertIsInstance(first, dict)
+        self.assertIn('row_index', first)
+        self.assertIn('error', first)
+        self.assertEqual(first['row_index'], 2)
 
     # Batch list / detail tests
 
@@ -571,7 +702,7 @@ class APILayerTestCase(TestCase):
         self._upload_sap()
         response = self.client.get('/api/batches/')
         self.assertEqual(response.status_code, drf_status.HTTP_200_OK)
-        self.assertGreaterEqual(len(response.json()), 1)
+        self.assertGreaterEqual(response.json()['count'], 1)
 
     def test_batch_detail(self):
         resp = self._upload_sap()
@@ -588,7 +719,7 @@ class APILayerTestCase(TestCase):
         batch_id = resp.json()['batch_id']
         response = self.client.get(f'/api/records/?batch={batch_id}')
         self.assertEqual(response.status_code, drf_status.HTTP_200_OK)
-        records = response.json()
+        records = response.json()['results']
         self.assertEqual(len(records), 2)
         for r in records:
             self.assertEqual(r['batch'], batch_id)
@@ -597,21 +728,21 @@ class APILayerTestCase(TestCase):
         self._upload_sap()
         response = self.client.get('/api/records/?status=DRAFT')
         self.assertEqual(response.status_code, drf_status.HTTP_200_OK)
-        for r in response.json():
+        for r in response.json()['results']:
             self.assertEqual(r['status'], 'DRAFT')
 
     def test_records_filter_suspicious_false(self):
         self._upload_sap()
         response = self.client.get('/api/records/?suspicious=false')
         self.assertEqual(response.status_code, drf_status.HTTP_200_OK)
-        for r in response.json():
+        for r in response.json()['results']:
             self.assertFalse(r['is_suspicious'])
 
     def test_records_filter_by_data_source(self):
         self._upload_sap()
         response = self.client.get(f'/api/records/?data_source={self.sap_ds.id}')
         self.assertEqual(response.status_code, drf_status.HTTP_200_OK)
-        self.assertGreaterEqual(len(response.json()), 1)
+        self.assertGreaterEqual(response.json()['count'], 1)
 
     # Approval workflow tests
 
@@ -622,6 +753,10 @@ class APILayerTestCase(TestCase):
             batch_id=batch_id, status=EmissionRecord.RecordStatus.DRAFT
         ).first()
         self.assertIsNotNone(record)
+
+        # Phase 6c: approval now requires SUBMITTED first.
+        submit_resp = self.client.post(f'/api/records/{record.id}/submit/', data={}, format='json')
+        self.assertEqual(submit_resp.status_code, drf_status.HTTP_200_OK)
 
         response = self.client.post(
             f'/api/records/{record.id}/approve/',
@@ -642,6 +777,7 @@ class APILayerTestCase(TestCase):
         resp = self._upload_sap()
         batch_id = resp.json()['batch_id']
         record = EmissionRecord.objects.filter(batch_id=batch_id).first()
+        self.client.post(f'/api/records/{record.id}/submit/', data={}, format='json')
         response = self.client.post(f'/api/records/{record.id}/approve/', data={}, format='json')
         self.assertEqual(response.status_code, drf_status.HTTP_200_OK)
 
@@ -650,11 +786,12 @@ class APILayerTestCase(TestCase):
         batch_id = resp.json()['batch_id']
         record = EmissionRecord.objects.filter(batch_id=batch_id).first()
 
+        self.client.post(f'/api/records/{record.id}/submit/', data={}, format='json')
         self.client.post(f'/api/records/{record.id}/approve/', data={'reason': 'first'}, format='json')
         response = self.client.post(f'/api/records/{record.id}/approve/', data={'reason': 'second'}, format='json')
 
         self.assertEqual(response.status_code, drf_status.HTTP_400_BAD_REQUEST)
-        self.assertIn('Approved & Audit Locked', response.json()['detail'])
+        self.assertIn('Cannot transition from APPROVED', response.json()['detail'])
 
     def test_approve_failed_record_returns_400(self):
         from io import BytesIO
@@ -679,15 +816,16 @@ class APILayerTestCase(TestCase):
 
         response = self.client.post(f'/api/records/{failed.id}/approve/', data={}, format='json')
         self.assertEqual(response.status_code, drf_status.HTTP_400_BAD_REQUEST)
-        self.assertIn('Failed validation', response.json()['detail'])
+        self.assertIn('Cannot transition from FAILED', response.json()['detail'])
 
     def test_audit_trail_immutable_after_approval(self):
         resp = self._upload_sap()
         batch_id = resp.json()['batch_id']
         record = EmissionRecord.objects.filter(batch_id=batch_id).first()
+        self.client.post(f'/api/records/{record.id}/submit/', data={}, format='json')
         self.client.post(f'/api/records/{record.id}/approve/', data={'reason': 'ok'}, format='json')
 
-        audit_log = AuditTrail.objects.get(record_uuid_backup=record.id)
+        audit_log = AuditTrail.objects.get(record_uuid_backup=record.id, action='RECORD_APPROVAL')
         audit_log.reason = 'Tampered'
         with self.assertRaises(ValidationError):
             audit_log.save()

@@ -17,10 +17,27 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
+from apps.core.views import healthz, healthz_ai, healthz_worker
+
 urlpatterns = [
+    # Database-aware health probe (used by Render/container orchestrators)
+    path('healthz', healthz, name='healthz'),
+    # Celery worker liveness probe (Phase 5)
+    path('healthz/worker/', healthz_worker, name='healthz-worker'),
+    # AI foundation health probe (Phase 7a)
+    path('healthz/ai/', healthz_ai, name='healthz-ai'),
     path('admin/', admin.site.urls),
-    # DRF browsable API authentication (login/logout buttons)
-    path('api/auth/', include('rest_framework.urls')),
+    # DRF browsable API session login/logout (moved off /api/auth to avoid
+    # clashing with the JWT auth endpoints below)
+    path('api/browsable-auth/', include('rest_framework.urls')),
+    # Authentication & identity — JWT login/refresh/logout, /api/me
+    path('api/', include('apps.accounts.urls')),
     # Ingestion API — upload, review, approve
     path('api/', include('apps.ingestion.urls')),
+    # Carbon engine — activity types, factor datasets/factors, calculations
+    path('api/', include('apps.carbon.urls')),
+    # Governance / audit — hash-chain verification (Phase 6a)
+    path('api/', include('apps.audit.urls')),
+    # ESG Assistant — conversational RAG-style Q&A (Phase 7e)
+    path('api/', include('apps.ai.urls')),
 ]

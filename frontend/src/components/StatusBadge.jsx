@@ -1,5 +1,3 @@
-import React from 'react';
-
 /**
  * StatusBadge Component
  * Renders a highly visual premium pill badge showing the validation/approval state of records or batches.
@@ -23,29 +21,50 @@ export const StatusBadge = ({ status }) => {
       break;
     case 'SUSPICIOUS':
       styles = {
-        bg: 'bg-amber-950/40 border-amber-500/30 text-amber-300 animate-pulse',
-        dot: 'bg-amber-400 shadow-[0_0_8px_#f59e0b]',
+        bg: 'bg-warning-950/40 border-warning-500/30 text-warning-300 animate-pulse',
+        dot: 'bg-warning-400 shadow-[0_0_8px_#f59e0b]',
         label: 'Suspicious / Flagged',
+      };
+      break;
+    case 'VALIDATED':
+      styles = {
+        bg: 'bg-sky-950/40 border-sky-500/30 text-sky-300',
+        dot: 'bg-sky-400 shadow-[0_0_8px_#38bdf8]',
+        label: 'Validated / Ready',
+      };
+      break;
+    case 'SUBMITTED':
+      styles = {
+        bg: 'bg-violet-950/40 border-violet-500/30 text-violet-300',
+        dot: 'bg-violet-400 shadow-[0_0_8px_#a78bfa]',
+        label: 'Submitted for Approval',
       };
       break;
     case 'APPROVED':
       styles = {
-        bg: 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300',
-        dot: 'bg-emerald-400 shadow-[0_0_8px_#10b981]',
+        bg: 'bg-success-950/40 border-success-500/30 text-success-300',
+        dot: 'bg-success-400 shadow-[0_0_8px_#10b981]',
         label: 'Approved & Locked',
+      };
+      break;
+    case 'REJECTED':
+      styles = {
+        bg: 'bg-orange-950/40 border-orange-500/30 text-orange-300',
+        dot: 'bg-orange-400 shadow-[0_0_8px_#fb923c]',
+        label: 'Rejected / Needs Correction',
       };
       break;
     case 'FAILED':
       styles = {
-        bg: 'bg-rose-950/40 border-rose-500/30 text-rose-300',
-        dot: 'bg-rose-500 shadow-[0_0_8px_#ef4444]',
+        bg: 'bg-danger-950/40 border-danger-500/30 text-danger-300',
+        dot: 'bg-danger-500 shadow-[0_0_8px_#ef4444]',
         label: 'Failed Ingest',
       };
       break;
     case 'COMPLETED':
       styles = {
-        bg: 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300',
-        dot: 'bg-emerald-400 shadow-[0_0_8px_#10b981]',
+        bg: 'bg-success-950/40 border-success-500/30 text-success-300',
+        dot: 'bg-success-400 shadow-[0_0_8px_#10b981]',
         label: 'Completed',
       };
       break;

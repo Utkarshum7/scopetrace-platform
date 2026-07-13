@@ -1,0 +1,9 @@
+activity_type,unit,co2e_per_unit,region,valid_from,valid_to,methodology,source_ref
+DIESEL_STATIONARY,L,2.68205,GB,2024-01-01,2024-12-31,DEFRA 2024 fuels,Diesel (average biofuel blend) - illustrative
+NATURAL_GAS,L,0.00210,GB,2024-01-01,2024-12-31,DEFRA 2024 fuels,Natural gas (volumetric) - illustrative
+GRID_ELECTRICITY,kWh,0.20705,GB,2024-01-01,2024-12-31,DEFRA 2024 UK electricity,UK grid generation - illustrative
+FLIGHT_DOMESTIC,km,0.24587,GB,2024-01-01,2024-12-31,DEFRA 2024 business travel air,Domestic - illustrative
+FLIGHT_SHORT_HAUL,km,0.15102,GB,2024-01-01,2024-12-31,DEFRA 2024 business travel air,Short-haul average - illustrative
+FLIGHT_LONG_HAUL,km,0.19085,GB,2024-01-01,2024-12-31,DEFRA 2024 business travel air,Long-haul average - illustrative
+RAIL_NATIONAL,km,0.03546,GB,2024-01-01,2024-12-31,DEFRA 2024 business travel land,National rail - illustrative
+CAR_RENTAL,km,0.16844,GB,2024-01-01,2024-12-31,DEFRA 2024 business travel land,Average car - illustrative

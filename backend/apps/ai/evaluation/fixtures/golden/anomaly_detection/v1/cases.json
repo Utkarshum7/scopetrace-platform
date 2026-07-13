@@ -1,0 +1,46 @@
+[
+  {
+    "case_id": "anomaly_detection_v1_001",
+    "description": "Fuel quantity far outside the stated baseline -- expected anomalous, high confidence.",
+    "prompt_name": "anomaly_detection",
+    "response_schema_id": "anomaly_detection",
+    "response_schema_version": 1,
+    "template_vars": {
+      "activity_description": "Diesel fuel purchase - Fleet Vehicle #12",
+      "quantity": "500",
+      "unit": "L",
+      "baseline_mean": "120",
+      "baseline_stddev": "15"
+    },
+    "expected_response": {
+      "is_anomalous": true,
+      "explanation": "500 L is roughly 25 standard deviations above the 120 L baseline mean.",
+      "confidence": "HIGH"
+    },
+    "expected_prompt_template_hash": "6678f96432e415b3c109972fbd3c5badb76263e385dbb1e1cd2391ee7384e4bd",
+    "expected_rendered_input_hash": "9362f1fff68aa492ae59b02d1ad876042207f8a41ad119c051680af6a4315d13",
+    "min_score": 1.0
+  },
+  {
+    "case_id": "anomaly_detection_v1_002",
+    "description": "Electricity quantity close to the stated baseline -- expected not anomalous.",
+    "prompt_name": "anomaly_detection",
+    "response_schema_id": "anomaly_detection",
+    "response_schema_version": 1,
+    "template_vars": {
+      "activity_description": "Electricity - Main Office",
+      "quantity": "1250",
+      "unit": "kWh",
+      "baseline_mean": "1200",
+      "baseline_stddev": "100"
+    },
+    "expected_response": {
+      "is_anomalous": false,
+      "explanation": "1250 kWh is within one standard deviation of the 1200 kWh baseline mean.",
+      "confidence": "HIGH"
+    },
+    "expected_prompt_template_hash": "6678f96432e415b3c109972fbd3c5badb76263e385dbb1e1cd2391ee7384e4bd",
+    "expected_rendered_input_hash": "8db51c8c2b532a52187a54b502cb731c90727a08f88624ae45671c34cf9ee82b",
+    "min_score": 1.0
+  }
+]

@@ -1,0 +1,42 @@
+[
+  {
+    "case_id": "validation_assistance_v1_001",
+    "description": "Negative quantity validation failure.",
+    "prompt_name": "validation_assistance",
+    "response_schema_id": "validation_assistance",
+    "response_schema_version": 1,
+    "template_vars": {
+      "raw_value": "-500",
+      "field_name": "quantity",
+      "validation_error": "Negative quantities are not permitted"
+    },
+    "expected_response": {
+      "suggested_correction": "500",
+      "confidence": "MEDIUM",
+      "rationale": "The sign was likely a data-entry error; the magnitude is otherwise plausible."
+    },
+    "expected_prompt_template_hash": "88b7d60fca998c519b22ffb8969e06e5961516ccdaefc549a7128a7a11b28ce9",
+    "expected_rendered_input_hash": "9382ed865e2e1fc30e514750f9ee7582e541bed75ad5a17551b76aa8c64879c2",
+    "min_score": 1.0
+  },
+  {
+    "case_id": "validation_assistance_v1_002",
+    "description": "Unparseable numeric value with thousands separator.",
+    "prompt_name": "validation_assistance",
+    "response_schema_id": "validation_assistance",
+    "response_schema_version": 1,
+    "template_vars": {
+      "raw_value": "12,500.5",
+      "field_name": "quantity",
+      "validation_error": "Unable to parse numeric value"
+    },
+    "expected_response": {
+      "suggested_correction": "12500.5",
+      "confidence": "HIGH",
+      "rationale": "The comma is a thousands separator; removing it yields a valid numeric value."
+    },
+    "expected_prompt_template_hash": "88b7d60fca998c519b22ffb8969e06e5961516ccdaefc549a7128a7a11b28ce9",
+    "expected_rendered_input_hash": "5fd54290c9fcd859dfe06d83a8b68da3c098a014609ae75d2c1e734f5025e67d",
+    "min_score": 1.0
+  }
+]

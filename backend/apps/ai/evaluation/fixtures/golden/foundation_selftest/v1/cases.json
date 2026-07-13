@@ -1,0 +1,19 @@
+[
+  {
+    "case_id": "foundation_selftest_v1_001",
+    "description": "Proves the evaluation harness works end to end against an EXISTING (Phase 7a) capability, not just the Phase 7a.5 placeholder ones.",
+    "prompt_name": "foundation.selftest",
+    "response_schema_id": "foundation.selftest",
+    "response_schema_version": 1,
+    "template_vars": {
+      "echo_value": "golden-fixture-selftest"
+    },
+    "expected_response": {
+      "acknowledged": true,
+      "echo": "golden-fixture-selftest"
+    },
+    "expected_prompt_template_hash": "cb12743449103096fec4ef36a86143e6b0ee3194752ea70143c8775b77cadbe7",
+    "expected_rendered_input_hash": "b0acd9b8df08806a39070f15a7fce03e1f59104cc6deeda5c40f5ed230fb1ea0",
+    "min_score": 1.0
+  }
+]

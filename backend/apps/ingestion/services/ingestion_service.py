@@ -2,6 +2,7 @@ import os
 import logging
 from dataclasses import dataclass
 from django.db import transaction
+from django.utils import timezone
 from apps.core.models import DataSource
 from apps.ingestion.models import UploadBatch, EmissionRecord
 from .sap_parser import SAPFuelParser
@@ -22,7 +23,8 @@ class IngestionResult:
     total_rows: int
     failed_rows: int
     suspicious_rows: int
-    errors: list[str]
+    # Structured, row-addressable parse errors: [{"row_index": int, "error": str}]
+    errors: list[dict]
 
 
 class IngestionService:
@@ -45,10 +47,31 @@ class IngestionService:
         DataSource.SourceType.CORP_TRAVEL: TravelParser,
     }
 
-    def ingest(self, data_source: DataSource, file_path: str, uploaded_by=None) -> IngestionResult:
-        file_name = os.path.basename(file_path)
+    def ingest(
+        self,
+        data_source: DataSource,
+        file_path: str,
+        uploaded_by=None,
+        original_filename: str | None = None,
+    ) -> IngestionResult:
+        """Synchronous entry point: create the batch, ingest, AND calculate —
+        preserving the fully-synchronous, single-call behavior this method
+        has always had.
 
-        # 1. Create batch in PROCESSING status outside transaction
+        Kept for direct/service-level callers and existing tests. The
+        asynchronous path (Phase 5d) achieves the same end state via two
+        separate, independently-retryable Celery tasks chained together:
+        apps.ingestion.tasks.ingest_task (calls ingest_batch() below, exactly
+        as this method does) then apps.carbon.tasks.calculate_task (calls
+        CarbonCalculationService.calculate_for_batch(), exactly as this
+        method does below) — see docs/JOB_LIFECYCLE.md.
+        """
+        # Prefer the original uploaded filename for lineage/audit. Fall back to
+        # the temp file's basename only when the caller does not supply one
+        # (e.g. direct service-level usage in tests).
+        file_name = original_filename or os.path.basename(file_path)
+
+        # Create batch in PROCESSING status outside transaction
         # to ensure that if ingestion fails completely, the metadata log remains.
         batch = UploadBatch.objects.create(
             organization=data_source.organization,
@@ -57,13 +80,68 @@ class IngestionService:
             status=UploadBatch.BatchStatus.PROCESSING,
             uploaded_by=uploaded_by,
         )
+        result = self.ingest_batch(batch, file_path)
 
+        # Calculation is a separate stage/transaction from ingestion (Phase
+        # 5d) even on this synchronous path — imported lazily to keep the
+        # carbon engine an optional dependency of the ingestion pipeline.
+        from apps.carbon.services.carbon_service import CarbonCalculationService
+        CarbonCalculationService().calculate_for_batch(batch)
+
+        return result
+
+    def ingest_batch(
+        self, batch: UploadBatch, file_path: str, transient_exceptions: tuple = ()
+    ) -> IngestionResult:
+        """Run the parse -> validate -> normalize -> persist pipeline against
+        an ALREADY-CREATED batch. Phase 5d: calculation is a SEPARATE stage
+        (CarbonCalculationService.calculate_for_batch(), its own transaction)
+        — this method's job ends once records are durably persisted.
+
+        This is the shared core `ingest()` delegates to. It exists as its own
+        method so the asynchronous upload path (Phase 5b/5d) can hand it a
+        batch that was created — and durably staged via StorageService —
+        before the Celery task ever ran, without duplicating batch-creation
+        logic or creating a second orphaned batch.
+
+        Ensures the batch is PROCESSING before doing any work, regardless of
+        its incoming status (PENDING under CELERY_TASK_ALWAYS_EAGER, QUEUED
+        under real async dispatch, or already PROCESSING — both `ingest()`'s
+        synchronous path above and a crash-recovery redelivery land here with
+        status already PROCESSING). started_at/worker_id/retry_count may
+        already be set on the in-memory `batch` object by the caller (the
+        Celery task sets worker_id/retry_count before calling this — see
+        apps.ingestion.tasks.ingest_task) — this plain .save() (no
+        update_fields restriction) persists whatever the caller has already
+        populated, not just status/started_at.
+
+        `transient_exceptions` (Phase 5e): exception types that should
+        propagate WITHOUT marking the batch FAILED — critical for retries.
+        Without this, a transient DB blip would mark FAILED on attempt 1
+        (before a retry even happens), and the FAILED status would then make
+        ingest_task's own idempotency guard skip every subsequent retry
+        attempt as "already terminal", silently defeating the retry policy
+        entirely. Defaults to `()`, an empty tuple — `except ():` never
+        matches anything, so the synchronous `ingest()` caller (which never
+        retries) keeps today's exact behavior: any exception immediately
+        marks the batch FAILED. Only apps.ingestion.tasks.ingest_task passes
+        its own retryable-exception tuple here. The batch is marked FAILED
+        for a transient exception only once retries are truly exhausted —
+        see apps.tasks.signals's task_failure handler.
+        """
+        if batch.status != UploadBatch.BatchStatus.PROCESSING:
+            batch.status = UploadBatch.BatchStatus.PROCESSING
+            batch.started_at = timezone.now()
+            batch.save()
+
+        data_source = batch.data_source
         parser_class = self.PARSER_REGISTRY.get(data_source.source_type)
         if not parser_class:
             err_msg = f"No parser registered for source type: {data_source.source_type}"
             batch.status = UploadBatch.BatchStatus.FAILED
-            batch.error_message = err_msg
-            batch.save(update_fields=["status", "error_message"])
+            batch.error_message = f"Pipeline configuration error: {err_msg}"
+            batch.finished_at = timezone.now()
+            batch.save(update_fields=["status", "error_message", "finished_at"])
             raise ValueError(err_msg)
 
         parser = parser_class()
@@ -138,17 +216,48 @@ class IngestionService:
                 # 5. Bulk create records
                 if records_to_create:
                     EmissionRecord.objects.bulk_create(records_to_create)
+                    # Phase 6b: bulk_create() bypasses EmissionRecord.save()
+                    # entirely (Django design, not an oversight — see that
+                    # method's own comment), so freshly-ingested records need
+                    # their own explicit "version 1" here, via the same
+                    # bulk-friendly path for the same performance reason.
+                    from apps.ingestion.services.versioning import create_initial_versions_bulk
+                    create_initial_versions_bulk(records_to_create)
 
                 # 6. Update batch status to COMPLETED
                 total_rows = len(parsed_rows) + len(parse_errors)
                 failed_rows = len(parse_errors) + failed_validation_count
 
+                # Structured, row-addressable errors so a client can render
+                # "Row #N: <message>" instead of opaque strings. Persisted on
+                # the batch (Phase 5b) — ingestion no longer runs on the
+                # request thread, so this can no longer be returned only in a
+                # synchronous HTTP response; it must be durable to be
+                # discoverable by polling the batch afterwards.
+                errors_summary = [
+                    {"row_index": err["row_index"], "error": err["error"]}
+                    for err in parse_errors
+                ]
+
                 batch.total_rows = total_rows
                 batch.failed_rows = failed_rows
-                batch.status = UploadBatch.BatchStatus.COMPLETED
+                batch.parse_errors = errors_summary
+                # PARTIALLY_COMPLETED (not COMPLETED) whenever any row
+                # failed to parse/validate — even if every row failed. The
+                # pipeline itself did not crash; that's the distinction from
+                # FAILED below. See the BatchStatus docstring in models.py.
+                batch.status = (
+                    UploadBatch.BatchStatus.PARTIALLY_COMPLETED
+                    if failed_rows > 0
+                    else UploadBatch.BatchStatus.COMPLETED
+                )
+                # finished_at is NOT set here (Phase 5d) — ingestion
+                # succeeding no longer means the whole job is done; the
+                # calculation stage is still pending. It's set either by
+                # this method's own FAILED path below (chain-terminating) or
+                # by CarbonCalculationService.calculate_for_batch()'s
+                # completion (the chain continuing).
                 batch.save()
-
-                errors_summary = [err["error"] for err in parse_errors]
 
                 return IngestionResult(
                     batch=batch,
@@ -158,10 +267,30 @@ class IngestionService:
                     errors=errors_summary,
                 )
 
+        except transient_exceptions:
+            # Phase 5e: a retry-eligible exception — the transaction already
+            # rolled back on its own (transaction.atomic()'s normal behavior),
+            # but do NOT mark the batch FAILED here. The caller (ingest_task,
+            # via autoretry_for) is about to retry; marking FAILED now would
+            # make the NEXT attempt's idempotency guard see an already-
+            # terminal batch and skip it, permanently defeating the retry.
+            logger.warning(
+                "Ingestion transient failure for batch %s — expecting a retry, "
+                "not marking FAILED",
+                batch.id,
+                exc_info=True,
+            )
+            raise
         except Exception as exc:
-            # Ingestion transaction rolled back, mark batch status as FAILED
+            # Ingestion transaction rolled back, mark batch status as FAILED.
+            # Exception type + message + stage context — never a bare/generic
+            # "processing failed" (Phase 5c requirement #6).
             batch.status = UploadBatch.BatchStatus.FAILED
-            batch.error_message = str(exc)
-            batch.save(update_fields=["status", "error_message"])
+            batch.error_message = (
+                f"Ingestion pipeline failed while parsing/validating/persisting: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            batch.finished_at = timezone.now()
+            batch.save(update_fields=["status", "error_message", "finished_at"])
             logger.exception("Ingestion transaction failed for batch %s", batch.id)
             raise exc

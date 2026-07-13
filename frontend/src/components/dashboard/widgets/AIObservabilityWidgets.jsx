@@ -1,0 +1,129 @@
+// Phase 7g -- Platform Admin AI observability widgets. All four share one
+// query (apiService.getAIObservability), matching PlatformWidgets.jsx's own
+// usePlatform() precedent -- TanStack Query dedups the shared key into one
+// request regardless of how many widgets mount. Server-side RBAC
+// (IsPlatformAdmin, apps.ai.ops_views.AIObservabilityView) is the real
+// boundary; these widgets are only reachable from the PLATFORM_ADMIN
+// registry section (see registry.js), never rendered for a lower role.
+import { apiService } from '../../../services/api';
+import { useWidgetData } from '../useWidgetData';
+import { WidgetFrame } from '../WidgetFrame';
+import { EmptyState } from '../../ui/EmptyState';
+import { TrendChart, DonutChart } from '../../charts';
+
+const num = (v, d = 1) => Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: d });
+
+const useAIObservability = (filters) =>
+  useWidgetData(['ai-observability', filters], () => apiService.getAIObservability(filters));
+
+export const AIUsageWidget = ({ filters }) => {
+  const { status, data, refetch } = useAIObservability(filters);
+  return (
+    <WidgetFrame title="AI Usage" subtitle="Gateway requests" status={status} onRetry={refetch}>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] uppercase tracking-wider text-slate-500">Total requests</span>
+          <span className="text-xl font-black text-white">{num(data?.requests?.total, 0)}</span>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] uppercase tracking-wider text-slate-500">Failed</span>
+          <span className="text-xl font-black text-danger-400">{num(data?.requests?.failed, 0)}</span>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] uppercase tracking-wider text-slate-500">Cache hits</span>
+          <span className="text-xl font-black text-brand-400">{num(data?.cache_hits, 0)}</span>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] uppercase tracking-wider text-slate-500">Replay calls</span>
+          <span className="text-xl font-black text-white">{num(data?.replay_usage, 0)}</span>
+        </div>
+      </div>
+    </WidgetFrame>
+  );
+};
+
+export const AIProviderMixWidget = ({ filters }) => {
+  const { status, data, refetch } = useAIObservability(filters);
+  const chartData = Object.entries(data?.provider_usage || {}).map(([label, value]) => ({ label, value }));
+  const isEmpty = status === 'success' && chartData.length === 0;
+  return (
+    <WidgetFrame
+      title="Provider Mix"
+      subtitle="Requests by provider"
+      status={isEmpty ? 'empty' : status}
+      onRetry={refetch}
+      empty={<EmptyState title="No AI requests yet" message="Provider usage will appear here once the gateway is used." />}
+    >
+      <DonutChart
+        data={chartData}
+        height={220}
+        formatValue={(v) => num(v, 0)}
+        ariaLabel={`AI gateway requests by provider: ${chartData.map((c) => `${c.label} ${num(c.value, 0)}`).join(', ') || 'no data'}`}
+      />
+    </WidgetFrame>
+  );
+};
+
+export const AIEvaluationWidget = ({ filters }) => {
+  const { status, data, refetch } = useAIObservability(filters);
+  const evaluation = data?.evaluation;
+  return (
+    <WidgetFrame title="Evaluation Health" subtitle="Golden dataset suite" status={status} onRetry={refetch}>
+      <div className="flex flex-col gap-3 h-full">
+        <div className="grid grid-cols-3 gap-3">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] uppercase tracking-wider text-slate-500">Regressions</span>
+            <span className="text-lg font-black text-danger-400">{num(evaluation?.regressions, 0)}</span>
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] uppercase tracking-wider text-slate-500">Schema fails</span>
+            <span className="text-lg font-black text-warning-400">{num(evaluation?.schema_failures, 0)}</span>
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] uppercase tracking-wider text-slate-500">Replay fails</span>
+            <span className="text-lg font-black text-warning-400">{num(evaluation?.replay_failures, 0)}</span>
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5 pt-1 border-t border-slate-800/50">
+          {Object.entries(evaluation?.latest_by_tier || {}).map(([tier, run]) => (
+            <div key={tier} className="flex items-center justify-between gap-2">
+              <span className="text-[11px] text-slate-400 truncate">{tier.replace(/_/g, ' ')}</span>
+              {run ? (
+                <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border ${
+                  run.failed_cases === 0 ? 'bg-success-950/30 border-success-500/20 text-success-400'
+                    : 'bg-danger-950/30 border-danger-500/20 text-danger-400'
+                }`}>{run.passed_cases}/{run.total_cases} passed</span>
+              ) : (
+                <span className="text-[10px] text-slate-600">never run</span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </WidgetFrame>
+  );
+};
+
+export const AILatencyTrendWidget = ({ filters }) => {
+  const { status, data, refetch } = useAIObservability(filters);
+  const trend = data?.latency?.trend || [];
+  const isEmpty = status === 'success' && trend.length === 0;
+  return (
+    <WidgetFrame
+      title="Latency Trend"
+      subtitle={`Avg ${num(data?.latency?.avg_ms)} ms overall`}
+      status={isEmpty ? 'empty' : status}
+      onRetry={refetch}
+      empty={<EmptyState title="No latency data yet" message="AI gateway latency will appear here once requests are made." />}
+    >
+      <TrendChart
+        data={trend}
+        xKey="date"
+        valueKey="avg_ms"
+        height={220}
+        formatValue={(v) => `${num(v, 0)}ms`}
+        ariaLabel="AI gateway average latency trend, in milliseconds"
+      />
+    </WidgetFrame>
+  );
+};

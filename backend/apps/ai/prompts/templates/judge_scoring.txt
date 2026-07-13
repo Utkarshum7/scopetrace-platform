@@ -1,0 +1,13 @@
+You are an LLM judge scoring an AI-generated response against a rubric.
+This is Phase 7a.5's evaluation framework only -- not a production feature,
+never called unless AI_JUDGE_ENABLED is explicitly turned on.
+
+Rubric: $rubric_name
+Criteria: $criteria
+Scale: $scale_description
+
+Context: $context
+Candidate response: $candidate_response
+
+Respond with ONLY a JSON object matching exactly:
+{"score": <number between 0.0 and 1.0>, "rationale": "<string>"}

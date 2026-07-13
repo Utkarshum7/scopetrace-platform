@@ -1,0 +1,74 @@
+"""
+StorageService — the provider-independent durable file storage contract.
+
+Ingestion (and any future feature needing durable file storage) depends only
+on this interface, never on a concrete provider. Swapping providers — S3 ->
+Cloudflare R2 -> Backblaze B2 -> Google Cloud Storage -> Azure Blob -> local
+dev — is a settings change plus, at most, one new thin adapter class under
+providers/; it is never a change to caller code.
+"""
+from abc import ABC, abstractmethod
+from typing import IO, Optional
+
+
+class StorageService(ABC):
+    @abstractmethod
+    def save(
+        self,
+        key: str,
+        file_obj: IO[bytes],
+        metadata: Optional[dict] = None,
+        content_type: Optional[str] = None,
+    ) -> str:
+        """Persist `file_obj` durably under `key`.
+
+        `metadata` is an optional, provider-dependent bag of string key/value
+        pairs (e.g. original filename, uploading user, source system) stored
+        alongside the object. Support is best-effort: providers that can
+        persist it (S3-compatible backends, via native object metadata)
+        should; a provider that cannot (local filesystem) accepts the
+        parameter but is permitted to silently ignore it rather than raise —
+        this keeps the interface forward-compatible without forcing every
+        provider to model metadata storage today, and without affecting any
+        existing caller (the parameter defaults to None everywhere).
+
+        Providers that can persist metadata should also compute a SHA-256
+        checksum of the content and merge it into that metadata as
+        `"sha256"` — provenance/audit/future duplicate-detection groundwork.
+        Like metadata generally, this is best-effort: a provider with no
+        metadata persistence path (local filesystem) has nothing to put a
+        checksum in, so it doesn't compute one at all rather than computing
+        a value that's immediately discarded. Deliberately NOT surfaced as a
+        return value or a new interface method today, so nothing about this
+        interface needs to change later to make use of it (a future
+        `get_metadata(key)` method, if ever needed, would be additive).
+
+        Returns the key actually stored under (a provider may sanitize or
+        namespace it; callers should persist the returned key, not assume
+        it equals the input).
+        """
+
+    @abstractmethod
+    def open(self, key: str) -> IO[bytes]:
+        """Return a binary file-like object for reading.
+
+        Raises StorageObjectNotFound if `key` does not exist.
+        """
+
+    @abstractmethod
+    def exists(self, key: str) -> bool:
+        """Return True if an object exists at `key`."""
+
+    @abstractmethod
+    def delete(self, key: str) -> None:
+        """Remove the object at `key`. Idempotent — deleting a missing key is
+        not an error."""
+
+    @abstractmethod
+    def generate_download_url(self, key: str, expires_in: int = 3600) -> str:
+        """Return a fully-qualified, time-limited HTTP(S) URL for downloading
+        `key` directly — always a real URL, never a filesystem path, and
+        never requiring a further storage-layer call to use. This contract is
+        identical across every provider, including local development, so
+        callers never special-case the backend.
+        """

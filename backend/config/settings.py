@@ -10,30 +10,81 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+from datetime import timedelta
 from pathlib import Path
+from celery.schedules import crontab
 from decouple import config, Csv
+from django.core.exceptions import ImproperlyConfigured
 import dj_database_url
 import os
+import sys
+
+# D4: pure, unit-tested helper deriving Celery's eager-execution defaults from
+# the deployment mode — see its use below CELERY_BROKER_URL for the full
+# rationale. Imported at the top (not inline) to satisfy ruff's E402 (module-
+# level imports must precede other code); apps.core.execution has no Django
+# settings dependency of its own, so importing it this early is safe.
+from apps.core.execution import resolve_celery_execution
+
+# True while running the test suite — used to disable rate limiting so tests
+# don't hit throttle ceilings.
+_TESTING = 'test' in sys.argv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
+# ---------------------------------------------------------------------------
+# Core security configuration — FAILS CLOSED.
+#
+# Every default here is the safe production choice (DEBUG off, no wildcard
+# hosts, CORS locked, no fallback secret). A missing or unsafe environment
+# variable raises ImproperlyConfigured at boot instead of silently exposing
+# the service. Convenience fallbacks are permitted ONLY when DEBUG is True.
+# ---------------------------------------------------------------------------
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-w_^9*m6tx$26anag(@1od(%f0c%f92+#r1(@m-k&1id(=p(2d$')
+# DEBUG defaults to False so an unset env var can never enable debug in prod.
+DEBUG = config('DEBUG', default=False, cast=bool)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config('DEBUG', default=True, cast=bool)
+# ---------------------------------------------------------------------------
+# DEMO_MODE (D4) — a single, clearly-named flag selecting the deployment mode.
+#   False (default) = PRODUCTION: the full enterprise architecture (Celery
+#     Worker + Beat + Redis, async .delay() dispatch). Nothing about production
+#     changes when this is False — it is byte-for-byte the pre-Demo-Mode system.
+#   True = DEMO: for free hosting where no background worker can run. Background
+#     work executes synchronously in-process via Celery's eager mode (see the
+#     CELERY_TASK_ALWAYS_EAGER derivation below and apps.core.execution). No
+#     Worker, Beat, or broker is required. Intended only for portfolio/demo
+#     hosting; flipping it back to False immediately restores the async system.
+# This is NOT DEBUG: DEMO_MODE runs with DEBUG=False and every production
+# security control (fail-closed config, HSTS, secure cookies) fully active.
+DEMO_MODE = config('DEMO_MODE', default=False, cast=bool)
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='*', cast=Csv())
+# SECRET_KEY: a throwaway key is allowed only in local debug. In production the
+# variable is mandatory — booting without it is a hard error, not a weak default.
+SECRET_KEY = config('SECRET_KEY', default='')
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = 'django-insecure-local-development-only-do-not-use-in-production'
+    else:
+        raise ImproperlyConfigured(
+            "SECRET_KEY environment variable is required when DEBUG=False."
+        )
 
-# Dynamic ALLOWED_HOSTS addition for Render deployments
+# ALLOWED_HOSTS defaults to localhost only — never '*'.
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
+
+# Render injects the external hostname at runtime — trust it automatically.
 render_host = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
 if render_host and render_host not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(render_host)
+
+# Reject wildcard hosts in production — it defeats Host-header validation.
+if not DEBUG and '*' in ALLOWED_HOSTS:
+    raise ImproperlyConfigured(
+        "ALLOWED_HOSTS must not contain '*' when DEBUG=False. "
+        "List the exact public hostname(s)."
+    )
 
 
 # Application definition
@@ -48,16 +99,29 @@ INSTALLED_APPS = [
     
     # Third party packages
     'rest_framework',
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
+    'django_filters',
     'corsheaders',
-    
+
     # Local apps
     'apps.core',
+    'apps.accounts',
     'apps.ingestion',
     'apps.audit',
+    'apps.carbon',
+    'apps.tasks',
+    'apps.ai',
+    'apps.ai.evaluation',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Phase 9b: assigns a per-request correlation id (X-Request-ID response
+    # header + every log line emitted while this request is handled).
+    # Placed as early as possible so it wraps the rest of the chain,
+    # including WhiteNoise and DRF's own exception handler.
+    'apps.core.middleware.RequestIDMiddleware',
     # WhiteNoise serves static files efficiently in production (must be 2nd after SecurityMiddleware)
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
@@ -91,13 +155,26 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
+#
+# SQLite is permitted ONLY for local development (DEBUG=True). In production a
+# DATABASE_URL pointing at managed PostgreSQL is mandatory. This prevents the
+# app from silently falling back to an ephemeral SQLite file on a container's
+# disk — which is wiped on every deploy/restart and was the root cause of the
+# prior "DataSource disappears" / "ledger empty after deploy" data loss.
+
+DATABASE_URL = config('DATABASE_URL', default='')
+if not DATABASE_URL:
+    if DEBUG:
+        DATABASE_URL = f'sqlite:///{BASE_DIR / "db.sqlite3"}'
+    else:
+        raise ImproperlyConfigured(
+            "DATABASE_URL environment variable is required when DEBUG=False. "
+            "Point it at your managed PostgreSQL instance."
+        )
 
 DATABASES = {
-    'default': config(
-        'DATABASE_URL',
-        default=f'sqlite:///{BASE_DIR / "db.sqlite3"}',
-        cast=dj_database_url.parse
-    )
+    # conn_max_age keeps connections warm (persistent connections) in production.
+    'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600),
 }
 
 
@@ -149,19 +226,550 @@ STATICFILES_STORAGE = (
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# CORS Settings
-# In production set CORS_ALLOW_ALL_ORIGINS=False and list exact Vercel origin
-CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)
-if not CORS_ALLOW_ALL_ORIGINS:
-    CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='', cast=Csv())
+# CORS Settings — locked down by default; allow-all must be opted into explicitly.
+CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
+CORS_ALLOWED_ORIGINS = config(
+    'CORS_ALLOWED_ORIGINS',
+    default='http://localhost:5173,http://localhost:3000',
+    cast=Csv(),
+)
 
-# Production security hardening (active when DEBUG=False)
+# CSRF trusted origins (needed for the admin/browsable API over HTTPS).
+CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
+if render_host:
+    CSRF_TRUSTED_ORIGINS.append(f'https://{render_host}')
+
+# Phase 6f: made EXPLICIT rather than left implicit. Both already default
+# to exactly these values in Django 6.0 (unconditionally, in every
+# environment) -- this changes zero runtime behavior. It exists so a
+# security reviewer never has to know Django's own undocumented-in-this-
+# codebase defaults to confirm the posture, matching this project's
+# established "explicit over implicit" pattern (cf. the REST_FRAMEWORK
+# block above, which makes DRF's own current defaults explicit for the
+# same reason).
+SECURE_REFERRER_POLICY = 'same-origin'
+SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin'
+
+# Production security hardening (active when DEBUG=False).
+# The TLS-terminating toggles are env-overridable so the stack can also run
+# behind plain HTTP locally (e.g. Docker Compose) without redirect loops,
+# while defaulting to fully hardened in real deployments.
 if not DEBUG:
-    SECURE_HSTS_SECONDS = 31536000          # 1 year
+    # Trust the proxy's X-Forwarded-Proto so SSL redirect + secure cookies work
+    # behind Render's (and most PaaS) TLS-terminating load balancer.
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=True, cast=bool)
+    SESSION_COOKIE_SECURE = config('SESSION_COOKIE_SECURE', default=True, cast=bool)
+    CSRF_COOKIE_SECURE = config('CSRF_COOKIE_SECURE', default=True, cast=bool)
+    SECURE_HSTS_SECONDS = config('SECURE_HSTS_SECONDS', default=31536000, cast=int)
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
-    SECURE_SSL_REDIRECT = True
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
+
+
+# ---------------------------------------------------------------------------
+# Django REST Framework — centralized configuration.
+#
+# These are the framework's CURRENT effective defaults, made explicit so future
+# phases change auth/permissions/pagination in ONE place instead of touching
+# every view. Nothing here changes today's behavior.
+#
+# See docs/ARCHITECTURE_INTEGRATION.md for the full integration map.
+# ---------------------------------------------------------------------------
+REST_FRAMEWORK = {
+    # Phase 7.5 (H4-8): a minimal, additive handler -- only takes over for
+    # exceptions DRF's OWN default handler can't already map to a Response
+    # (i.e. a genuinely unexpected exception that propagated out of a view
+    # uncaught). Every existing explicit Response({"detail": ...}, ...)
+    # return elsewhere in this codebase is unaffected -- see
+    # apps.core.exception_handlers's module docstring.
+    'EXCEPTION_HANDLER': 'apps.core.exception_handlers.unhandled_exception_handler',
+    # JWT is the primary API authentication. SessionAuthentication is kept so the
+    # DRF browsable API and Django admin remain usable during development.
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    # Phase 9a: DRF's own default (JSONRenderer + BrowsableAPIRenderer) left
+    # the interactive HTML API explorer reachable in every environment,
+    # including production, even though the actual frontend only ever
+    # speaks JSON. BrowsableAPIRenderer doesn't bypass auth/permissions --
+    # nothing here was ever an access-control gap -- but it's unnecessary
+    # production surface (an HTML UI for interactively walking the entire
+    # API schema/shape) with no legitimate production consumer, and
+    # disabling it is the standard hardening step for exactly this reason.
+    # DEBUG=True keeps both renderers so the browsable API/admin stay
+    # usable locally, matching SessionAuthentication's own DEBUG-oriented
+    # rationale immediately above.
+    'DEFAULT_RENDERER_CLASSES': (
+        ['rest_framework.renderers.JSONRenderer', 'rest_framework.renderers.BrowsableAPIRenderer']
+        if DEBUG else
+        ['rest_framework.renderers.JSONRenderer']
+    ),
+    # Secure default: every endpoint requires authentication unless it explicitly
+    # opts out (the auth/login and health endpoints do).
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    # Pagination (Phase 4): unbounded transactional lists return a
+    # {count, next, previous, results} envelope. Bounded selector endpoints
+    # (organizations/datasources/activity-types) opt out via pagination_class=None.
+    'DEFAULT_PAGINATION_CLASS': 'apps.core.pagination.StandardResultsPagination',
+    'PAGE_SIZE': 50,
+    # Standardized filtering.
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+    ],
+    # Rate limiting. Rates are None under test (no throttling); the 'login' scope
+    # is applied to the token endpoint to blunt credential-stuffing.
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': None if _TESTING else config('THROTTLE_ANON', default='100/hour'),
+        'user': None if _TESTING else config('THROTTLE_USER', default='2000/hour'),
+        'login': None if _TESTING else config('THROTTLE_LOGIN', default='10/min'),
+        # Phase 7.5 (H4-7): the generic 'user' rate (2000/hour) is shared by
+        # every endpoint regardless of cost -- a burst of AI calls (each a
+        # real, billable provider round trip) was throttled no differently
+        # from a cheap read. check_budget() (apps.ai.services.cost) is a
+        # separate, complementary $-based control enforced inside the
+        # gateway itself; this is a request-RATE control at the API layer,
+        # applied only to the actually cost-incurring AI endpoints
+        # (AIConversationViewSet.ask, ReportNarrationRegenerateView) via
+        # ScopedRateThrottle -- see those views for where this scope is
+        # attached. Conservative starting point, not a modeled capacity
+        # figure; tune via THROTTLE_AI once real usage data exists.
+        'ai': None if _TESTING else config('THROTTLE_AI', default='60/hour'),
+    },
+}
+
+# ---------------------------------------------------------------------------
+# SimpleJWT — access/refresh tokens with rotation + blacklist on logout.
+# ---------------------------------------------------------------------------
+# Phase 6f: SIGNING_KEY is explicit rather than left to SimpleJWT's own
+# default (which is simply settings.SECRET_KEY). Sourced from a NEW,
+# optional JWT_SIGNING_KEY env var that falls back to SECRET_KEY when
+# unset -- zero behavior change for any existing deployment. The point is
+# giving operators the *option* to rotate the JWT signing key
+# independently of Django's own SECRET_KEY (which also signs sessions and
+# CSRF tokens) -- rotating one no longer forces rotating, or being
+# coupled to, the other.
+JWT_SIGNING_KEY = config('JWT_SIGNING_KEY', default=SECRET_KEY)
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=config('JWT_ACCESS_MINUTES', default=15, cast=int)),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=config('JWT_REFRESH_DAYS', default=7, cast=int)),
+    # Rotation: each refresh issues a new refresh token and blacklists the old one.
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'SIGNING_KEY': JWT_SIGNING_KEY,
+}
+
+
+# ---------------------------------------------------------------------------
+# Future-integration seams (INERT — declared here, consumed in later phases).
+#
+# Declaring these now means later phases add only the consuming code, not new
+# configuration plumbing. Everything defaults to "off" and changes no behavior.
+# ---------------------------------------------------------------------------
+
+# Redis — Phase 4 caching (Metrics API) and Phase 5 Celery broker/result backend.
+REDIS_URL = config('REDIS_URL', default='')
+
+# Celery — Phase 5 async ingestion + scheduled emission-factor refresh.
+# Broker/backend fall back to REDIS_URL when not set explicitly. EAGER mode runs
+# tasks synchronously inline (no broker needed) — used in local DEBUG dev and
+# ALWAYS under the test runner, so CI never needs a live Redis to run the suite.
+CELERY_BROKER_URL = config('CELERY_BROKER_URL', default=REDIS_URL)
+CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default=REDIS_URL)
+# D4: eager execution + exception propagation are derived from the mode via a
+# pure, unit-tested helper (apps.core.execution.resolve_celery_execution). The
+# derived values are DEFAULTS — an explicit env var still overrides either one.
+#   DEMO_MODE=False (production/tests): default eager = (DEBUG or _TESTING),
+#     propagate = True -- byte-for-byte identical to the pre-D4 behavior.
+#   DEMO_MODE=True (demo): eager = True (no worker/broker needed) and
+#     propagate = False, so eager .delay() mirrors production's fire-and-forget
+#     contract (a task failure records its own outcome and never re-raises into
+#     the HTTP caller). See apps/core/execution.py for the full rationale.
+_eager_default, _eager_propagates_default = resolve_celery_execution(
+    debug=DEBUG, testing=_TESTING, demo_mode=DEMO_MODE
+)
+CELERY_TASK_ALWAYS_EAGER = config(
+    'CELERY_TASK_ALWAYS_EAGER', default=_eager_default, cast=bool
+)
+CELERY_TASK_EAGER_PROPAGATES = config(
+    'CELERY_TASK_EAGER_PROPAGATES', default=_eager_propagates_default, cast=bool
+)
+
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+# Explicit opt-in ahead of the Celery 6.0 default flip, so a worker starting
+# before Redis is ready retries the connection instead of crashing on boot.
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+
+# Default queue name, explicit now so Phase 5e can introduce a dedicated
+# dead-letter queue alongside it without renaming this one.
+CELERY_TASK_DEFAULT_QUEUE = config('CELERY_TASK_DEFAULT_QUEUE', default='celery')
+
+# Phase 5d: routing seam for the two chain-link task types, defined now but
+# NOT yet changing behavior — the single worker service (docker-compose.yml)
+# explicitly listens on all three queue names (celery, ingestion,
+# calculation) via `-Q`, so one pool still consumes everything, exactly as
+# before. This lets a future deployment dedicate a worker pool to the
+# calculation queue specifically (e.g. once AI enrichment — Phase 7 — makes
+# it meaningfully slower than ingestion) by adding a `-Q calculation` worker
+# service, with zero code change here or in the tasks themselves.
+#
+# Phase 5f: scheduled/maintenance tasks (see CELERY_BEAT_SCHEDULE below) get
+# their own 'maintenance' queue for the same reason — a burst of periodic
+# sweep work must never compete with or delay time-sensitive ingestion/
+# calculation processing. Same "one pool consumes everything today" story:
+# the worker service's `-Q` list was extended to include it, not split into
+# a dedicated worker.
+#
+# Phase 5g: send_notification_task gets its own 'notifications' queue rather
+# than reusing 'maintenance' — a distinct concern (user-facing email
+# delivery, dispatched from live ingestion/calculation traffic) from
+# 'maintenance's periodic system sweeps, even though both are equally
+# "not time-critical for the core pipeline". Keeping them separate means a
+# burst of scheduled maintenance work can never delay outbound notification
+# emails, and vice versa.
+#
+# Phase 7a: 'ai' is a new, sixth queue -- AI work (foundation today; real
+# anomaly-detection/recommendation/assistant tasks from 7b onward) is
+# bursty and rate-limited by vendor APIs in a way none of the existing
+# queues are, so it gets its own routing seam from day one rather than
+# reusing 'calculation' (the queue the Phase 5d comment above already
+# anticipated AI enrichment might want to split out of). Same "one worker
+# pool consumes everything today" story as every queue before it — see
+# docker-compose.yml's worker `-Q` list.
+CELERY_TASK_ROUTES = {
+    'apps.ingestion.tasks.ingest_task': {'queue': 'ingestion'},
+    'apps.carbon.tasks.calculate_task': {'queue': 'calculation'},
+    'apps.ingestion.tasks.cleanup_stale_batches_task': {'queue': 'maintenance'},
+    'apps.carbon.tasks.recalculate_missing_calculations_task': {'queue': 'maintenance'},
+    'apps.tasks.tasks.cleanup_old_failed_task_logs_task': {'queue': 'maintenance'},
+    'apps.core.tasks.heartbeat_task': {'queue': 'maintenance'},
+    'apps.core.tasks.send_notification_task': {'queue': 'notifications'},
+    'apps.ai.tasks.ai_heartbeat_task': {'queue': 'ai'},
+    'apps.ai.tasks.generate_anomaly_explanations_task': {'queue': 'ai'},
+    'apps.ai.tasks.generate_factor_recommendations_task': {'queue': 'ai'},
+    'apps.ai.tasks.generate_validation_assistance_task': {'queue': 'ai'},
+    'apps.ai.tasks.generate_report_narration_task': {'queue': 'ai'},
+}
+
+# acks_late + prefetch=1: a task is acknowledged only after it finishes, so a
+# crashed worker's in-flight task is redelivered rather than lost, and adding
+# worker replicas distributes load evenly instead of one worker prefetching a
+# queue's worth of work. Requires tasks to be safe to re-run if redelivered
+# (the idempotency guard Phase 5b's async ingestion is designed around).
+CELERY_TASK_ACKS_LATE = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+
+# Task/worker events — enabled since Phase 5a specifically so Flower (Phase
+# 5h — optional, dev-only `docker compose --profile monitoring up flower`)
+# and `celery events` would work with zero further config change whenever
+# either was introduced; Phase 5h is that consumer arriving.
+CELERY_WORKER_SEND_TASK_EVENTS = True
+CELERY_TASK_SEND_SENT_EVENT = True
+
+# ---------------------------------------------------------------------------
+# Celery Beat — scheduled maintenance tasks (Phase 5f).
+#
+# Static, code-defined schedule (Celery's built-in CELERY_BEAT_SCHEDULE +
+# the default file-based PersistentScheduler) rather than django-celery-beat's
+# DB-backed, admin-editable schedule. Chosen deliberately: every schedule
+# change here goes through code review and git history, consistent with this
+# project's audit-first posture (AuditTrail exists specifically to make
+# changes reviewable) — an unaudited runtime schedule-editing surface would
+# be a real regression for an ESG compliance product, not just "less
+# flexible". No new dependency, no new DB tables. See docs/SCHEDULED_TASKS.md
+# for the full design and per-task rationale.
+#
+# Every task below is routed to the 'maintenance' queue above, and every one
+# is an idempotent, self-healing sweep (conditional UPDATE/DELETE, or a
+# monotonically-overwritten cache write) — safe to run concurrently with
+# itself (e.g. Beat catching up after being down) with no distributed lock,
+# and safe to simply skip a run if Beat itself was briefly down: the next
+# scheduled invocation picks up whatever slack accumulated. None of them
+# carry a per-task Celery retry policy for the same reason — an unhandled
+# exception is logged (apps.tasks's task_failure DLQ handler still fires;
+# see apps/tasks/signals.py) and the next scheduled run naturally retries
+# the work.
+STALE_BATCH_THRESHOLD_MINUTES = config('STALE_BATCH_THRESHOLD_MINUTES', default=30, cast=int)
+FAILED_TASK_LOG_RETENTION_DAYS = config('FAILED_TASK_LOG_RETENTION_DAYS', default=90, cast=int)
+CELERY_HEARTBEAT_TTL_SECONDS = config('CELERY_HEARTBEAT_TTL_SECONDS', default=180, cast=int)
+
+CELERY_BEAT_SCHEDULE = {
+    'cleanup-stale-batches': {
+        'task': 'apps.ingestion.tasks.cleanup_stale_batches_task',
+        'schedule': timedelta(minutes=15),
+    },
+    'recalculate-missing-calculations': {
+        'task': 'apps.carbon.tasks.recalculate_missing_calculations_task',
+        'schedule': crontab(hour=3, minute=30),
+    },
+    'cleanup-old-failed-task-logs': {
+        'task': 'apps.tasks.tasks.cleanup_old_failed_task_logs_task',
+        'schedule': crontab(hour=3, minute=0),
+    },
+    'celery-heartbeat': {
+        'task': 'apps.core.tasks.heartbeat_task',
+        'schedule': timedelta(minutes=1),
+    },
+    # Phase 7a: less frequent than the general heartbeat above -- this is
+    # low-priority foundation infrastructure with no real feature calling it
+    # yet, and it deliberately does no network I/O (see
+    # apps.ai.tasks.ai_heartbeat_task's docstring), so there's no
+    # reliability reason to run it every minute.
+    'ai-heartbeat': {
+        'task': 'apps.ai.tasks.ai_heartbeat_task',
+        'schedule': timedelta(minutes=5),
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Email notifications (Phase 5g) — see docs/NOTIFICATIONS.md.
+#
+# Unlike STORAGE_BACKEND, this does NOT fail closed when DEBUG=False: sending
+# an email is a side effect of a batch finishing, never a requirement for the
+# batch pipeline itself to work correctly (apps.core.notifications.
+# notify_batch_result never runs on the ingestion/calculation request path —
+# only from apps.core.tasks.send_notification_task, dispatched fire-and-
+# forget). So the safe default even in production is the console backend
+# (notifications are logged, not actually delivered) until SMTP is
+# explicitly configured via EMAIL_HOST — a missed notification config is a
+# silently-degraded nice-to-have, not a production incident, unlike a
+# missing STORAGE_BACKEND which would make uploads themselves fail.
+EMAIL_HOST = config('EMAIL_HOST', default='')
+if EMAIL_HOST:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+    EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+    EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+    EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
+    # Swapping to any ESP (SendGrid/SES/Mailgun/...) later is a EMAIL_BACKEND
+    # + credential change only — application code (apps.core.notifications)
+    # never references a provider by name, exactly like StorageService's
+    # provider-agnostic callers.
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+# Fails fast rather than hanging a worker slot indefinitely on a dead/
+# firewalled SMTP host — matches the same defensive-timeout pattern already
+# used elsewhere (healthz_worker's inspect(timeout=2.0), axios's 60s upload
+# timeout).
+EMAIL_TIMEOUT = config('EMAIL_TIMEOUT', default=10, cast=int)
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@scopetrace.local')
+
+# Cache — use Redis when configured, otherwise Django's default local-memory
+# cache. No behavior change today (nothing reads the cache yet); the Phase 4
+# Metrics API will use the 'default' alias.
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+        }
+    }
+
+# ---------------------------------------------------------------------------
+# Durable file storage (Phase 5b) — StorageService abstraction.
+#
+# STORAGE_BACKEND selects the concrete provider. Application code (ingestion,
+# future features) must depend only on apps.core.storage.get_storage_service()
+# and the StorageService interface — never import a concrete provider or SDK
+# directly. See apps/core/storage/ for the interface + providers.
+#
+# Fails closed exactly like DATABASE_URL: local filesystem storage is a
+# development-only convenience; production must explicitly select 's3'.
+# Docker Compose runs a MinIO container (S3-compatible) and sets
+# STORAGE_BACKEND=s3 with AWS_S3_ENDPOINT_URL pointing at it, so the
+# production code path is exercised in local dev too — local filesystem
+# storage is reserved for `manage.py runserver` / the test runner only.
+# ---------------------------------------------------------------------------
+STORAGE_BACKEND = config('STORAGE_BACKEND', default='local' if DEBUG else '')
+if not DEBUG and STORAGE_BACKEND != 's3':
+    raise ImproperlyConfigured(
+        "STORAGE_BACKEND must be 's3' when DEBUG=False. "
+        "Local filesystem storage is a development-only convenience."
+    )
+
+# Local filesystem backend (LocalFileSystemStorageService).
+# Under the test runner, every upload-touching test would otherwise write
+# real files into backend/media/ — an OS temp dir keeps test runs isolated
+# and the repo clean, the same way _TESTING already gates throttling and
+# Celery eager mode.
+if _TESTING:
+    import tempfile as _tempfile
+    MEDIA_ROOT = _tempfile.mkdtemp(prefix='scopetrace-test-media-')
+else:
+    MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_URL = '/media/'
+# Base origin used to build fully-qualified download URLs locally, so
+# generate_download_url() returns an absolute URL exactly like the S3
+# provider's presigned URL — callers never special-case the backend.
+MEDIA_BASE_URL = config('MEDIA_BASE_URL', default='http://localhost:8000')
+
+# S3-compatible backend (S3StorageService) — also serves Cloudflare R2 /
+# Backblaze B2 / MinIO, since they all speak the S3 API; only the endpoint
+# URL and addressing style change.
+AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
+AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY', default='')
+AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME', default='')
+AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='auto')
+# Blank = real AWS S3. Set for R2 / B2 / MinIO (e.g. http://minio:9000 in Compose).
+AWS_S3_ENDPOINT_URL = config('AWS_S3_ENDPOINT_URL', default='')
+# MinIO requires 'path' addressing (bucket.in.path, not bucket.as.subdomain);
+# real AWS S3 / R2 / B2 use 'virtual'.
+AWS_S3_ADDRESSING_STYLE = config('AWS_S3_ADDRESSING_STYLE', default='virtual')
+AWS_QUERYSTRING_EXPIRE = config('AWS_S3_URL_EXPIRE_SECONDS', default=3600, cast=int)
+
+if STORAGE_BACKEND == 's3' and not DEBUG:
+    _required_s3_vars = {
+        'AWS_ACCESS_KEY_ID': AWS_ACCESS_KEY_ID,
+        'AWS_SECRET_ACCESS_KEY': AWS_SECRET_ACCESS_KEY,
+        'AWS_STORAGE_BUCKET_NAME': AWS_STORAGE_BUCKET_NAME,
+    }
+    _missing_s3_vars = [name for name, value in _required_s3_vars.items() if not value]
+    if _missing_s3_vars:
+        raise ImproperlyConfigured(
+            f"STORAGE_BACKEND=s3 requires {', '.join(_missing_s3_vars)} to be set."
+        )
+
+
+# ---------------------------------------------------------------------------
+# AI Foundation (Phase 7a) — apps.ai. Advisory-only by design; see
+# docs/AI_ARCHITECTURE.md and docs/adr/0005-0007 for the full rationale.
+#
+# AI_ENABLED is the global kill switch — False by default, so the entire
+# layer is inert until explicitly turned on, exactly like STORAGE_BACKEND's
+# fail-closed-by-default philosophy but applied globally rather than failing
+# closed only in production (AI is opt-in even in DEBUG, since — unlike
+# storage — there is no dev-only convenience backend that makes sense as an
+# always-on default; 'echo' fills that role explicitly, never implicitly).
+#
+# Application code must depend only on apps.ai.services.gateway.invoke_ai()
+# and apps.ai.providers.base.LLMProvider — never import a concrete provider
+# SDK directly outside apps/ai/providers/ (enforced by
+# apps.ai.tests_import_guard, not a ruff rule — see that module's docstring
+# for why).
+# ---------------------------------------------------------------------------
+AI_ENABLED = config('AI_ENABLED', default=False, cast=bool)
+# '' is a valid value (no platform default provider configured) — the
+# factory raises ImproperlyConfigured on first use, not at settings-load
+# time, exactly like STORAGE_BACKEND validating only when actually selected.
+# D5: DEMO_MODE joins DEBUG/_TESTING in this default — Demo Mode's whole
+# pipeline runs synchronously inside the HTTP request (see apps.core.execution),
+# so if an operator flips AI_ENABLED=True in Demo Mode without also picking a
+# provider, the safe zero-cost/zero-network 'echo' provider is what runs, not
+# an ImproperlyConfigured 500 and not an accidental real paid provider from a
+# copy-pasted production env. See docs/DEMO_MODE_LATENCY.md.
+AI_PROVIDER = config('AI_PROVIDER', default='echo' if (DEBUG or _TESTING or DEMO_MODE) else '')
+AI_DEFAULT_MODEL = config('AI_DEFAULT_MODEL', default='claude-sonnet-5')
+AI_DEFAULT_EGRESS_TIER = config('AI_DEFAULT_EGRESS_TIER', default='REDACTED')
+AI_DEFAULT_MONTHLY_BUDGET_USD = config('AI_DEFAULT_MONTHLY_BUDGET_USD', default='50.00')
+
+ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
+OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
+
+# D5 (Demo Mode latency safety) — a bounded per-call provider request timeout,
+# applied ONLY when DEMO_MODE=True. Production (DEMO_MODE=False) is completely
+# unaffected: AnthropicProvider/OpenAIProvider keep using the vendor SDK's own
+# default timeout (10 minutes) exactly as before this setting existed, because
+# production AI calls run inside an async Celery worker, never inside a
+# gunicorn request — there is no fixed wall-clock ceiling to protect there.
+#
+# Demo Mode is different: apps.ingestion.views.BaseUploadView.post's chain
+# (ingest -> AI anomaly/validation -> calculate -> notify -> AI factor-rec)
+# runs synchronously inside ONE gunicorn-timed HTTP request (render.yaml's
+# gunicorn --timeout is 120s). A real remote LLM provider call has NO
+# application-level timeout otherwise (see AnthropicProvider/OpenAIProvider —
+# neither passes `timeout=` to its vendor client), so a single slow upstream
+# response could otherwise stall that request for up to the SDK's own 10-
+# minute default, far past gunicorn's 120s. This default (30s) is chosen so
+# that even several sequential AI calls in one upload (this pipeline calls
+# the provider once per suspicious/failed/unresolved record, one at a time —
+# see apps.ai.tasks) still leave headroom under the 120s ceiling; it does NOT
+# by itself guarantee every upload stays under the ceiling for an
+# unboundedly large batch — see docs/DEMO_MODE_LATENCY.md for the full
+# evidence-based analysis and why Demo Mode's recommended default is
+# AI_PROVIDER=echo (zero network, measured ~20ms/call) rather than a real
+# provider at all.
+AI_PROVIDER_TIMEOUT_SECONDS = (
+    config('AI_PROVIDER_TIMEOUT_SECONDS', default=30, cast=int) if DEMO_MODE else None
+)
+
+# Phase 7a.5 -- apps.ai.evaluation's LLM-as-Judge framework (Tier 2,
+# advisory evaluation). False by default: the framework (rubric
+# definitions, pairwise comparison, scoring interface) is real, tested
+# code, but calling it is refused unless explicitly enabled -- "framework
+# only, no production usage yet" per the finalized Phase 7 design. Even
+# when enabled, judge calls go through the same AI_PROVIDER/factory path
+# as everything else (defaulting to 'echo'/'replay' in DEBUG/_TESTING), so
+# this flag alone never causes a real, billable provider call.
+AI_JUDGE_ENABLED = config('AI_JUDGE_ENABLED', default=False, cast=bool)
+
+# ---------------------------------------------------------------------------
+# Logging — structured console logging (captured by Render / Docker stdout).
+# Application loggers (apps.*) emit INFO+; tune via LOG_LEVEL / DJANGO_LOG_LEVEL.
+# ---------------------------------------------------------------------------
+LOG_LEVEL = config('LOG_LEVEL', default='INFO')
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'filters': {
+        # Phase 9b: injects the active request's correlation id (or "-"
+        # outside a request) into every LogRecord -- see
+        # apps.core.logging_utils.RequestIDLogFilter and
+        # apps.core.middleware.RequestIDMiddleware.
+        'request_id': {
+            '()': 'apps.core.logging_utils.RequestIDLogFilter',
+        },
+    },
+    'formatters': {
+        'verbose': {
+            # Phase 9b: UTCFormatter makes {asctime} explicitly UTC (plain
+            # logging.Formatter defaults to the container's local time,
+            # which Django's TIME_ZONE='UTC' setting does NOT govern) --
+            # matching every other timestamp in this codebase. {request_id}
+            # ties this line to the HTTP request that produced it (or "-"
+            # for Celery/management-command output, which already carries
+            # its own workflow_id/batch_id correlation inline).
+            '()': 'apps.core.logging_utils.UTCFormatter',
+            'format': '[{asctime}Z] {levelname} {name} [{request_id}]: {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+            'filters': ['request_id'],
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': LOG_LEVEL,
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': config('DJANGO_LOG_LEVEL', default='INFO'),
+            'propagate': False,
+        },
+        # First-party application code (apps.ingestion, apps.core, ...).
+        'apps': {
+            'handlers': ['console'],
+            'level': LOG_LEVEL,
+            'propagate': False,
+        },
+    },
+}

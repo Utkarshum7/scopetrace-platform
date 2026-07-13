@@ -1,5 +1,5 @@
 # ==========================================
-# Breathe ESG Monorepo gitignore
+# ScopeTrace Monorepo gitignore
 # ==========================================
 
 # --- Python / Django ---
@@ -16,6 +16,7 @@
 **/ENV/
 **/env/
 **/.venv/
+**/venv_check/
 
 # --- Node / React ---
 **/node_modules/
