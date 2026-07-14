@@ -135,7 +135,7 @@ flowchart TD
     F -->|empty| U2[UNRESOLVED_NO_FACTOR]
     F --> G[Rank: preferred publisher, region specificity, priority, latest published, UUID]
     G --> H[Top factor selected]
-    H --> I[Convert base_unit -> factor.unit via UnitConversion]
+    H --> I[Convert base_unit to factor.unit via UnitConversion]
     I --> J[co2e_kg = qty_in_factor_unit x co2e_per_unit]
     J --> K[EmissionCalculation CALCULATED + trace]
 ```

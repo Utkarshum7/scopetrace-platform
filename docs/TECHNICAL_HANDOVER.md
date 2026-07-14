@@ -345,7 +345,7 @@ graph TD
   S --> Q{Celery}
   Q -->|prod| W[Worker + Beat + Redis]
   Q -->|Demo Mode| E[Eager inline execution]
-  S --> AI[AI Gateway -> provider: demo / anthropic / openai]
+  S --> AI[AI Gateway - provider demo/anthropic/openai]
 ```
 
 ### Login flow
@@ -422,12 +422,12 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
   [*] --> Anonymous
-  Anonymous --> Authenticated: login -> access(15m)+refresh(7d)
-  Authenticated --> Authenticated: request with Bearer (valid access)
+  Anonymous --> Authenticated: login issues access 15m + refresh 7d
+  Authenticated --> Authenticated: request with valid Bearer access
   Authenticated --> Refreshing: 401 access expired
-  Refreshing --> Authenticated: POST /refresh -> new pair, old refresh blacklisted
-  Refreshing --> Anonymous: refresh invalid/expired -> clear tokens + onAuthFailure
-  Authenticated --> Anonymous: logout -> refresh blacklisted, tokens cleared
+  Refreshing --> Authenticated: refresh returns new pair; old refresh blacklisted
+  Refreshing --> Anonymous: refresh invalid or expired; clear tokens + onAuthFailure
+  Authenticated --> Anonymous: logout; refresh blacklisted and tokens cleared
 ```
 
 ### Deployment architecture
