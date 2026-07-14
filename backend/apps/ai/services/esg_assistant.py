@@ -13,9 +13,13 @@ EmissionRecord/EmissionCalculation/EmissionFactor anywhere in this file --
 apps.ai.services.esg_context_builder does the only reading, and this
 module only ever writes AIConversationMessage rows.
 """
+import logging
+
 from apps.ai.models import AIConversationMessage, AIInteraction
 from apps.ai.services.esg_context_builder import build_context
 from apps.ai.services.gateway import invoke_ai
+
+logger = logging.getLogger(__name__)
 
 ESG_ASSISTANT_SCHEMA_VERSION = 2
 
@@ -40,6 +44,10 @@ def ask_esg_assistant(conversation, question, *, actor=None) -> AIConversationMe
 
     context = build_context(conversation.organization)
 
+    logger.info(
+        "ask_esg_assistant: org=%s conversation=%s question=%r -> invoking gateway",
+        conversation.organization_id, conversation.id, question[:80],
+    )
     result = invoke_ai(
         organization=conversation.organization,
         actor=actor,
@@ -50,8 +58,18 @@ def ask_esg_assistant(conversation, question, *, actor=None) -> AIConversationMe
         response_schema_version=ESG_ASSISTANT_SCHEMA_VERSION,
         context_provenance=[str(conversation.id)],
     )
+    logger.info(
+        "ask_esg_assistant: org=%s conversation=%s outcome=%s parsed=%s",
+        conversation.organization_id, conversation.id, result.outcome,
+        result.parsed is not None,
+    )
 
     if result.outcome != AIInteraction.Outcome.OK or result.parsed is None:
+        logger.info(
+            "ask_esg_assistant: returning None (outcome=%s, parsed=%s) -- "
+            "assistant_message will be null",
+            result.outcome, result.parsed is not None,
+        )
         return None
 
     return AIConversationMessage.objects.create(

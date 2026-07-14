@@ -26,8 +26,11 @@ organization). Makes zero network calls, so it is a zero-egress provider
 (registered in apps.ai.services.egress.ZERO_EGRESS_PROVIDERS).
 """
 import json
+import logging
 
 from .base import AICapability, LLMProvider, LLMRequest, LLMResponse
+
+logger = logging.getLogger(__name__)
 
 # Built-in ESG glossary for the esg_assistant capability. Each entry is
 # (keywords, answer). The FIRST entry whose any keyword is a substring of the
@@ -196,7 +199,12 @@ class DemoProvider(LLMProvider):
         return frozenset({AICapability.STRUCTURED_OUTPUT})
 
     def complete(self, request: LLMRequest) -> LLMResponse:
-        text = json.dumps(_build_response_dict(request.prompt))
+        response_dict = _build_response_dict(request.prompt)
+        logger.info(
+            "DemoProvider.complete: reached; response keys=%s",
+            sorted(response_dict.keys()),
+        )
+        text = json.dumps(response_dict)
         return LLMResponse(
             text=text,
             model_id="demo-1",
