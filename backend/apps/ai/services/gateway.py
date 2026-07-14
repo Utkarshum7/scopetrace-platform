@@ -146,12 +146,22 @@ def invoke_ai(
 
     # 2. Policy resolution -- global kill switch + per-tenant opt-in.
     policy = resolve_policy(organization)
+    logger.info(
+        "invoke_ai: org=%s capability=%s ai_enabled=%s provider=%s model=%s egress=%s",
+        organization.id, capability, policy.ai_enabled, policy.provider,
+        policy.model, policy.egress_tier,
+    )
     parameters = _build_parameters(
         policy.model, temperature, top_p, max_tokens, seed, stop,
         response_schema_id, response_schema_version,
     )
 
     if not policy.ai_enabled:
+        logger.info(
+            "invoke_ai: org=%s capability=%s -> AI_DISABLED (settings.AI_ENABLED or "
+            "TenantAIPolicy.ai_enabled is False); returning without reaching a provider",
+            organization.id, capability,
+        )
         return _write_and_return(
             organization=organization, actor=actor, capability=capability,
             provider=policy.provider, model_id=policy.model, parameters=parameters,

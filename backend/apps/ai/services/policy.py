@@ -6,12 +6,15 @@ opt in, never inherit "the platform default provider is on" implicitly.
 This is what apps.ai.services.gateway.invoke_ai() calls first on every
 invocation.
 """
+import logging
 from dataclasses import dataclass
 from decimal import Decimal
 
 from django.conf import settings
 
 from apps.ai.models import TenantAIPolicy
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -39,9 +42,21 @@ def resolve_policy(organization) -> ResolvedAIPolicy:
     """Resolution order: global kill switch, then per-tenant policy row,
     then platform defaults for anything the tenant didn't override."""
     if not settings.AI_ENABLED:
+        logger.info(
+            "resolve_policy: org=%s -> DISABLED because settings.AI_ENABLED is False "
+            "(global kill switch); tenant policy not even consulted",
+            organization.id,
+        )
         return _disabled_policy()
 
     tenant_policy = TenantAIPolicy.objects.filter(organization=organization).first()
+    logger.info(
+        "resolve_policy: org=%s AI_ENABLED=True tenant_policy_exists=%s tenant_ai_enabled=%s "
+        "provider_override=%r",
+        organization.id, tenant_policy is not None,
+        getattr(tenant_policy, "ai_enabled", None),
+        getattr(tenant_policy, "provider_override", None),
+    )
     if tenant_policy is None or not tenant_policy.ai_enabled:
         return _disabled_policy()
 

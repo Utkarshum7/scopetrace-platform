@@ -28,6 +28,8 @@ rather than the general "can use AI" permission, which would otherwise
 let an Analyst read AI commentary on report data they can't see the
 report itself for. See ADR 0013.
 """
+import logging
+
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -47,6 +49,8 @@ from apps.ai.serializers import (
     RegenerateNarrationSerializer,
 )
 from apps.ai.services.esg_assistant import ask_esg_assistant
+
+logger = logging.getLogger(__name__)
 
 
 class AIConversationViewSet(
@@ -105,12 +109,25 @@ class AIConversationViewSet(
         body = AskQuestionSerializer(data=request.data)
         body.is_valid(raise_exception=True)
 
+        logger.info(
+            "ESGAssistant.ask: org=%s conversation=%s -> calling ask_esg_assistant",
+            conversation.organization_id, conversation.id,
+        )
         message = ask_esg_assistant(conversation, body.validated_data["question"], actor=request.user)
         if message is None:
+            logger.info(
+                "ESGAssistant.ask: org=%s conversation=%s -> assistant_message=None, "
+                "returning 200 fallback detail",
+                conversation.organization_id, conversation.id,
+            )
             return Response(
                 {"assistant_message": None, "detail": "The assistant could not generate a response right now."},
                 status=status.HTTP_200_OK,
             )
+        logger.info(
+            "ESGAssistant.ask: org=%s conversation=%s -> assistant_message id=%s, returning 201",
+            conversation.organization_id, conversation.id, message.id,
+        )
         return Response(
             {"assistant_message": AIConversationMessageSerializer(message).data},
             status=status.HTTP_201_CREATED,
