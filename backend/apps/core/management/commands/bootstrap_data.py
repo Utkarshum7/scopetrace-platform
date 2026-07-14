@@ -90,6 +90,7 @@ class Command(BaseCommand):
         demo_flag = os.environ.get("BOOTSTRAP_DEMO_USERS", "false").lower() == "true"
         if options["demo_users"] or demo_flag:
             self._ensure_demo_users(org)
+            self._ensure_demo_ai_policy(org)
 
         self.stdout.write(self.style.SUCCESS("bootstrap_data complete."))
 
@@ -161,3 +162,27 @@ class Command(BaseCommand):
                 f"{'Created' if created else 'Exists '} demo user: {username} "
                 f"({role}){' + membership' if m_created else ''}"
             )
+
+    def _ensure_demo_ai_policy(self, org):
+        """Opt the demo organization into AI using the deterministic, zero-egress
+        'demo' provider (apps.ai.providers.demo). Without a TenantAIPolicy row an
+        org is AI-disabled by design (apps.ai.services.policy.resolve_policy), so
+        the ESG Assistant returns no answer; without a real provider key the only
+        provider that can actually answer is 'demo'. egress_tier=NO_EGRESS is a
+        deliberate safety belt: even if AI_PROVIDER were later pointed at a real
+        vendor, this tenant can only ever use a zero-egress provider, so a public
+        demo can never leak data to an external API. Idempotent (get_or_create)."""
+        from apps.ai.models import TenantAIPolicy
+
+        _, created = TenantAIPolicy.objects.get_or_create(
+            organization=org,
+            defaults={
+                "ai_enabled": True,
+                "provider_override": "demo",
+                "egress_tier": TenantAIPolicy.EgressTier.NO_EGRESS,
+            },
+        )
+        self.stdout.write(
+            f"{'Created' if created else 'Exists '} demo AI policy: "
+            f"{org.name} (provider=demo, enabled)"
+        )
