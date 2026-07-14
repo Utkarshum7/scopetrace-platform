@@ -17,11 +17,13 @@ provider reachability.
 import re
 from dataclasses import dataclass
 
-# A real self-hosted/BYO model, or the 'echo'/'replay' dev+eval providers,
-# are the only providers that make zero external network calls.
+# A real self-hosted/BYO model, or the 'echo'/'replay'/'demo' dev+eval+demo
+# providers, are the only providers that make zero external network calls.
 # Anthropic/OpenAI are never in this set, by construction (they exist
-# specifically to call an external vendor API).
-ZERO_EGRESS_PROVIDERS = frozenset({"echo", "replay"})
+# specifically to call an external vendor API). 'demo' (apps.ai.providers.demo)
+# returns deterministic built-in answers with no network call, so a NO_EGRESS
+# demo tenant may safely use it.
+ZERO_EGRESS_PROVIDERS = frozenset({"echo", "replay", "demo"})
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 # Phone numbers, account/reference numbers, etc. -- deliberately broad

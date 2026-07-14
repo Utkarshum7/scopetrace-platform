@@ -38,6 +38,11 @@ def get_llm_provider(*, provider_name: str | None = None) -> LLMProvider:
 
         return EchoProvider()
 
+    if name == "demo":
+        from .demo import DemoProvider
+
+        return DemoProvider()
+
     if name == "replay":
         from .replay import ReplayProvider
 
